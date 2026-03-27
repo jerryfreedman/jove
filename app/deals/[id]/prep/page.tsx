@@ -273,7 +273,31 @@ export default function PrepPage() {
         )}
 
         {brief && (
-          <div>{renderMarkdown(brief)}</div>
+          <div>
+            {renderMarkdown(brief)}
+            {brief === 'Could not generate brief. Please try again.' && !streaming && (
+              <div style={{ textAlign: 'center', marginTop: 16 }}>
+                <button
+                  onClick={handleRegenerate}
+                  style={{
+                    padding:       '10px 24px',
+                    borderRadius:  10,
+                    border:        '0.5px solid rgba(232,160,48,0.4)',
+                    background:    'rgba(232,160,48,0.08)',
+                    color:         COLORS.amber,
+                    fontSize:      11,
+                    fontWeight:    700,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    cursor:        'pointer',
+                    fontFamily:    FONTS.sans,
+                  }}
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

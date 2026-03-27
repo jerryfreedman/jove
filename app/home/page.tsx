@@ -176,6 +176,8 @@ export default function HomePage() {
   const [time, setTime]       = useState(formatTime());
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const [showCapture, setShowCapture] = useState(false);
   const [captureInitialMode, setCaptureInitialMode] = useState<'debrief' | null>(null);
   const [captureInitialText, setCaptureInitialText] = useState('');
@@ -194,6 +196,19 @@ export default function HomePage() {
   const textSecondary = scene.lightText
     ? 'rgba(240,235,224,0.44)'
     : 'rgba(26,20,16,0.44)';
+
+  // ── OFFLINE DETECTION ──────────────────────────────────
+  useEffect(() => {
+    const handleOnline  = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    if (!navigator.onLine) setIsOffline(true);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // ── CLOCK ──────────────────────────────────────────────
   useEffect(() => {
@@ -323,6 +338,7 @@ export default function HomePage() {
 
     } catch (err) {
       console.error('Home data fetch error:', err);
+      setFetchError(true);
     } finally {
       setLoading(false);
       setTimeout(() => setVisible(true), 80);
@@ -414,6 +430,35 @@ export default function HomePage() {
     >
       <SceneBackground />
 
+      {/* ── OFFLINE BANNER ─────────────────────────── */}
+      <div style={{
+        position:   'absolute',
+        top:        0,
+        left:       0,
+        right:      0,
+        zIndex:     50,
+        height:     isOffline ? 28 : 0,
+        overflow:   'hidden',
+        transition: 'height 0.3s ease',
+      }}>
+        <div style={{
+          height:      28,
+          background:  'rgba(224,88,64,0.9)',
+          display:     'flex',
+          alignItems:  'center',
+          justifyContent: 'center',
+        }}>
+          <span style={{
+            fontSize:   10,
+            fontWeight: 400,
+            color:      '#FFFFFF',
+            fontFamily: "'DM Sans', sans-serif",
+          }}>
+            You&apos;re offline — some features unavailable.
+          </span>
+        </div>
+      </div>
+
       <div
         className="absolute inset-0 flex flex-col"
         style={{ zIndex: 10 }}
@@ -460,7 +505,7 @@ export default function HomePage() {
             }}>
               {time}
             </div>
-            {weather && (
+            {weather && data?.user?.weather_enabled !== false && (
               <div style={{
                 fontSize:   11,
                 fontWeight: 300,
@@ -518,7 +563,52 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* ── ERROR STATE ─────────────────────────── */}
+        {fetchError && !data && (
+          <div
+            style={{
+              flex:           1,
+              display:        'flex',
+              flexDirection:  'column',
+              alignItems:     'center',
+              justifyContent: 'center',
+              gap:            12,
+              ...anim(0.23),
+            }}
+          >
+            <div style={{
+              fontFamily:   "'Cormorant Garamond', serif",
+              fontSize:     20,
+              fontWeight:   300,
+              color:        textPrimary,
+              textAlign:    'center',
+            }}>
+              Couldn&apos;t load your data.
+            </div>
+            <button
+              onClick={() => {
+                setFetchError(false);
+                setLoading(true);
+                setHomeRefreshKey(k => k + 1);
+              }}
+              style={{
+                background:    'none',
+                border:        'none',
+                cursor:        'pointer',
+                fontSize:      13,
+                fontWeight:    400,
+                color:         textSecondary,
+                fontFamily:    "'DM Sans', sans-serif",
+                padding:       '8px 16px',
+              }}
+            >
+              Tap to retry.
+            </button>
+          </div>
+        )}
+
         {/* ── ORB — centered in flex:1 space ───────── */}
+        {!(fetchError && !data) && (
         <div
           style={{
             flex:           1,
@@ -534,6 +624,7 @@ export default function HomePage() {
             onClick={() => router.push('/briefing')}
           />
         </div>
+        )}
 
         {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
         {debriefMeeting && (

@@ -50,6 +50,7 @@ export default function DealsPage() {
   const [accounts, setAccounts]     = useState<AccountRow[]>([]);
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>(null);
   const [showAddDeal, setShowAddDeal] = useState(false);
@@ -57,40 +58,47 @@ export default function DealsPage() {
 
   // ── FETCH DATA ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push('/'); return; }
-    setUserId(user.id);
+    try {
+      setFetchError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push('/'); return; }
+      setUserId(user.id);
 
-    const [dealsRes, accountsRes, contactsRes] = await Promise.all([
-      supabase
-        .from('deals')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('last_activity_at', { ascending: false }),
-      supabase
-        .from('accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('name'),
-      supabase
-        .from('contacts')
-        .select('*')
-        .eq('user_id', user.id),
-    ]);
+      const [dealsRes, accountsRes, contactsRes] = await Promise.all([
+        supabase
+          .from('deals')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('last_activity_at', { ascending: false }),
+        supabase
+          .from('accounts')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('name'),
+        supabase
+          .from('contacts')
+          .select('*')
+          .eq('user_id', user.id),
+      ]);
 
-    const fetchedAccounts = (accountsRes.data ?? []) as AccountRow[];
-    const fetchedDeals    = (dealsRes.data    ?? []) as DealRow[];
-    const fetchedContacts = (contactsRes.data ?? []) as ContactRow[];
+      const fetchedAccounts = (accountsRes.data ?? []) as AccountRow[];
+      const fetchedDeals    = (dealsRes.data    ?? []) as DealRow[];
+      const fetchedContacts = (contactsRes.data ?? []) as ContactRow[];
 
-    const dealsWithAccount: DealWithAccountName[] = fetchedDeals.map(deal => {
-      const account = fetchedAccounts.find(a => a.id === deal.account_id);
-      return { ...deal, account_name: account?.name ?? 'Unknown Account' };
-    });
+      const dealsWithAccount: DealWithAccountName[] = fetchedDeals.map(deal => {
+        const account = fetchedAccounts.find(a => a.id === deal.account_id);
+        return { ...deal, account_name: account?.name ?? 'Unknown Account' };
+      });
 
-    setDeals(dealsWithAccount);
-    setAccounts(fetchedAccounts);
-    setContacts(fetchedContacts);
-    setLoading(false);
+      setDeals(dealsWithAccount);
+      setAccounts(fetchedAccounts);
+      setContacts(fetchedContacts);
+    } catch (err) {
+      console.error('Deals fetch error:', err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [supabase, router]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -412,7 +420,42 @@ export default function DealsPage() {
       {/* ── DEAL LIST ────────────────────────────────────── */}
       <div style={{ padding: '16px 0 100px' }}>
 
-        {loading && (
+        {fetchError && (
+          <div style={{
+            textAlign:  'center',
+            padding:    '60px 32px',
+          }}>
+            <p style={{
+              fontFamily: "'Cormorant Garamond', serif",
+              fontSize:   22,
+              fontWeight: 300,
+              color:      'rgba(26,20,16,0.44)',
+              marginBottom:14,
+            }}>
+              Couldn&apos;t load your deals.
+            </p>
+            <button
+              onClick={() => { setLoading(true); fetchData(); }}
+              style={{
+                padding:       '10px 24px',
+                borderRadius:  10,
+                border:        '0.5px solid rgba(232,160,48,0.4)',
+                background:    'rgba(232,160,48,0.08)',
+                color:         COLORS.amber,
+                fontSize:      11,
+                fontWeight:    700,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                cursor:        'pointer',
+                fontFamily:    "'DM Sans', sans-serif",
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!fetchError && loading && (
           <div style={{ padding: '0 18px' }}>
             {[1,2,3].map(i => (
               <div key={i} style={{ marginBottom: 8 }}>
@@ -434,7 +477,7 @@ export default function DealsPage() {
           </div>
         )}
 
-        {!loading && filteredDeals.length === 0 && (
+        {!loading && !fetchError && filteredDeals.length === 0 && (
           <div style={{
             textAlign:  'center',
             padding:    '60px 32px',
@@ -481,7 +524,7 @@ export default function DealsPage() {
           </div>
         )}
 
-        {!loading && Object.entries(grouped).map(([accountName, accountDeals]) => (
+        {!loading && !fetchError && Object.entries(grouped).map(([accountName, accountDeals]) => (
           <div key={accountName} style={{ marginBottom: 8 }}>
 
             {/* Account header */}

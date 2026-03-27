@@ -63,6 +63,7 @@ export default function DealDetailPage() {
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [interactions, setInteractions] = useState<InteractionRow[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [userId, setUserId]     = useState<string | null>(null);
 
   // Inline edit states
@@ -117,7 +118,8 @@ export default function DealDetailPage() {
     ]);
 
     if (dealRes.error || !dealRes.data) {
-      router.push('/deals');
+      setNotFound(true);
+      setLoading(false);
       return;
     }
 
@@ -356,7 +358,47 @@ export default function DealDetailPage() {
     );
   }
 
-  if (!deal) return null;
+  if (notFound || !deal) {
+    return (
+      <div style={{
+        minHeight:  '100vh',
+        background: '#F7F3EC',
+        maxWidth:   390,
+        margin:     '0 auto',
+        display:    'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap:        16,
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{
+          fontFamily: "'Cormorant Garamond', serif",
+          fontSize:   24,
+          fontWeight: 300,
+          color:      'rgba(26,20,16,0.44)',
+        }}>
+          Deal not found.
+        </div>
+        <button
+          onClick={() => router.push('/deals')}
+          style={{
+            padding:       '10px 24px',
+            borderRadius:  10,
+            border:        '0.5px solid rgba(200,160,80,0.3)',
+            background:    'rgba(200,160,80,0.08)',
+            color:         'rgba(26,20,16,0.5)',
+            fontSize:      12,
+            fontWeight:    500,
+            cursor:        'pointer',
+            fontFamily:    "'DM Sans', sans-serif",
+          }}
+        >
+          Back to Deals
+        </button>
+      </div>
+    );
+  }
 
   const days      = getDaysSince(deal.last_activity_at);
   const daysColor = getDaysColor(days, true);

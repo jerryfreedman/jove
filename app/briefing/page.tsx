@@ -91,6 +91,7 @@ export default function BriefingPage() {
   const [streakLogs, setStreakLogs]   = useState<StreakLogRow[]>([]);
   const [accountMap, setAccountMap]   = useState<Record<string, string>>({});
   const [loading, setLoading]         = useState(true);
+  const [fetchError, setFetchError]   = useState(false);
 
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
   const [snoozedIds, setSnoozedIds]     = useState<Set<string>>(new Set());
@@ -107,6 +108,8 @@ export default function BriefingPage() {
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
+    try {
+    setFetchError(false);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/'); return; }
     setUserId(user.id);
@@ -200,7 +203,12 @@ export default function BriefingPage() {
     }
     setMeetingTimes(times);
 
-    setLoading(false);
+    } catch (err) {
+      console.error('Briefing fetch error:', err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -493,6 +501,43 @@ export default function BriefingPage() {
         </button>
       </div>
 
+      {/* ── ERROR STATE ─────────────────────────── */}
+      {fetchError && (
+        <div style={{
+          textAlign:  'center',
+          padding:    '80px 32px',
+        }}>
+          <p style={{
+            fontFamily: "'Cormorant Garamond', serif",
+            fontSize:   22,
+            fontWeight: 300,
+            color:      'rgba(26,20,16,0.44)',
+            marginBottom:14,
+          }}>
+            Couldn&apos;t load your briefing.
+          </p>
+          <button
+            onClick={() => { setLoading(true); fetchData(); }}
+            style={{
+              padding:       '10px 24px',
+              borderRadius:  10,
+              border:        '0.5px solid rgba(232,160,48,0.4)',
+              background:    'rgba(232,160,48,0.08)',
+              color:         COLORS.amber,
+              fontSize:      11,
+              fontWeight:    700,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor:        'pointer',
+              fontFamily:    "'DM Sans', sans-serif",
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!fetchError && (
       <div style={{ padding: '20px 18px 0' }}>
 
         {/* ── MEETINGS ─────────────────────────────── */}
@@ -943,6 +988,7 @@ export default function BriefingPage() {
         </div>
 
       </div>
+      )}
 
       {/* ── CAPTURE SHEET ────────────────────────────── */}
       {showCapture && userId && (
