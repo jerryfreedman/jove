@@ -208,6 +208,25 @@ export default function DealsPage() {
         }}>
           Deals
         </h1>
+        <button
+          onClick={() => router.push('/ideas')}
+          style={{
+            fontSize:     10,
+            fontWeight:   600,
+            letterSpacing:'1.5px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.4)',
+            padding:      '5px 12px',
+            borderRadius: 20,
+            border:       '0.5px solid rgba(26,20,16,0.12)',
+            background:   'transparent',
+            cursor:       'pointer',
+            fontFamily:   "'DM Sans', sans-serif",
+            marginRight:  6,
+          }}
+        >
+          Ideas
+        </button>
         <div style={{
           fontSize:     10,
           fontWeight:   600,

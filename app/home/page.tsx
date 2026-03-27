@@ -177,8 +177,12 @@ export default function HomePage() {
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showCapture, setShowCapture] = useState(false);
+  const [captureInitialMode, setCaptureInitialMode] = useState<'debrief' | null>(null);
+  const [captureInitialText, setCaptureInitialText] = useState('');
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [logoBloom, setLogoBloom] = useState(false);
+  const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
+  const [debriefDismissed, setDebriefDismissed] = useState(false);
 
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
@@ -239,6 +243,7 @@ export default function HomePage() {
         signalRes,
         streakRes,
         accountCountRes,
+        debriefRes,
       ] = await Promise.all([
         supabase
           .from('users')
@@ -292,6 +297,16 @@ export default function HomePage() {
           .from('accounts')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', authUser.id),
+
+        supabase
+          .from('meetings')
+          .select('*')
+          .eq('user_id', authUser.id)
+          .eq('debrief_completed', false)
+          .is('debrief_prompted_at', null)
+          .lt('scheduled_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
+          .order('scheduled_at', { ascending: false })
+          .limit(1),
       ]);
 
       setData({
@@ -303,6 +318,8 @@ export default function HomePage() {
         streakLogs:   (streakRes.data ?? []) as StreakLogRow[],
         accountCount: accountCountRes.count ?? 0,
       });
+
+      setDebriefMeetings((debriefRes.data ?? []) as MeetingRow[]);
 
     } catch (err) {
       console.error('Home data fetch error:', err);
@@ -339,9 +356,42 @@ export default function HomePage() {
   }).length ?? 0;
 
   const urgentDealCount = data?.urgentDeals.length ?? 0;
+  const lowIntelDeals   = (data?.allDeals ?? []).filter(
+    d => (d.intel_score ?? 0) < 30 &&
+    d.stage !== 'Closed Won' &&
+    d.stage !== 'Closed Lost'
+  ).length;
+  const effectiveUrgent = Math.max(urgentDealCount, Math.floor(lowIntelDeals / 2));
   const intelLines      = data ? buildIntelLines(data) : [];
   const firstName       = getFirstName(data?.user ?? null);
   const greeting        = getGreeting(h);
+
+  // ── DEBRIEF HANDLERS ──────────────────────────────────────
+  const debriefMeeting = (!debriefDismissed && debriefMeetings.length > 0)
+    ? debriefMeetings[0]
+    : null;
+
+  const handleDebriefNow = async (meeting: MeetingRow) => {
+    await supabase
+      .from('meetings')
+      .update({ debrief_prompted_at: new Date().toISOString() })
+      .eq('id', meeting.id);
+    setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
+    setCaptureInitialMode('debrief');
+    setCaptureInitialText(
+      `Meeting: ${meeting.title}\nAttendees: ${meeting.attendees ?? ''}\n`
+    );
+    setShowCapture(true);
+  };
+
+  const handleDebriefDismiss = async (meeting: MeetingRow) => {
+    await supabase
+      .from('meetings')
+      .update({ debrief_prompted_at: new Date().toISOString() })
+      .eq('id', meeting.id);
+    setDebriefDismissed(true);
+    setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
+  };
 
   // Entrance animation values
   const anim = (delay: number) => ({
@@ -480,10 +530,109 @@ export default function HomePage() {
         >
           <DayOrb
             meetingCount={todayMeetingCount}
-            urgentDeals={urgentDealCount}
+            urgentDeals={effectiveUrgent}
             onClick={() => router.push('/briefing')}
           />
         </div>
+
+        {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
+        {debriefMeeting && (
+          <div style={{
+            padding:    '0 22px',
+            marginBottom: 10,
+            ...anim(0.30),
+          }}>
+            <div style={{
+              background:     'rgba(0,0,0,0.36)',
+              backdropFilter: 'blur(16px)',
+              borderRadius:   16,
+              padding:        '14px 16px',
+              border:         '0.5px solid rgba(240,235,224,0.1)',
+              position:       'relative',
+            }}>
+              {/* Dismiss button */}
+              <button
+                onClick={() => handleDebriefDismiss(debriefMeeting)}
+                style={{
+                  position:   'absolute',
+                  top:        10,
+                  right:      12,
+                  background: 'none',
+                  border:     'none',
+                  color:      'rgba(240,235,224,0.36)',
+                  fontSize:   16,
+                  cursor:     'pointer',
+                  padding:    0,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+              {/* Status dot + label */}
+              <div style={{
+                display:    'flex',
+                alignItems: 'center',
+                gap:        7,
+                marginBottom: 8,
+              }}>
+                <div style={{
+                  width:        6,
+                  height:       6,
+                  borderRadius: '50%',
+                  background:   COLORS.amber,
+                  flexShrink:   0,
+                }} />
+                <span style={{
+                  fontSize:      9,
+                  fontWeight:    700,
+                  letterSpacing: '2px',
+                  textTransform: 'uppercase',
+                  color:         COLORS.amber,
+                }}>
+                  Debrief ready
+                </span>
+              </div>
+              {/* Meeting title */}
+              <div style={{
+                fontFamily:   "'Cormorant Garamond', serif",
+                fontSize:     18,
+                fontWeight:   400,
+                color:        'rgba(252,246,234,0.92)',
+                marginBottom: 4,
+              }}>
+                {debriefMeeting.title}
+              </div>
+              {/* How did it go */}
+              <div style={{
+                fontSize:     13,
+                fontWeight:   300,
+                color:        'rgba(240,235,224,0.44)',
+                marginBottom: 12,
+              }}>
+                How did it go?
+              </div>
+              {/* Debrief Now button */}
+              <button
+                onClick={() => handleDebriefNow(debriefMeeting)}
+                style={{
+                  padding:       '9px 18px',
+                  borderRadius:  9,
+                  border:        '0.5px solid rgba(232,160,48,0.5)',
+                  background:    'rgba(232,160,48,0.15)',
+                  color:         COLORS.amber,
+                  fontSize:      10,
+                  fontWeight:    700,
+                  letterSpacing: '1.5px',
+                  textTransform: 'uppercase',
+                  cursor:        'pointer',
+                  fontFamily:    "'DM Sans', sans-serif",
+                }}
+              >
+                Debrief Now →
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── THREE INTELLIGENCE LINES ─────────────── */}
         <div style={{ padding: '0 26px', ...anim(0.34) }}>
@@ -616,12 +765,18 @@ export default function HomePage() {
       {/* ── CAPTURE SHEET ────────────────────────── */}
       {showCapture && data?.user && (
         <CaptureSheet
-          onClose={() => setShowCapture(false)}
+          onClose={() => {
+            setShowCapture(false);
+            setCaptureInitialMode(null);
+            setCaptureInitialText('');
+          }}
           userId={data.user.id}
           activeDeals={data.allDeals ?? []}
           onCaptureComplete={() => {
             setHomeRefreshKey((k) => k + 1);
           }}
+          initialMode={captureInitialMode ?? undefined}
+          initialText={captureInitialText || undefined}
         />
       )}
     </div>

@@ -24,6 +24,8 @@ interface CaptureSheetProps {
   userId: string;
   activeDeals: DealRow[];
   onCaptureComplete?: () => void;
+  initialMode?: CaptureMode;
+  initialText?: string;
 }
 
 // ── EMAIL PATTERN DETECTION ───────────────────────────────
@@ -77,12 +79,14 @@ export default function CaptureSheet({
   userId,
   activeDeals,
   onCaptureComplete,
+  initialMode,
+  initialText,
 }: CaptureSheetProps) {
   const supabase = createClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [mode, setMode] = useState<CaptureMode>('tiles');
-  const [text, setText] = useState('');
+  const [mode, setMode] = useState<CaptureMode>(initialMode ?? 'tiles');
+  const [text, setText] = useState(initialText ?? '');
   const [draftContext, setDraftContext] = useState('');
   const [draftIntent, setDraftIntent] = useState('');
   const [draftOutput, setDraftOutput] = useState('');

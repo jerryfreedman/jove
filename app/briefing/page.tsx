@@ -103,6 +103,7 @@ export default function BriefingPage() {
 
   const [allClear, setAllClear]         = useState(false);
   const allClearTriggered = useRef(false);
+  const briefingInteracted = useRef(false);
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -257,10 +258,22 @@ export default function BriefingPage() {
           context = `${allActiveDeals.length} active deals in pipeline.`;
         }
 
+        // Fetch recent briefing summaries for memory context
+        const { data: recentSummaries } = await supabase
+          .from('thread_summaries')
+          .select('content, summary_date, confirmed_action_ids, snoozed_action_ids')
+          .eq('user_id', userId!)
+          .order('summary_date', { ascending: false })
+          .limit(3);
+
+        const historyContext = recentSummaries?.length
+          ? `\nRecent history: ${recentSummaries.map(s => s.content).join(' ')}`
+          : '';
+
         const response = await fetch('/api/do-this-first', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ context }),
+          body:    JSON.stringify({ context: context + historyContext }),
         });
 
         if (response.ok) {
@@ -279,7 +292,8 @@ export default function BriefingPage() {
     };
 
     generate();
-  }, [loading, attentionDeals, allActiveDeals, meetings, accountMap]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, attentionDeals, allActiveDeals, meetings, accountMap, userId]);
 
   // ── ALL CLEAR CHECK ──────────────────────────────────
   useEffect(() => {
@@ -297,6 +311,45 @@ export default function BriefingPage() {
       localStorage.setItem('jove_bloom_trigger', String(Date.now()));
     }
   }, [confirmedIds, snoozedIds, attentionDeals, loading]);
+
+  // ── TRACK INTERACTION ──────────────────────────────────
+  useEffect(() => {
+    if (confirmedIds.size > 0 || snoozedIds.size > 0) {
+      briefingInteracted.current = true;
+    }
+  }, [confirmedIds, snoozedIds]);
+
+  // ── SAVE BRIEFING SUMMARY ON UNMOUNT ─────────────────
+  const userIdRef = useRef(userId);
+  const confirmedRef = useRef(confirmedIds);
+  const snoozedRef = useRef(snoozedIds);
+  const meetingsRef = useRef(meetings);
+  const attentionRef = useRef(attentionDeals);
+
+  useEffect(() => { userIdRef.current = userId; }, [userId]);
+  useEffect(() => { confirmedRef.current = confirmedIds; }, [confirmedIds]);
+  useEffect(() => { snoozedRef.current = snoozedIds; }, [snoozedIds]);
+  useEffect(() => { meetingsRef.current = meetings; }, [meetings]);
+  useEffect(() => { attentionRef.current = attentionDeals; }, [attentionDeals]);
+
+  useEffect(() => {
+    return () => {
+      if (!briefingInteracted.current) return;
+      if (!userIdRef.current) return;
+      fetch('/api/save-briefing-summary', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId:         userIdRef.current,
+          confirmedIds:   Array.from(confirmedRef.current),
+          snoozedIds:     Array.from(snoozedRef.current),
+          meetingCount:   meetingsRef.current.length,
+          attentionCount: attentionRef.current.length,
+        }),
+      }).catch(console.error);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── CONFIRM ACTION ───────────────────────────────────
   const handleConfirm = useCallback(async (dealId: string) => {
