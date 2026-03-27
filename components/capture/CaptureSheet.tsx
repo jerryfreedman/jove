@@ -172,7 +172,7 @@ export default function CaptureSheet({
     setError('');
 
     try {
-      const { error: interactionError } = await supabase
+      const { data: interactionData, error: interactionError } = await supabase
         .from('interactions')
         .insert({
           user_id: userId,
@@ -182,9 +182,23 @@ export default function CaptureSheet({
           raw_content: content.trim(),
           final_sent_content: extraData?.finalSentContent ?? null,
           extraction_status: 'pending',
-        });
+        })
+        .select('id')
+        .single();
 
       if (interactionError) throw interactionError;
+
+      // Fire extraction in background — do not await, never blocks UI
+      if (interactionData?.id) {
+        fetch('/api/extract', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            interactionId: interactionData.id,
+            userId,
+          }),
+        }).catch(err => console.error('Extraction trigger error:', err));
+      }
 
       // If idea — also save to ideas table
       if (extraData?.saveToIdeas) {
