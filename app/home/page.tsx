@@ -7,6 +7,7 @@ import SceneBackground from '@/components/home/SceneBackground';
 import DayOrb from '@/components/home/DayOrb';
 import Logo from '@/components/ui/Logo';
 import StreakBadge from '@/components/ui/StreakBadge';
+import CaptureSheet from '@/components/capture/CaptureSheet';
 import { calculateStreak } from '@/lib/streak';
 import {
   getGreeting,
@@ -175,6 +176,9 @@ export default function HomePage() {
   const [time, setTime]       = useState(formatTime());
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showCapture, setShowCapture] = useState(false);
+  const [homeRefreshKey, setHomeRefreshKey] = useState(0);
+  const [logoBloom, setLogoBloom] = useState(false);
 
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
@@ -311,7 +315,19 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchHomeData();
-  }, [fetchHomeData]);
+  }, [fetchHomeData, homeRefreshKey]);
+
+  // ── LOGO BLOOM LISTENER ──────────────────────────────────
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'jove_bloom_trigger') {
+        setLogoBloom(true);
+        setTimeout(() => setLogoBloom(false), 800);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   // ── DERIVED VALUES ─────────────────────────────────────
   const streak = data ? calculateStreak(data.streakLogs) : null;
@@ -359,7 +375,23 @@ export default function HomePage() {
           style={{ padding: '50px 22px 0', ...anim(0.06) }}
         >
           {/* Logo — taps to settings */}
-          <Logo light={scene.lightText} showWordmark size={30} />
+          <div
+            style={{
+              transition: 'box-shadow 0.4s ease, transform 0.4s ease',
+              borderRadius: 12,
+              ...(logoBloom
+                ? {
+                    boxShadow: '0 0 24px rgba(232,160,48,0.5)',
+                    transform: 'scale(1.15)',
+                  }
+                : {
+                    boxShadow: 'none',
+                    transform: 'scale(1)',
+                  }),
+            }}
+          >
+            <Logo light={scene.lightText} showWordmark size={30} />
+          </div>
 
           {/* Time + weather pill */}
           <div
@@ -515,7 +547,7 @@ export default function HomePage() {
         >
           {/* Capture button — amber circle */}
           <button
-            onClick={() => {/* Session 6 — capture sheet */}}
+            onClick={() => setShowCapture(true)}
             style={{
               width:        58,
               height:       58,
@@ -580,6 +612,18 @@ export default function HomePage() {
         </div>
 
       </div>
+
+      {/* ── CAPTURE SHEET ────────────────────────── */}
+      {showCapture && data?.user && (
+        <CaptureSheet
+          onClose={() => setShowCapture(false)}
+          userId={data.user.id}
+          activeDeals={data.allDeals ?? []}
+          onCaptureComplete={() => {
+            setHomeRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }
