@@ -47,7 +47,6 @@ export default function OnboardingPage() {
   const [subInput, setSubInput]   = useState(''); // for industry on q1
   const [visible, setVisible]     = useState(false);
   const [readyVisible, setReadyVisible] = useState(false);
-  const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
 
   const h        = new Date().getHours();
@@ -129,7 +128,6 @@ export default function OnboardingPage() {
 
   // ── SAVE TO SUPABASE ──────────────────────────────────────
   const saveOnboarding = async (finalData: OnboardingState) => {
-    setSaving(true);
     setStep('saving');
 
     try {
@@ -191,7 +189,6 @@ export default function OnboardingPage() {
       }
 
       // 5. Play "Jove is ready." moment
-      setSaving(false);
       setStep('ready');
       setReadyVisible(true);
 
@@ -203,7 +200,6 @@ export default function OnboardingPage() {
     } catch (err) {
       console.error('Onboarding save error:', err);
       setError('Something went wrong. Please try again.');
-      setSaving(false);
       setStep('q3_deal');
     }
   };

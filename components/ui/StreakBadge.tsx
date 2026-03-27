@@ -1,6 +1,6 @@
 'use client';
 
-import { getStreakArcPercent, COLORS } from '@/lib/design-system';
+import { getStreakArcPercent } from '@/lib/design-system';
 
 interface StreakBadgeProps {
   days:  number;

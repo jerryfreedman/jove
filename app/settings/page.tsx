@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
@@ -338,11 +339,13 @@ export default function SettingsPage() {
             boxShadow:    '0 1px 6px rgba(26,20,16,0.04)',
           }}>
             {user?.avatar_url ? (
-              <img
+              <Image
                 src={user.avatar_url}
                 alt=""
+                width={44}
+                height={44}
                 style={{
-                  width:        44, height: 44, borderRadius: '50%',
+                  borderRadius: '50%',
                   flexShrink:   0,
                   border:       '0.5px solid rgba(200,160,80,0.2)',
                 }}

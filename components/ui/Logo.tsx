@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { COLORS } from '@/lib/design-system';
 
 interface LogoProps {
   light?: boolean;   // true = logo on dark background (home screen)
