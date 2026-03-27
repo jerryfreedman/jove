@@ -486,34 +486,6 @@ export default function HomePage() {
             }}
             aria-label={`${todayMeetingCount} meeting${todayMeetingCount !== 1 ? 's' : ''} today. Tap for briefing.`}
           >
-            {/* Meeting count pill */}
-            {todayMeetingCount > 0 && (
-              <div
-                style={{
-                  position:       'absolute',
-                  left:           '50%',
-                  top:            '50%',
-                  transform:      'translate(-50%, 18px)',
-                  background:     'rgba(13,15,18,0.52)',
-                  backdropFilter: 'blur(4px)',
-                  borderRadius:   20,
-                  padding:        '3px 10px',
-                  whiteSpace:     'nowrap',
-                  pointerEvents:  'none',
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily:  "'DM Sans', sans-serif",
-                    fontWeight:  700,
-                    fontSize:    12,
-                    color:       '#FFFFFF',
-                  }}
-                >
-                  {todayMeetingCount} {todayMeetingCount === 1 ? 'meeting' : 'meetings'}
-                </span>
-              </div>
-            )}
           </div>
 
           {/* In-progress pulse ring */}
