@@ -1,58 +1,1313 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase';
+import {
+  COLORS,
+  STAGE_STYLES,
+  getDaysColor,
+} from '@/lib/design-system';
+import type {
+  DealRow,
+  AccountRow,
+  ContactRow,
+  InteractionRow,
+  InteractionType,
+} from '@/lib/types';
 
+// ── HELPERS ────────────────────────────────────────────────
+function getDaysSince(dateStr: string): number {
+  return Math.floor(
+    (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)
+  );
+}
+
+function formatDate(dateStr: string): string {
+  const d    = new Date(dateStr);
+  const now  = new Date();
+  const diff = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function getInteractionIcon(type: InteractionType): string {
+  const icons: Record<InteractionType, string> = {
+    debrief:        '🎙',
+    email_received: '✉️',
+    email_sent:     '📤',
+    draft:          '✍️',
+    idea:           '💡',
+    note:           '📝',
+    meeting_log:    '🤝',
+  };
+  return icons[type] ?? '📝';
+}
+
+function getIntelColor(score: number): string {
+  if (score > 70) return COLORS.green;
+  if (score > 40) return COLORS.amber;
+  return COLORS.red;
+}
+
+// ── COMPONENT ──────────────────────────────────────────────
 export default function DealDetailPage() {
-  const router = useRouter();
+  const router   = useRouter();
+  const params   = useParams();
+  const supabase = createClient();
+  const dealId   = params.id as string;
 
-  return (
-    <div
-      style={{
+  const [deal, setDeal]         = useState<DealRow | null>(null);
+  const [account, setAccount]   = useState<AccountRow | null>(null);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [interactions, setInteractions] = useState<InteractionRow[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [userId, setUserId]     = useState<string | null>(null);
+
+  // Inline edit states
+  const [editingName, setEditingName]           = useState(false);
+  const [editingNextAction, setEditingNextAction] = useState(false);
+  const [editingValue, setEditingValue]         = useState(false);
+  const [nameInput, setNameInput]               = useState('');
+  const [nextActionInput, setNextActionInput]   = useState('');
+  const [valueInput, setValueInput]             = useState('');
+  const [notesInput, setNotesInput]             = useState('');
+
+  // Contacts state
+  const [showAddContact, setShowAddContact]     = useState(false);
+  const [newContactName, setNewContactName]     = useState('');
+  const [newContactTitle, setNewContactTitle]   = useState('');
+  const [newContactEmail, setNewContactEmail]   = useState('');
+  const [newContactChampion, setNewContactChampion] = useState(false);
+  const [savingContact, setSavingContact]       = useState(false);
+
+  // History state
+  const [showLogSheet, setShowLogSheet]         = useState(false);
+  const [expandedInteractions, setExpandedInteractions] = useState<Set<string>>(new Set());
+
+  // Log sheet state
+  const [logType, setLogType]     = useState<'email' | 'call' | 'meeting' | 'note'>('note');
+  const [logContent, setLogContent] = useState('');
+  const [savingLog, setSavingLog] = useState(false);
+
+  const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── FETCH DATA ─────────────────────────────────────────
+  const fetchData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push('/'); return; }
+    setUserId(user.id);
+
+    const [dealRes, interactionsRes] = await Promise.all([
+      supabase
+        .from('deals')
+        .select('*, accounts(*), contacts(*)')
+        .eq('id', dealId)
+        .eq('user_id', user.id)
+        .single(),
+      supabase
+        .from('interactions')
+        .select('*')
+        .eq('deal_id', dealId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(15),
+    ]);
+
+    if (dealRes.error || !dealRes.data) {
+      router.push('/deals');
+      return;
+    }
+
+    const dealData = dealRes.data as DealRow & {
+      accounts: AccountRow;
+      contacts: ContactRow[];
+    };
+
+    setDeal(dealData);
+    setAccount(dealData.accounts);
+    setContacts(dealData.contacts ?? []);
+    setInteractions((interactionsRes.data ?? []) as InteractionRow[]);
+
+    // Init edit inputs
+    setNameInput(dealData.name);
+    setNextActionInput(dealData.next_action ?? '');
+    setValueInput(dealData.value ? String(dealData.value) : '');
+    setNotesInput(dealData.notes ?? '');
+
+    setLoading(false);
+  }, [supabase, dealId, router]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ── REALTIME — interactions update when extraction completes ──
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`deal-${dealId}-interactions`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'interactions',
+        filter: `deal_id=eq.${dealId}`,
+      }, () => { fetchData(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, dealId, supabase, fetchData]);
+
+  // ── INLINE SAVES ──────────────────────────────────────────
+  const saveDealField = async (field: string, value: unknown) => {
+    if (!deal || !userId) return;
+    await supabase
+      .from('deals')
+      .update({ [field]: value, last_activity_at: new Date().toISOString() })
+      .eq('id', dealId)
+      .eq('user_id', userId);
+    setDeal(d => d ? { ...d, [field]: value } as DealRow : d);
+  };
+
+  const handleSaveName = async () => {
+    if (!nameInput.trim()) return;
+    await saveDealField('name', nameInput.trim());
+    setEditingName(false);
+  };
+
+  const handleSaveNextAction = async () => {
+    if (!nextActionInput.trim()) return;
+    await supabase
+      .from('deals')
+      .update({
+        next_action:           nextActionInput.trim(),
+        next_action_confirmed: true,
+        last_activity_at:      new Date().toISOString(),
+      })
+      .eq('id', dealId)
+      .eq('user_id', userId!);
+    setDeal(d => d ? {
+      ...d,
+      next_action:           nextActionInput.trim(),
+      next_action_confirmed: true,
+    } : d);
+    setEditingNextAction(false);
+  };
+
+  const handleSaveValue = async () => {
+    const num = parseFloat(valueInput);
+    await saveDealField('value', isNaN(num) ? null : num);
+    setEditingValue(false);
+  };
+
+  const handleNotesChange = (val: string) => {
+    setNotesInput(val);
+    if (notesTimer.current) clearTimeout(notesTimer.current);
+    notesTimer.current = setTimeout(async () => {
+      await saveDealField('notes', val);
+    }, 600);
+  };
+
+  // ── COPY STATUS ───────────────────────────────────────────
+  const handleCopyStatus = () => {
+    if (!deal) return;
+    const days = getDaysSince(deal.last_activity_at);
+    const text = `${deal.name} — ${deal.stage} — ${
+      deal.next_action ?? 'No next action'
+    } — Last activity: ${days} days ago`;
+    navigator.clipboard.writeText(text);
+    setCopyConfirmed(true);
+    setTimeout(() => setCopyConfirmed(false), 1800);
+  };
+
+  // ── CHAMPION TOGGLE ───────────────────────────────────────
+  const handleToggleChampion = async (contact: ContactRow) => {
+    await supabase
+      .from('contacts')
+      .update({ is_champion: !contact.is_champion })
+      .eq('id', contact.id);
+    setContacts(cs => cs.map(c =>
+      c.id === contact.id ? { ...c, is_champion: !c.is_champion } : c
+    ));
+  };
+
+  // ── ADD CONTACT ───────────────────────────────────────────
+  const handleAddContact = async () => {
+    if (!newContactName.trim() || !userId || !account) return;
+    setSavingContact(true);
+    const { data, error } = await supabase
+      .from('contacts')
+      .insert({
+        user_id:    userId,
+        account_id: account.id,
+        name:       newContactName.trim(),
+        title:      newContactTitle.trim() || null,
+        email:      newContactEmail.trim() || null,
+        is_champion:newContactChampion,
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      setContacts(cs => [...cs, data as ContactRow]);
+      setNewContactName('');
+      setNewContactTitle('');
+      setNewContactEmail('');
+      setNewContactChampion(false);
+      setShowAddContact(false);
+    }
+    setSavingContact(false);
+  };
+
+  // ── LOG INTERACTION ───────────────────────────────────────
+  const handleLogInteraction = async () => {
+    if (!logContent.trim() || !userId) return;
+    setSavingLog(true);
+
+    const typeMap: Record<string, InteractionType> = {
+      email:   'email_sent',
+      call:    'debrief',
+      meeting: 'meeting_log',
+      note:    'note',
+    };
+
+    const { data, error } = await supabase
+      .from('interactions')
+      .insert({
+        user_id:          userId,
+        deal_id:          dealId,
+        type:             typeMap[logType],
+        raw_content:      logContent.trim(),
+        extraction_status:'pending',
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      setInteractions(prev => [data as InteractionRow, ...prev]);
+      await supabase
+        .from('deals')
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq('id', dealId)
+        .eq('user_id', userId);
+      setLogContent('');
+      setShowLogSheet(false);
+
+      // Fire extraction in background
+      fetch('/api/extract', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          interactionId: (data as InteractionRow).id,
+          userId,
+        }),
+      }).catch(console.error);
+    }
+    setSavingLog(false);
+  };
+
+  // ── TOGGLE EXPAND INTERACTION ─────────────────────────────
+  const toggleExpand = (id: string) => {
+    setExpandedInteractions(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // ── INPUT STYLE ───────────────────────────────────────────
+  const inputStyle: React.CSSProperties = {
+    width:        '100%',
+    background:   '#FFFFFF',
+    border:       '0.5px solid rgba(232,160,48,0.4)',
+    borderRadius: 10,
+    padding:      '10px 13px',
+    fontSize:     14,
+    fontWeight:   300,
+    color:        '#1A1410',
+    outline:      'none',
+    fontFamily:   "'DM Sans', sans-serif",
+  };
+
+  if (loading) {
+    return (
+      <div style={{
         minHeight:  '100vh',
         background: '#F7F3EC',
-        fontFamily: "'DM Sans', sans-serif",
         maxWidth:   390,
         margin:     '0 auto',
-        padding:    '52px 20px 40px',
-      }}
-    >
-      <button
-        onClick={() => router.back()}
-        style={{
-          background:   'rgba(200,160,80,0.1)',
-          border:       '0.5px solid rgba(200,160,80,0.22)',
-          borderRadius: '50%',
-          width:        34,
-          height:       34,
+        padding:    '52px 20px',
+      }}>
+        {[1,2,3].map(i => (
+          <div key={i} style={{
+            height:       20,
+            borderRadius: 10,
+            background:   'rgba(26,20,16,0.06)',
+            marginBottom: 14,
+            width:        i === 3 ? '60%' : '90%',
+          }} />
+        ))}
+      </div>
+    );
+  }
+
+  if (!deal) return null;
+
+  const days      = getDaysSince(deal.last_activity_at);
+  const daysColor = getDaysColor(days, true);
+  const stage     = STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'];
+  const intelColor = getIntelColor(deal.intel_score ?? 0);
+  const showClosePlan = ['POC','Proposal','Negotiation'].includes(deal.stage);
+
+  return (
+    <div style={{
+      minHeight:   '100vh',
+      background:  '#F7F3EC',
+      fontFamily:  "'DM Sans', sans-serif",
+      maxWidth:    390,
+      margin:      '0 auto',
+      paddingBottom:100,
+    }}>
+
+      {/* ── HEADER ────────────────────────────────────── */}
+      <div style={{
+        padding:      '52px 20px 16px',
+        borderBottom: '0.5px solid rgba(200,160,80,0.16)',
+        background:   '#F7F3EC',
+        position:     'sticky',
+        top:          0,
+        zIndex:       20,
+      }}>
+        <div style={{
           display:      'flex',
           alignItems:   'center',
-          justifyContent:'center',
-          cursor:       'pointer',
-          color:        'rgba(26,20,16,0.5)',
-          fontSize:     19,
-          marginBottom: 28,
-        }}
-      >
-        ‹
-      </button>
-      <p style={{
-        fontFamily:   "'Cormorant Garamond', serif",
-        fontSize:     26,
-        fontWeight:   300,
-        color:        '#1A1410',
-        marginBottom: 8,
+          marginBottom: 16,
+        }}>
+          <button
+            onClick={() => router.back()}
+            style={{
+              width:        34,
+              height:       34,
+              borderRadius: '50%',
+              background:   'rgba(200,160,80,0.1)',
+              border:       '0.5px solid rgba(200,160,80,0.22)',
+              display:      'flex',
+              alignItems:   'center',
+              justifyContent:'center',
+              cursor:       'pointer',
+              color:        'rgba(26,20,16,0.5)',
+              fontSize:     19,
+              flexShrink:   0,
+              marginRight:  12,
+            }}
+          >
+            ‹
+          </button>
+
+          {/* Deal name — editable */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {editingName ? (
+              <input
+                autoFocus
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onBlur={handleSaveName}
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); }}
+                style={{
+                  ...inputStyle,
+                  fontSize:   20,
+                  fontFamily: "'Cormorant Garamond', serif",
+                  fontWeight: 400,
+                }}
+              />
+            ) : (
+              <h1
+                onClick={() => setEditingName(true)}
+                style={{
+                  fontFamily:   "'Cormorant Garamond', serif",
+                  fontSize:     22,
+                  fontWeight:   400,
+                  color:        '#1A1410',
+                  cursor:       'text',
+                  whiteSpace:   'nowrap',
+                  overflow:     'hidden',
+                  textOverflow: 'ellipsis',
+                  margin:       0,
+                }}
+              >
+                {deal.name}
+              </h1>
+            )}
+            <p style={{
+              fontSize:   13,
+              fontWeight: 300,
+              color:      'rgba(26,20,16,0.44)',
+              marginTop:  2,
+            }}>
+              {account?.name ?? ''}
+            </p>
+          </div>
+
+          {/* Copy status button */}
+          <button
+            onClick={handleCopyStatus}
+            title="Copy status"
+            style={{
+              flexShrink:   0,
+              marginLeft:   10,
+              background:   copyConfirmed
+                ? 'rgba(72,200,120,0.1)'
+                : 'rgba(200,160,80,0.08)',
+              border:       `0.5px solid ${copyConfirmed
+                ? 'rgba(72,200,120,0.3)'
+                : 'rgba(200,160,80,0.2)'}`,
+              borderRadius: 10,
+              padding:      '6px 12px',
+              cursor:       'pointer',
+              fontSize:     10,
+              fontWeight:   600,
+              letterSpacing:'1px',
+              textTransform:'uppercase',
+              color:        copyConfirmed
+                ? COLORS.green
+                : 'rgba(26,20,16,0.4)',
+              fontFamily:   "'DM Sans', sans-serif",
+              transition:   'all 0.2s',
+            }}
+          >
+            {copyConfirmed ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+
+        {/* Stage + days + intel */}
+        <div style={{
+          display:    'flex',
+          alignItems: 'center',
+          gap:        10,
+          flexWrap:   'wrap',
+        }}>
+          <div style={{
+            fontSize:     9,
+            fontWeight:   600,
+            letterSpacing:'0.8px',
+            textTransform:'uppercase',
+            color:        stage.color,
+            background:   stage.bg,
+            border:       `0.5px solid ${stage.border}`,
+            borderRadius: 20,
+            padding:      '4px 11px',
+          }}>
+            {deal.stage}
+          </div>
+          <span style={{
+            fontSize:   11,
+            fontWeight: 500,
+            color:      daysColor,
+          }}>
+            {days}d ago
+          </span>
+
+          {/* Intel score bar */}
+          {(deal.intel_score ?? 0) > 0 && (
+            <div style={{
+              display:    'flex',
+              alignItems: 'center',
+              gap:        6,
+              marginLeft: 'auto',
+            }}>
+              <span style={{
+                fontSize:   9,
+                fontWeight: 600,
+                letterSpacing:'1px',
+                textTransform:'uppercase',
+                color:      'rgba(26,20,16,0.3)',
+              }}>
+                Intel
+              </span>
+              <div style={{
+                width:        60,
+                height:       4,
+                borderRadius: 2,
+                background:   'rgba(26,20,16,0.08)',
+                overflow:     'hidden',
+              }}>
+                <div style={{
+                  height:       '100%',
+                  width:        `${deal.intel_score ?? 0}%`,
+                  borderRadius: 2,
+                  background:   intelColor,
+                  transition:   'width 0.5s ease',
+                }} />
+              </div>
+              <span style={{
+                fontSize:   9,
+                fontWeight: 600,
+                color:      intelColor,
+              }}>
+                {Math.round(deal.intel_score ?? 0)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── NEXT ACTION ───────────────────────────────── */}
+      <div style={{
+        margin:  '14px 18px 0',
+        background:'#FFFFFF',
+        border:  '0.5px solid rgba(200,160,80,0.16)',
+        borderRadius:14,
+        padding: '14px 16px',
+        boxShadow:'0 1px 6px rgba(26,20,16,0.04)',
       }}>
-        Deal detail
-      </p>
-      <p style={{
-        fontSize:   13,
-        fontWeight: 300,
-        color:      'rgba(26,20,16,0.44)',
-        lineHeight: 1.6,
+        <div style={{
+          fontSize:     9,
+          fontWeight:   700,
+          letterSpacing:'2px',
+          textTransform:'uppercase',
+          color:        'rgba(26,20,16,0.28)',
+          marginBottom: 8,
+        }}>
+          Next Action
+        </div>
+
+        {editingNextAction ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              autoFocus
+              value={nextActionInput}
+              onChange={e => setNextActionInput(e.target.value)}
+              onBlur={handleSaveNextAction}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveNextAction(); }}
+              placeholder="What's the next step?"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+          </div>
+        ) : (
+          <div
+            onClick={() => setEditingNextAction(true)}
+            style={{
+              display:    'flex',
+              alignItems: 'flex-start',
+              gap:        8,
+              cursor:     'text',
+            }}
+          >
+            <span style={{
+              color:    COLORS.amber,
+              fontSize: 14,
+              flexShrink:0,
+              marginTop:1,
+            }}>
+              →
+            </span>
+            <span style={{
+              fontSize:   14,
+              fontWeight: deal.next_action ? 400 : 300,
+              color:      deal.next_action
+                ? '#1A1410'
+                : 'rgba(26,20,16,0.3)',
+              lineHeight: 1.5,
+            }}>
+              {deal.next_action ?? 'Set a next action...'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── VALUE + NOTES ─────────────────────────────── */}
+      <div style={{
+        margin:  '10px 18px 0',
+        display: 'flex',
+        gap:     10,
       }}>
-        Full deal drawer with contacts, history, and AI actions
-        coming in Session 9.
-      </p>
+        {/* Value */}
+        <div style={{
+          flex:        '0 0 auto',
+          background:  '#FFFFFF',
+          border:      '0.5px solid rgba(200,160,80,0.16)',
+          borderRadius:12,
+          padding:     '12px 14px',
+          boxShadow:   '0 1px 6px rgba(26,20,16,0.04)',
+          minWidth:    100,
+        }}>
+          <div style={{
+            fontSize:     8,
+            fontWeight:   700,
+            letterSpacing:'2px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.28)',
+            marginBottom: 6,
+          }}>
+            Value
+          </div>
+          {editingValue ? (
+            <input
+              autoFocus
+              type="number"
+              value={valueInput}
+              onChange={e => setValueInput(e.target.value)}
+              onBlur={handleSaveValue}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveValue(); }}
+              placeholder="0"
+              style={{
+                ...inputStyle,
+                padding: '6px 8px',
+                fontSize:14,
+                width:   80,
+              }}
+            />
+          ) : (
+            <div
+              onClick={() => setEditingValue(true)}
+              style={{
+                fontSize:   15,
+                fontWeight: 300,
+                color:      deal.value
+                  ? '#1A1410'
+                  : 'rgba(26,20,16,0.28)',
+                cursor:     'text',
+              }}
+            >
+              {deal.value
+                ? `$${Number(deal.value).toLocaleString()}`
+                : '—'}
+            </div>
+          )}
+        </div>
+
+        {/* Notes */}
+        <div style={{
+          flex:        1,
+          background:  '#FFFFFF',
+          border:      '0.5px solid rgba(200,160,80,0.16)',
+          borderRadius:12,
+          padding:     '12px 14px',
+          boxShadow:   '0 1px 6px rgba(26,20,16,0.04)',
+        }}>
+          <div style={{
+            fontSize:     8,
+            fontWeight:   700,
+            letterSpacing:'2px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.28)',
+            marginBottom: 6,
+          }}>
+            Notes
+          </div>
+          <textarea
+            value={notesInput}
+            onChange={e => handleNotesChange(e.target.value)}
+            placeholder="Add notes..."
+            rows={2}
+            style={{
+              width:      '100%',
+              background: 'transparent',
+              border:     'none',
+              outline:    'none',
+              fontSize:   13,
+              fontWeight: 300,
+              color:      notesInput ? '#1A1410' : 'rgba(26,20,16,0.3)',
+              fontFamily: "'DM Sans', sans-serif",
+              resize:     'none',
+              lineHeight: 1.55,
+              padding:    0,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ── CONTACTS SECTION ──────────────────────────── */}
+      <div style={{ margin: '18px 18px 0' }}>
+        <div style={{
+          display:      'flex',
+          alignItems:   'center',
+          marginBottom: 10,
+        }}>
+          <h2 style={{
+            flex:       1,
+            fontFamily: "'Cormorant Garamond', serif",
+            fontSize:   19,
+            fontWeight: 400,
+            color:      '#1A1410',
+            margin:     0,
+          }}>
+            Contacts
+          </h2>
+          <button
+            onClick={() => setShowAddContact(!showAddContact)}
+            style={{
+              background:   'none',
+              border:       'none',
+              cursor:       'pointer',
+              fontSize:     11,
+              fontWeight:   600,
+              letterSpacing:'1px',
+              textTransform:'uppercase',
+              color:        COLORS.amber,
+              fontFamily:   "'DM Sans', sans-serif",
+              padding:      0,
+            }}
+          >
+            + Add
+          </button>
+        </div>
+
+        {/* Add contact form */}
+        {showAddContact && (
+          <div style={{
+            background:   '#FFFFFF',
+            border:       '0.5px solid rgba(232,160,48,0.28)',
+            borderRadius: 14,
+            padding:      '14px 16px',
+            marginBottom: 10,
+          }}>
+            <input
+              autoFocus
+              value={newContactName}
+              onChange={e => setNewContactName(e.target.value)}
+              placeholder="Name (required)"
+              style={{ ...inputStyle, marginBottom: 8 }}
+            />
+            <input
+              value={newContactTitle}
+              onChange={e => setNewContactTitle(e.target.value)}
+              placeholder="Title (optional)"
+              style={{ ...inputStyle, marginBottom: 8 }}
+            />
+            <input
+              value={newContactEmail}
+              onChange={e => setNewContactEmail(e.target.value)}
+              placeholder="Email (optional)"
+              type="email"
+              style={{ ...inputStyle, marginBottom: 10 }}
+            />
+            <div style={{
+              display:      'flex',
+              alignItems:   'center',
+              gap:          10,
+              marginBottom: 12,
+            }}>
+              <button
+                onClick={() => setNewContactChampion(!newContactChampion)}
+                style={{
+                  background: 'none',
+                  border:     'none',
+                  cursor:     'pointer',
+                  fontSize:   18,
+                  padding:    0,
+                }}
+              >
+                {newContactChampion ? '⭐' : '☆'}
+              </button>
+              <span style={{
+                fontSize:   12,
+                fontWeight: 300,
+                color:      'rgba(26,20,16,0.5)',
+              }}>
+                Mark as champion
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleAddContact}
+                disabled={savingContact || !newContactName.trim()}
+                style={{
+                  flex:          1,
+                  padding:       '10px 0',
+                  borderRadius:  10,
+                  border:        'none',
+                  background:    newContactName.trim()
+                    ? 'linear-gradient(135deg, #C87820, #E09838)'
+                    : 'rgba(26,20,16,0.08)',
+                  color:         newContactName.trim() ? 'white' : 'rgba(26,20,16,0.3)',
+                  fontSize:      11,
+                  fontWeight:    700,
+                  letterSpacing: '1.5px',
+                  textTransform: 'uppercase',
+                  cursor:        newContactName.trim() ? 'pointer' : 'default',
+                  fontFamily:    "'DM Sans', sans-serif",
+                }}
+              >
+                {savingContact ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddContact(false);
+                  setNewContactName('');
+                  setNewContactTitle('');
+                  setNewContactEmail('');
+                }}
+                style={{
+                  padding:    '10px 16px',
+                  borderRadius:10,
+                  border:     '0.5px solid rgba(26,20,16,0.12)',
+                  background: 'transparent',
+                  color:      'rgba(26,20,16,0.4)',
+                  fontSize:   11,
+                  fontWeight: 500,
+                  cursor:     'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {contacts.length === 0 && !showAddContact && (
+          <p style={{
+            fontSize:   13,
+            fontWeight: 300,
+            color:      'rgba(26,20,16,0.36)',
+            padding:    '8px 0',
+          }}>
+            No contacts yet — tap + Add to add someone.
+          </p>
+        )}
+
+        {contacts.map(contact => (
+          <div
+            key={contact.id}
+            style={{
+              background:   '#FFFFFF',
+              border:       '0.5px solid rgba(200,160,80,0.14)',
+              borderRadius: 14,
+              padding:      '13px 16px',
+              marginBottom: 8,
+              boxShadow:    '0 1px 5px rgba(26,20,16,0.04)',
+            }}
+          >
+            <div style={{
+              display:     'flex',
+              alignItems:  'flex-start',
+              gap:         10,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize:   15,
+                  fontWeight: 500,
+                  color:      '#1A1410',
+                  marginBottom:2,
+                }}>
+                  {contact.name}
+                </div>
+                {contact.title && (
+                  <div style={{
+                    fontSize:   12,
+                    fontWeight: 300,
+                    color:      'rgba(26,20,16,0.44)',
+                    marginBottom:contact.email ? 3 : 0,
+                  }}>
+                    {contact.title}
+                  </div>
+                )}
+                {contact.email && (
+                  <div
+                    onClick={() => navigator.clipboard.writeText(contact.email!)}
+                    style={{
+                      fontSize:   11,
+                      fontWeight: 300,
+                      color:      COLORS.amber,
+                      cursor:     'pointer',
+                      marginBottom:contact.relationship_summary ? 6 : 0,
+                    }}
+                    title="Tap to copy email"
+                  >
+                    {contact.email}
+                  </div>
+                )}
+                {contact.relationship_summary && (
+                  <div style={{
+                    fontSize:   12,
+                    fontWeight: 300,
+                    color:      'rgba(26,20,16,0.52)',
+                    lineHeight: 1.55,
+                    marginTop:  4,
+                    paddingTop: 8,
+                    borderTop:  '0.5px solid rgba(26,20,16,0.06)',
+                  }}>
+                    {contact.relationship_summary}
+                  </div>
+                )}
+              </div>
+
+              {/* Champion star */}
+              <button
+                onClick={() => handleToggleChampion(contact)}
+                style={{
+                  background: 'none',
+                  border:     'none',
+                  cursor:     'pointer',
+                  fontSize:   20,
+                  padding:    0,
+                  flexShrink: 0,
+                  lineHeight: 1,
+                }}
+                title={contact.is_champion ? 'Remove champion' : 'Mark as champion'}
+              >
+                {contact.is_champion ? '⭐' : '☆'}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── HISTORY SECTION ───────────────────────────── */}
+      <div style={{ margin: '18px 18px 0' }}>
+        <div style={{
+          display:      'flex',
+          alignItems:   'center',
+          marginBottom: 10,
+        }}>
+          <h2 style={{
+            flex:       1,
+            fontFamily: "'Cormorant Garamond', serif",
+            fontSize:   19,
+            fontWeight: 400,
+            color:      '#1A1410',
+            margin:     0,
+          }}>
+            History
+          </h2>
+          <button
+            onClick={() => setShowLogSheet(true)}
+            style={{
+              background:   'none',
+              border:       'none',
+              cursor:       'pointer',
+              fontSize:     11,
+              fontWeight:   600,
+              letterSpacing:'1px',
+              textTransform:'uppercase',
+              color:        COLORS.amber,
+              fontFamily:   "'DM Sans', sans-serif",
+              padding:      0,
+            }}
+          >
+            + Log
+          </button>
+        </div>
+
+        {interactions.length === 0 && (
+          <p style={{
+            fontSize:   13,
+            fontWeight: 300,
+            color:      'rgba(26,20,16,0.36)',
+            lineHeight: 1.6,
+          }}>
+            No history yet — debrief after your first meeting to start building history.
+          </p>
+        )}
+
+        {interactions.map(interaction => {
+          const expanded = expandedInteractions.has(interaction.id);
+          const isPending = interaction.extraction_status === 'pending' ||
+            interaction.extraction_status === 'processing';
+          const content = interaction.raw_content;
+          const isLong  = content.length > 120;
+
+          return (
+            <div
+              key={interaction.id}
+              style={{
+                background:   '#FFFFFF',
+                border:       '0.5px solid rgba(200,160,80,0.14)',
+                borderRadius: 12,
+                padding:      '12px 14px',
+                marginBottom: 8,
+                boxShadow:    '0 1px 5px rgba(26,20,16,0.04)',
+              }}
+            >
+              <div style={{
+                display:      'flex',
+                alignItems:   'flex-start',
+                gap:          10,
+                marginBottom: 5,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0, lineHeight: 1.3 }}>
+                  {getInteractionIcon(interaction.type)}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    display:    'flex',
+                    alignItems: 'center',
+                    gap:        8,
+                    marginBottom:4,
+                  }}>
+                    <span style={{
+                      fontSize:   11,
+                      fontWeight: 500,
+                      color:      'rgba(26,20,16,0.44)',
+                    }}>
+                      {formatDate(interaction.created_at)}
+                    </span>
+                    {isPending && (
+                      <span style={{
+                        fontSize:     9,
+                        fontWeight:   600,
+                        letterSpacing:'1px',
+                        textTransform:'uppercase',
+                        color:        COLORS.amber,
+                      }}>
+                        Processing...
+                      </span>
+                    )}
+                  </div>
+                  <p style={{
+                    fontSize:   13,
+                    fontWeight: 300,
+                    color:      'rgba(26,20,16,0.7)',
+                    lineHeight: 1.58,
+                    margin:     0,
+                    overflow:   expanded ? 'visible' : 'hidden',
+                    display:    expanded ? 'block' : '-webkit-box',
+                    WebkitLineClamp: expanded ? undefined : 2,
+                    WebkitBoxOrient:'vertical',
+                  } as React.CSSProperties}>
+                    {content}
+                  </p>
+                  {isLong && (
+                    <button
+                      onClick={() => toggleExpand(interaction.id)}
+                      style={{
+                        background: 'none',
+                        border:     'none',
+                        cursor:     'pointer',
+                        fontSize:   11,
+                        fontWeight: 500,
+                        color:      COLORS.amber,
+                        padding:    '4px 0 0',
+                        fontFamily: "'DM Sans', sans-serif",
+                      }}
+                    >
+                      {expanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── BOTTOM ACTION BAR ─────────────────────────── */}
+      <div style={{
+        position:   'fixed',
+        bottom:     0,
+        left:       '50%',
+        transform:  'translateX(-50%)',
+        width:      '100%',
+        maxWidth:   390,
+        background: '#F7F3EC',
+        borderTop:  '0.5px solid rgba(200,160,80,0.2)',
+        padding:    '12px 18px 32px',
+        zIndex:     30,
+        display:    'flex',
+        gap:        10,
+      }}>
+        {/* Prep Me */}
+        <button
+          onClick={() => router.push(`/deals/${dealId}/prep`)}
+          style={{
+            flex:          1,
+            padding:       '13px 0',
+            borderRadius:  12,
+            border:        'none',
+            background:    'linear-gradient(135deg, #C87820, #E09838)',
+            color:         'white',
+            fontSize:      11,
+            fontWeight:    700,
+            letterSpacing: '1.5px',
+            textTransform: 'uppercase',
+            cursor:        'pointer',
+            fontFamily:    "'DM Sans', sans-serif",
+            boxShadow:     '0 4px 16px rgba(200,120,32,0.28)',
+          }}
+        >
+          Prep Me
+        </button>
+
+        {/* Chat */}
+        <button
+          onClick={() => router.push(`/deals/${dealId}/chat`)}
+          style={{
+            flex:          1,
+            padding:       '13px 0',
+            borderRadius:  12,
+            border:        '0.5px solid rgba(200,160,80,0.3)',
+            background:    'transparent',
+            color:         'rgba(26,20,16,0.6)',
+            fontSize:      11,
+            fontWeight:    700,
+            letterSpacing: '1.5px',
+            textTransform: 'uppercase',
+            cursor:        'pointer',
+            fontFamily:    "'DM Sans', sans-serif",
+          }}
+        >
+          Chat
+        </button>
+
+        {/* Close Plan */}
+        {showClosePlan && (
+          <button
+            onClick={() => router.push(`/deals/${dealId}/close-plan`)}
+            style={{
+              flex:          1,
+              padding:       '13px 0',
+              borderRadius:  12,
+              border:        '0.5px solid rgba(200,160,80,0.3)',
+              background:    'transparent',
+              color:         'rgba(26,20,16,0.6)',
+              fontSize:      11,
+              fontWeight:    700,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor:        'pointer',
+              fontFamily:    "'DM Sans', sans-serif",
+            }}
+          >
+            Close Plan
+          </button>
+        )}
+      </div>
+
+      {/* ── LOG INTERACTION SHEET ─────────────────────── */}
+      {showLogSheet && (
+        <>
+          <div
+            onClick={() => setShowLogSheet(false)}
+            style={{
+              position:      'fixed',
+              inset:         0,
+              zIndex:        290,
+              background:    'rgba(26,20,16,0.4)',
+              backdropFilter:'blur(4px)',
+            }}
+          />
+          <div style={{
+            position:     'fixed',
+            bottom:       0,
+            left:         '50%',
+            transform:    'translateX(-50%)',
+            zIndex:       300,
+            width:        '100%',
+            maxWidth:     390,
+            background:   '#F7F3EC',
+            borderTop:    '0.5px solid rgba(200,160,80,0.3)',
+            borderRadius: '22px 22px 0 0',
+            padding:      '0 20px 48px',
+            fontFamily:   "'DM Sans', sans-serif",
+          }}>
+            <div style={{
+              width:        36,
+              height:       4,
+              borderRadius: 2,
+              background:   'rgba(26,20,16,0.12)',
+              margin:       '14px auto 20px',
+            }} />
+            <h3 style={{
+              fontFamily:   "'Cormorant Garamond', serif",
+              fontSize:     20,
+              fontWeight:   400,
+              color:        '#1A1410',
+              marginBottom: 16,
+            }}>
+              Log Interaction
+            </h3>
+
+            {/* Type selector */}
+            <div style={{
+              display:      'flex',
+              gap:          8,
+              marginBottom: 14,
+            }}>
+              {(['email','call','meeting','note'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setLogType(t)}
+                  style={{
+                    padding:      '7px 14px',
+                    borderRadius: 20,
+                    border:       '0.5px solid',
+                    borderColor:  logType === t
+                      ? 'rgba(232,160,48,0.5)'
+                      : 'rgba(26,20,16,0.12)',
+                    background:   logType === t
+                      ? 'rgba(232,160,48,0.1)'
+                      : '#FFFFFF',
+                    color:        logType === t
+                      ? COLORS.amber
+                      : 'rgba(26,20,16,0.44)',
+                    fontSize:     11,
+                    fontWeight:   logType === t ? 600 : 300,
+                    cursor:       'pointer',
+                    fontFamily:   "'DM Sans', sans-serif",
+                    textTransform:'capitalize',
+                    transition:   'all 0.18s',
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              autoFocus
+              value={logContent}
+              onChange={e => setLogContent(e.target.value)}
+              placeholder="What happened?"
+              rows={4}
+              style={{
+                width:        '100%',
+                background:   '#FFFFFF',
+                border:       '0.5px solid rgba(200,160,80,0.28)',
+                borderRadius: 14,
+                padding:      '14px 16px',
+                fontSize:     14,
+                fontWeight:   300,
+                color:        '#1A1410',
+                outline:      'none',
+                resize:       'none',
+                lineHeight:   1.65,
+                marginBottom: 14,
+                fontFamily:   "'DM Sans', sans-serif",
+              }}
+              onFocus={e => { e.target.style.borderColor = 'rgba(232,160,48,0.4)'; }}
+              onBlur={e => { e.target.style.borderColor = 'rgba(200,160,80,0.28)'; }}
+            />
+
+            <button
+              onClick={handleLogInteraction}
+              disabled={savingLog || !logContent.trim()}
+              style={{
+                width:         '100%',
+                padding:       '14px 0',
+                borderRadius:  14,
+                border:        'none',
+                background:    logContent.trim() && !savingLog
+                  ? 'linear-gradient(135deg, #C87820, #E09838)'
+                  : 'rgba(26,20,16,0.08)',
+                color:         logContent.trim() && !savingLog
+                  ? 'white'
+                  : 'rgba(26,20,16,0.28)',
+                fontSize:      11,
+                fontWeight:    700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                cursor:        logContent.trim() && !savingLog
+                  ? 'pointer'
+                  : 'default',
+                fontFamily:    "'DM Sans', sans-serif",
+                transition:    'all 0.2s',
+              }}
+            >
+              {savingLog ? 'Saving...' : 'Log It →'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
