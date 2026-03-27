@@ -103,7 +103,7 @@ export default function DealDetailPage() {
     const [dealRes, interactionsRes] = await Promise.all([
       supabase
         .from('deals')
-        .select('*, accounts(*), contacts(*)')
+        .select('*, accounts(*)')
         .eq('id', dealId)
         .eq('user_id', user.id)
         .single(),
@@ -123,12 +123,18 @@ export default function DealDetailPage() {
 
     const dealData = dealRes.data as DealRow & {
       accounts: AccountRow;
-      contacts: ContactRow[];
     };
+
+    // Fetch contacts via account_id (contacts belong to accounts, not deals)
+    const { data: contactsData } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('account_id', dealData.account_id)
+      .eq('user_id', user.id);
 
     setDeal(dealData);
     setAccount(dealData.accounts);
-    setContacts(dealData.contacts ?? []);
+    setContacts((contactsData ?? []) as ContactRow[]);
     setInteractions((interactionsRes.data ?? []) as InteractionRow[]);
 
     // Init edit inputs
