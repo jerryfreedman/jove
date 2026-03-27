@@ -279,11 +279,10 @@ export default function SettingsPage() {
 
   return (
     <div style={{
-      minHeight:   '100vh',
+      height:      '100vh',
+      overflowY:   'auto',
       background:  '#F7F3EC',
       fontFamily:  "'DM Sans', sans-serif",
-      maxWidth:    390,
-      margin:      '0 auto',
       paddingBottom:60,
       animation:   'fadeIn 0.28s ease both',
     }}>

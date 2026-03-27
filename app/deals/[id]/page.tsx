@@ -339,10 +339,8 @@ export default function DealDetailPage() {
   if (loading) {
     return (
       <div style={{
-        minHeight:  '100vh',
+        height:     '100vh',
         background: '#F7F3EC',
-        maxWidth:   390,
-        margin:     '0 auto',
         padding:    '52px 20px',
       }}>
         {[1,2,3].map(i => (
@@ -361,10 +359,8 @@ export default function DealDetailPage() {
   if (notFound || !deal) {
     return (
       <div style={{
-        minHeight:  '100vh',
+        height:     '100vh',
         background: '#F7F3EC',
-        maxWidth:   390,
-        margin:     '0 auto',
         display:    'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -408,11 +404,10 @@ export default function DealDetailPage() {
 
   return (
     <div style={{
-      minHeight:   '100vh',
+      height:      '100vh',
+      overflowY:   'auto',
       background:  '#F7F3EC',
       fontFamily:  "'DM Sans', sans-serif",
-      maxWidth:    390,
-      margin:      '0 auto',
       paddingBottom:100,
       animation:   'fadeIn 0.28s ease both',
     }}>
@@ -1144,10 +1139,8 @@ export default function DealDetailPage() {
       <div style={{
         position:   'fixed',
         bottom:     0,
-        left:       '50%',
-        transform:  'translateX(-50%)',
-        width:      '100%',
-        maxWidth:   390,
+        left:       0,
+        right:      0,
         background: '#F7F3EC',
         borderTop:  '0.5px solid rgba(200,160,80,0.2)',
         padding:    '12px 18px 32px',
@@ -1242,7 +1235,6 @@ export default function DealDetailPage() {
             transform:    'translateX(-50%)',
             zIndex:       300,
             width:        '100%',
-            maxWidth:     390,
             background:   '#F7F3EC',
             borderTop:    '0.5px solid rgba(200,160,80,0.3)',
             borderRadius: '22px 22px 0 0',

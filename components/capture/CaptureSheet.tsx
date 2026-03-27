@@ -457,7 +457,7 @@ export default function CaptureSheet({
           transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
           zIndex: 300,
           width: '100%',
-          maxWidth: 390,
+          maxWidth: '100%',
           background: '#0f1420',
           borderTop: '0.5px solid rgba(232,160,48,0.2)',
           borderRadius: '22px 22px 0 0',

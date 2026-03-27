@@ -166,11 +166,10 @@ export default function DealsPage() {
   return (
     <div
       style={{
-        minHeight:  '100vh',
+        height:     '100vh',
+        overflowY:  'auto',
         background: '#F7F3EC',
         fontFamily: "'DM Sans', sans-serif",
-        maxWidth:   390,
-        margin:     '0 auto',
         animation:  'fadeIn 0.28s ease both',
       }}
     >
@@ -806,7 +805,6 @@ function AddDealSheet({
         transition:   'transform 0.32s cubic-bezier(.32,.72,0,1)',
         zIndex:       300,
         width:        '100%',
-        maxWidth:     390,
         background:   '#F7F3EC',
         borderTop:    '0.5px solid rgba(200,160,80,0.3)',
         borderRadius: '22px 22px 0 0',

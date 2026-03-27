@@ -179,11 +179,10 @@ export default function PrepPage() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      height: '100vh',
+      overflowY: 'auto',
       background: COLORS.cream,
       fontFamily: FONTS.sans,
-      maxWidth: 390,
-      margin: '0 auto',
       paddingBottom: 80,
     }}>
 
@@ -304,9 +303,7 @@ export default function PrepPage() {
       {/* Bottom bar */}
       {brief && !loading && (
         <div style={{
-          position: 'fixed', bottom: 0, left: '50%',
-          transform: 'translateX(-50%)',
-          width: '100%', maxWidth: 390,
+          position: 'fixed', bottom: 0, left: 0, right: 0,
           background: COLORS.cream,
           borderTop: '0.5px solid rgba(200,160,80,0.18)',
           padding: '12px 18px 32px',

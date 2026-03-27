@@ -357,8 +357,6 @@ export default function DealChatPage() {
       height: '100vh',
       background: COLORS.bg,
       fontFamily: FONTS.sans,
-      maxWidth: 390,
-      margin: '0 auto',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',

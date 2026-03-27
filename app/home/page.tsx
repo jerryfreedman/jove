@@ -433,9 +433,7 @@ export default function HomePage() {
       className="relative overflow-hidden"
       style={{
         width:     '100%',
-        maxWidth:  390,
         height:    '100vh',
-        margin:    '0 auto',
         fontFamily:"'DM Sans', sans-serif",
       }}
     >
