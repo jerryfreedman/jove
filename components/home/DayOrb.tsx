@@ -1,3 +1,6 @@
+// NOTE: No longer used on home screen as of
+// Sun Orb Unification. Retained for potential reuse.
+
 'use client';
 
 import { getDayIntensity } from '@/lib/design-system';

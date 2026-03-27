@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
-import DayOrb from '@/components/home/DayOrb';
 import Logo from '@/components/ui/Logo';
 import StreakBadge from '@/components/ui/StreakBadge';
 import CaptureSheet from '@/components/capture/CaptureSheet';
@@ -371,14 +370,20 @@ export default function HomePage() {
     return mt.toDateString() === tod.toDateString();
   }).length ?? 0;
 
-  const urgentDealCount = data?.urgentDeals.length ?? 0;
-  const lowIntelDeals   = (data?.allDeals ?? []).filter(
-    d => (d.intel_score ?? 0) < 30 &&
-    d.stage !== 'Closed Won' &&
-    d.stage !== 'Closed Lost'
-  ).length;
-  const effectiveUrgent = Math.max(urgentDealCount, Math.floor(lowIntelDeals / 2));
   const intelLines      = data ? buildIntelLines(data) : [];
+
+  // ── SUN IMMINENT / IN-PROGRESS STATE ─────────────────
+  const now = new Date();
+  const isImminent = (data?.meetings ?? []).some(m => {
+    const mt = new Date(m.scheduled_at);
+    const diff = mt.getTime() - now.getTime();
+    return diff > 0 && diff < 60 * 60 * 1000;
+  });
+  const isInProgress = (data?.meetings ?? []).some(m => {
+    const mt = new Date(m.scheduled_at);
+    const end = new Date(mt.getTime() + 90 * 60 * 1000);
+    return now >= mt && now <= end;
+  });
   const firstName       = getFirstName(data?.user ?? null);
   const greeting        = getGreeting(h);
 
@@ -429,6 +434,128 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
+
+      {/* ── SUN PULSE KEYFRAME ──────────────────────── */}
+      <style>{`
+        @keyframes sunPing {
+          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.6; }
+          100% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; }
+        }
+      `}</style>
+
+      {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
+      {scene.sun.opacity > 0 ? (
+        <>
+          {/* Breathing glow behind sun */}
+          <div
+            style={{
+              position:     'absolute',
+              left:         '50%',
+              top:          `${scene.sun.top}%`,
+              transform:    'translate(-50%, -50%)',
+              width:        110,
+              height:       110,
+              borderRadius: '50%',
+              background:   'radial-gradient(circle, rgba(248,190,64,0.18), transparent 68%)',
+              animation:    'orbGlow 5s ease-in-out infinite',
+              zIndex:       4,
+              pointerEvents:'none',
+            }}
+          />
+
+          {/* Clickable sun overlay */}
+          <div
+            onClick={() => router.push('/briefing')}
+            style={{
+              position:     'absolute',
+              left:         '50%',
+              top:          `${scene.sun.top}%`,
+              transform:    'translate(-50%, -50%)',
+              width:        80,
+              height:       80,
+              borderRadius: '50%',
+              cursor:       'pointer',
+              zIndex:       15,
+              display:      'flex',
+              alignItems:   'center',
+              justifyContent:'center',
+              animation:    isImminent
+                ? 'breath 2.5s ease-in-out infinite'
+                : 'breath 5s ease-in-out infinite',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+            aria-label={`${todayMeetingCount} meeting${todayMeetingCount !== 1 ? 's' : ''} today. Tap for briefing.`}
+          >
+            {/* Meeting count pill */}
+            {todayMeetingCount > 0 && (
+              <div
+                style={{
+                  position:       'absolute',
+                  left:           '50%',
+                  top:            '50%',
+                  transform:      'translate(-50%, 18px)',
+                  background:     'rgba(13,15,18,0.52)',
+                  backdropFilter: 'blur(4px)',
+                  borderRadius:   20,
+                  padding:        '3px 10px',
+                  whiteSpace:     'nowrap',
+                  pointerEvents:  'none',
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily:  "'DM Sans', sans-serif",
+                    fontWeight:  700,
+                    fontSize:    12,
+                    color:       '#FFFFFF',
+                  }}
+                >
+                  {todayMeetingCount} {todayMeetingCount === 1 ? 'meeting' : 'meetings'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* In-progress pulse ring */}
+          {isInProgress && (
+            <div
+              style={{
+                position:     'absolute',
+                left:         '50%',
+                top:          `${scene.sun.top}%`,
+                transform:    'translate(-50%, -50%)',
+                width:        90,
+                height:       90,
+                borderRadius: '50%',
+                border:       '1.5px solid rgba(248,190,64,0.4)',
+                animation:    'sunPing 2s ease-out infinite',
+                zIndex:       4,
+                pointerEvents:'none',
+              }}
+            />
+          )}
+        </>
+      ) : (
+        /* ── NIGHT FALLBACK TAP TARGET ─────────────── */
+        <div
+          onClick={() => router.push('/briefing')}
+          style={{
+            position:     'absolute',
+            left:         '50%',
+            top:          '75%',
+            transform:    'translate(-50%, -50%)',
+            width:        64,
+            height:       64,
+            borderRadius: '50%',
+            background:   'rgba(180,200,255,0.06)',
+            border:       '0.5px solid rgba(180,200,255,0.12)',
+            cursor:       'pointer',
+            zIndex:       15,
+            WebkitTapHighlightColor: 'transparent',
+          }}
+          aria-label="Tap for briefing"
+        />
+      )}
 
       {/* ── OFFLINE BANNER ─────────────────────────── */}
       <div style={{
@@ -607,23 +734,9 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* ── ORB — centered in flex:1 space ───────── */}
+        {/* ── SPACER — replaces the old flex:1 orb container */}
         {!(fetchError && !data) && (
-        <div
-          style={{
-            flex:           1,
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'center',
-            ...anim(0.23),
-          }}
-        >
-          <DayOrb
-            meetingCount={todayMeetingCount}
-            urgentDeals={effectiveUrgent}
-            onClick={() => router.push('/briefing')}
-          />
-        </div>
+          <div style={{ flex: 1 }} />
         )}
 
         {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
