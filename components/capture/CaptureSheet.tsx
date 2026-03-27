@@ -200,6 +200,15 @@ export default function CaptureSheet({
         }).catch(err => console.error('Extraction trigger error:', err));
       }
 
+      // Fire voice profile update for email types — fire and forget
+      if (type === 'email_sent' || type === 'draft') {
+        fetch('/api/update-voice-profile', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ userId }),
+        }).catch(err => console.error('Voice profile update error:', err));
+      }
+
       // If idea — also save to ideas table
       if (extraData?.saveToIdeas) {
         await supabase.from('ideas').insert({
@@ -284,6 +293,14 @@ export default function CaptureSheet({
     await saveCapture('email_sent', draftContext, {
       finalSentContent: draftOutput,
     });
+    // Also fire voice profile update after confirm sent
+    if (userId) {
+      fetch('/api/update-voice-profile', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId }),
+      }).catch(err => console.error('Voice profile update error:', err));
+    }
     setSentConfirmed(true);
   };
 

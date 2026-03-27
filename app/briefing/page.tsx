@@ -397,6 +397,25 @@ export default function BriefingPage() {
           Today&apos;s Briefing
         </h1>
         <button
+          onClick={() => router.push('/meetings')}
+          style={{
+            fontSize:     10,
+            fontWeight:   600,
+            letterSpacing:'1px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.4)',
+            padding:      '6px 12px',
+            borderRadius: 20,
+            border:       '0.5px solid rgba(26,20,16,0.12)',
+            background:   'transparent',
+            cursor:       'pointer',
+            fontFamily:   "'DM Sans', sans-serif",
+            marginRight:  6,
+          }}
+        >
+          Meetings
+        </button>
+        <button
           onClick={() => {
             const text = buildBriefingText(
               meetings, visibleAttentionDeals, doThisFirst, accountMap
