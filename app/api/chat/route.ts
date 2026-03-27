@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     const [dealRes, interactionsRes, voiceRes] = await Promise.all([
       supabase
         .from('deals')
-        .select('*, accounts(*), contacts(*)')
+        .select('*, accounts(*, contacts(*))')
         .eq('id', dealId)
         .eq('user_id', userId)
         .single(),
@@ -59,11 +59,11 @@ export async function POST(request: NextRequest) {
     ]);
 
     const deal = dealRes.data;
-    const account = deal?.accounts as { name: string } | null;
-    const contacts = (deal?.contacts ?? []) as Array<{
+    const account = deal?.accounts as { name: string; contacts?: Array<{
       name: string; title: string | null; is_champion: boolean;
       relationship_summary: string | null;
-    }>;
+    }> } | null;
+    const contacts = (account?.contacts ?? []);
     const interactions = interactionsRes.data ?? [];
     const voice = voiceRes.data;
 
