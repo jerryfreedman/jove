@@ -5,6 +5,8 @@ import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import type { SignalType } from '@/lib/types';
 
+export const maxDuration = 30;
+
 // ── VALID SIGNAL TYPES ─────────────────────────────────────
 const VALID_SIGNAL_TYPES: SignalType[] = [
   'champion_identified', 'timeline_mentioned', 'budget_mentioned',
@@ -270,8 +272,10 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
       await supabase.from('signals').insert(newSignalRows);
     }
 
-    // ── UPDATE DEAL SCORES ────────────────────────────────
-    if (interaction.deal_id) {
+    // ── UPDATE DEAL SCORES + CONTACT SUMMARIES (PARALLEL) ──
+    const updateDealScores = async () => {
+      if (!interaction.deal_id) return;
+
       const { data: allDealSignals } = await supabase
         .from('signals')
         .select('signal_type, content, created_at, is_duplicate')
@@ -302,76 +306,83 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
         .update(dealUpdate)
         .eq('id', interaction.deal_id)
         .eq('user_id', userId);
-    }
+    };
 
-    // ── UPDATE CONTACT SUMMARIES ──────────────────────────
-    for (const contact of extracted.contacts_mentioned ?? []) {
-      if (!contact.name?.trim()) continue;
+    const updateContacts = async () => {
+      for (const contact of extracted.contacts_mentioned ?? []) {
+        if (!contact.name?.trim()) continue;
 
-      // Search for existing contact by name
-      const { data: existingContacts } = await supabase
-        .from('contacts')
-        .select('id, name, relationship_summary')
-        .eq('user_id', userId)
-        .ilike('name', `%${contact.name.trim()}%`)
-        .limit(1);
+        // Search for existing contact by name
+        const { data: existingContacts } = await supabase
+          .from('contacts')
+          .select('id, name, relationship_summary')
+          .eq('user_id', userId)
+          .ilike('name', `%${contact.name.trim()}%`)
+          .limit(1);
 
-      if (existingContacts && existingContacts.length > 0) {
-        // Update existing contact relationship summary
-        const existingContact = existingContacts[0];
-        const summaryMessage = await anthropic.messages.create({
-          model:      CLAUDE_MODEL,
-          max_tokens: 200,
-          system: `You are updating a relationship summary for a sales contact.
+        if (existingContacts && existingContacts.length > 0) {
+          // Update existing contact relationship summary
+          const existingContact = existingContacts[0];
+          const summaryMessage = await anthropic.messages.create({
+            model:      CLAUDE_MODEL,
+            max_tokens: 200,
+            system: `You are updating a relationship summary for a sales contact.
 Write an updated 2-3 sentence relationship summary.
 Be specific. Include role context and key relationship details.
 Return only the summary text — no labels, no preamble, no quotes.`,
-          messages: [
-            {
-              role:    'user',
-              content: `Current summary: ${existingContact.relationship_summary ?? 'No summary yet'}
+            messages: [
+              {
+                role:    'user',
+                content: `Current summary: ${existingContact.relationship_summary ?? 'No summary yet'}
 New context: ${contact.context}
 Write the updated summary.`,
-            },
-          ],
-        });
-
-        const newSummary = summaryMessage.content[0].type === 'text'
-          ? summaryMessage.content[0].text.trim()
-          : existingContact.relationship_summary;
-
-        await supabase
-          .from('contacts')
-          .update({
-            relationship_summary: newSummary,
-            last_interaction_at:  new Date().toISOString(),
-          })
-          .eq('id', existingContact.id);
-
-      } else {
-        // Create stub contact — only when account_id is available
-        let accountId: string | null = null;
-        if (interaction.deal_id) {
-          const { data: deal } = await supabase
-            .from('deals')
-            .select('account_id')
-            .eq('id', interaction.deal_id)
-            .single();
-          accountId = deal?.account_id ?? null;
-        }
-
-        if (accountId) {
-          await supabase.from('contacts').insert({
-            user_id:              userId,
-            account_id:           accountId,
-            name:                 contact.name.trim(),
-            title:                contact.title ?? null,
-            relationship_summary: `Mentioned in a capture: ${contact.context}`,
-            last_interaction_at:  new Date().toISOString(),
+              },
+            ],
           });
+
+          const newSummary = summaryMessage.content[0].type === 'text'
+            ? summaryMessage.content[0].text.trim()
+            : existingContact.relationship_summary;
+
+          await supabase
+            .from('contacts')
+            .update({
+              relationship_summary: newSummary,
+              last_interaction_at:  new Date().toISOString(),
+            })
+            .eq('id', existingContact.id);
+
+        } else {
+          // Create stub contact — only when account_id is available
+          let accountId: string | null = null;
+          if (interaction.deal_id) {
+            const { data: deal } = await supabase
+              .from('deals')
+              .select('account_id')
+              .eq('id', interaction.deal_id)
+              .single();
+            accountId = deal?.account_id ?? null;
+          }
+
+          if (accountId) {
+            await supabase.from('contacts').insert({
+              user_id:              userId,
+              account_id:           accountId,
+              name:                 contact.name.trim(),
+              title:                contact.title ?? null,
+              relationship_summary: `Mentioned in a capture: ${contact.context}`,
+              last_interaction_at:  new Date().toISOString(),
+            });
+          }
         }
       }
-    }
+    };
+
+    // Run deal scoring and contact updates in parallel
+    await Promise.all([
+      updateDealScores(),
+      updateContacts(),
+    ]);
 
     // ── MARK COMPLETE ─────────────────────────────────────
     await supabase

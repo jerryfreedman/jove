@@ -67,7 +67,7 @@ export default function DealsPage() {
       const [dealsRes, accountsRes, contactsRes] = await Promise.all([
         supabase
           .from('deals')
-          .select('*')
+          .select('id, name, stage, last_activity_at, snoozed_until, next_action, account_id, user_id, intel_score')
           .eq('user_id', user.id)
           .order('last_activity_at', { ascending: false }),
         supabase
@@ -77,7 +77,7 @@ export default function DealsPage() {
           .order('name'),
         supabase
           .from('contacts')
-          .select('*')
+          .select('id, name, account_id, user_id')
           .eq('user_id', user.id),
       ]);
 
@@ -171,6 +171,7 @@ export default function DealsPage() {
         fontFamily: "'DM Sans', sans-serif",
         maxWidth:   390,
         margin:     '0 auto',
+        animation:  'fadeIn 0.28s ease both',
       }}
     >
 

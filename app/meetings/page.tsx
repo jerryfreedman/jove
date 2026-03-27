@@ -251,6 +251,7 @@ export default function MeetingsPage() {
       maxWidth:    390,
       margin:      '0 auto',
       paddingBottom:100,
+      animation:   'fadeIn 0.28s ease both',
     }}>
       {/* Header */}
       <div style={{

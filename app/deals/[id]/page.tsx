@@ -414,6 +414,7 @@ export default function DealDetailPage() {
       maxWidth:    390,
       margin:      '0 auto',
       paddingBottom:100,
+      animation:   'fadeIn 0.28s ease both',
     }}>
 
       {/* ── HEADER ────────────────────────────────────── */}

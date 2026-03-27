@@ -3,6 +3,9 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE_URL, CLAUDE_MODEL } from '@/lib/constants';
+import { getCached, setCached } from '@/lib/context-cache';
+
+export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,101 +14,110 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options as Record<string, unknown>)
-              );
-            } catch {
-              // ignore
-            }
+    // Check context cache first
+    const cacheKey = `closeplan_${dealId}_${userId}`;
+    const cachedPrompt = getCached(cacheKey);
+
+    let userPrompt: string;
+
+    if (cachedPrompt) {
+      userPrompt = cachedPrompt;
+    } else {
+      const cookieStore = await cookies();
+      const supabase = createServerClient(
+        SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() { return cookieStore.getAll(); },
+            setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
+              try {
+                cookiesToSet.forEach(({ name, value, options }) =>
+                  cookieStore.set(name, value, options as Record<string, unknown>)
+                );
+              } catch {
+                // ignore
+              }
+            },
           },
-        },
+        }
+      );
+
+      // Fetch full deal context
+      const [dealRes, interactionsRes, signalsRes] = await Promise.all([
+        supabase
+          .from('deals')
+          .select('*, accounts(*)')
+          .eq('id', dealId)
+          .eq('user_id', userId)
+          .single(),
+        supabase
+          .from('interactions')
+          .select('type, raw_content, created_at')
+          .eq('deal_id', dealId)
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('signals')
+          .select('signal_type, content')
+          .eq('deal_id', dealId)
+          .eq('user_id', userId)
+          .eq('is_duplicate', false)
+          .order('created_at', { ascending: false })
+          .limit(15),
+      ]);
+
+      if (dealRes.error || !dealRes.data) {
+        return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
       }
-    );
 
-    // Fetch full deal context
-    const [dealRes, interactionsRes, signalsRes] = await Promise.all([
-      supabase
-        .from('deals')
-        .select('*, accounts(*)')
-        .eq('id', dealId)
-        .eq('user_id', userId)
-        .single(),
-      supabase
-        .from('interactions')
-        .select('type, raw_content, created_at')
-        .eq('deal_id', dealId)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(10),
-      supabase
-        .from('signals')
-        .select('signal_type, content')
-        .eq('deal_id', dealId)
-        .eq('user_id', userId)
-        .eq('is_duplicate', false)
-        .order('created_at', { ascending: false })
-        .limit(15),
-    ]);
+      const deal         = dealRes.data;
+      const account      = deal.accounts as { name: string } | null;
+      const interactions = interactionsRes.data ?? [];
+      const signals      = signalsRes.data ?? [];
 
-    if (dealRes.error || !dealRes.data) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
-    }
+      // Fetch contacts via account
+      const { data: contactsData } = await supabase
+        .from('contacts')
+        .select('name, title, is_champion, relationship_summary')
+        .eq('account_id', deal.account_id)
+        .eq('user_id', userId);
 
-    const deal         = dealRes.data;
-    const account      = deal.accounts as { name: string } | null;
-    const interactions = interactionsRes.data ?? [];
-    const signals      = signalsRes.data ?? [];
+      const contacts = (contactsData ?? []) as Array<{
+        name: string;
+        title: string | null;
+        is_champion: boolean;
+        relationship_summary: string | null;
+      }>;
 
-    // Fetch contacts via account
-    const { data: contactsData } = await supabase
-      .from('contacts')
-      .select('name, title, is_champion, relationship_summary')
-      .eq('account_id', deal.account_id)
-      .eq('user_id', userId);
+      const days = Math.floor(
+        (Date.now() - new Date(deal.last_activity_at).getTime()) /
+        (1000 * 60 * 60 * 24)
+      );
 
-    const contacts = (contactsData ?? []) as Array<{
-      name: string;
-      title: string | null;
-      is_champion: boolean;
-      relationship_summary: string | null;
-    }>;
+      const contactsText = contacts.length > 0
+        ? contacts.map(c =>
+            `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${
+              c.is_champion ? 'yes' : 'no'
+            }${c.relationship_summary ? ` — ${c.relationship_summary}` : ''}`
+          ).join('\n')
+        : 'No contacts logged yet.';
 
-    const days = Math.floor(
-      (Date.now() - new Date(deal.last_activity_at).getTime()) /
-      (1000 * 60 * 60 * 24)
-    );
+      const interactionsText = interactions.length > 0
+        ? interactions.map((i: { created_at: string; type: string; raw_content: string }) => {
+            const d = new Date(i.created_at).toLocaleDateString('en-US', {
+              month: 'short', day: 'numeric',
+            });
+            return `${d} | ${i.type} | ${i.raw_content.slice(0, 200)}`;
+          }).join('\n')
+        : 'No interactions logged yet.';
 
-    const contactsText = contacts.length > 0
-      ? contacts.map(c =>
-          `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${
-            c.is_champion ? 'yes' : 'no'
-          }${c.relationship_summary ? ` — ${c.relationship_summary}` : ''}`
-        ).join('\n')
-      : 'No contacts logged yet.';
+      const signalsText = signals.length > 0
+        ? signals.map((s: { signal_type: string; content: string }) => `${s.signal_type}: ${s.content}`).join('\n')
+        : 'No signals extracted yet.';
 
-    const interactionsText = interactions.length > 0
-      ? interactions.map((i: { created_at: string; type: string; raw_content: string }) => {
-          const d = new Date(i.created_at).toLocaleDateString('en-US', {
-            month: 'short', day: 'numeric',
-          });
-          return `${d} | ${i.type} | ${i.raw_content.slice(0, 200)}`;
-        }).join('\n')
-      : 'No interactions logged yet.';
-
-    const signalsText = signals.length > 0
-      ? signals.map((s: { signal_type: string; content: string }) => `${s.signal_type}: ${s.content}`).join('\n')
-      : 'No signals extracted yet.';
-
-    const userPrompt = `Generate a strategic close plan for this opportunity.
+      userPrompt = `Generate a strategic close plan for this opportunity.
 
 DEAL: ${deal.name}
 ACCOUNT: ${account?.name ?? 'Unknown'}
@@ -147,6 +159,10 @@ Step 3: [Specific action — who owns it — realistic timeline]
 
 **NEXT MESSAGE TO SEND**
 [The single most important outreach to make right now — who, what, why]`;
+
+      // Cache the assembled context
+      setCached(cacheKey, userPrompt);
+    }
 
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,

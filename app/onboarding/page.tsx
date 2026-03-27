@@ -307,6 +307,7 @@ export default function OnboardingPage() {
 
           {/* Question */}
           <h2
+            key={step}
             style={{
               fontFamily:    "'Cormorant Garamond', serif",
               fontSize:      step === 'q1_company' ? 44 : 36,
@@ -318,6 +319,7 @@ export default function OnboardingPage() {
               textShadow:    scene.lightText
                 ? '0 2px 20px rgba(0,0,0,0.18)'
                 : 'none',
+              animation:     'fadeUp 0.4s ease both',
             }}
           >
             {QUESTIONS[step] ?? 'Almost done...'}

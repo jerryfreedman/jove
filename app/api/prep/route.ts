@@ -3,6 +3,9 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
+import { getCached, setCached } from '@/lib/context-cache';
+
+export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,86 +14,95 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
+    // Check context cache first
+    const cacheKey = `prep_${dealId}_${userId}`;
+    const cachedPrompt = getCached(cacheKey);
+
+    let userPrompt: string;
+
+    if (cachedPrompt) {
+      userPrompt = cachedPrompt;
+    } else {
+      const cookieStore = await cookies();
+      const supabase = createServerClient(
+        SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() { return cookieStore.getAll(); },
+            setAll(cookiesToSet) {
+              try {
+                cookiesToSet.forEach(({ name, value, options }) =>
+                  cookieStore.set(name, value, options)
+                );
+              } catch {}
+            },
           },
-        },
+        }
+      );
+
+      // Fetch all deal context in parallel
+      const [dealRes, interactionsRes, signalsRes] = await Promise.all([
+        supabase
+          .from('deals')
+          .select('*, accounts(*, contacts(*))')
+          .eq('id', dealId)
+          .eq('user_id', userId)
+          .single(),
+        supabase
+          .from('interactions')
+          .select('type, raw_content, created_at')
+          .eq('deal_id', dealId)
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('signals')
+          .select('signal_type, content')
+          .eq('deal_id', dealId)
+          .eq('user_id', userId)
+          .eq('is_duplicate', false)
+          .order('created_at', { ascending: false })
+          .limit(10),
+      ]);
+
+      if (dealRes.error || !dealRes.data) {
+        return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
       }
-    );
 
-    // Fetch all deal context in parallel
-    const [dealRes, interactionsRes, signalsRes] = await Promise.all([
-      supabase
-        .from('deals')
-        .select('*, accounts(*, contacts(*))')
-        .eq('id', dealId)
-        .eq('user_id', userId)
-        .single(),
-      supabase
-        .from('interactions')
-        .select('type, raw_content, created_at')
-        .eq('deal_id', dealId)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(5),
-      supabase
-        .from('signals')
-        .select('signal_type, content')
-        .eq('deal_id', dealId)
-        .eq('user_id', userId)
-        .eq('is_duplicate', false)
-        .order('created_at', { ascending: false })
-        .limit(10),
-    ]);
+      const deal = dealRes.data;
+      const account = deal.accounts as { name: string; contacts?: Array<{
+        name: string; title: string | null; is_champion: boolean;
+      }> } | null;
+      const contacts = (account?.contacts ?? []);
+      const interactions = interactionsRes.data ?? [];
+      const signals = signalsRes.data ?? [];
 
-    if (dealRes.error || !dealRes.data) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
-    }
+      const days = Math.floor(
+        (Date.now() - new Date(deal.last_activity_at).getTime()) /
+        (1000 * 60 * 60 * 24)
+      );
 
-    const deal = dealRes.data;
-    const account = deal.accounts as { name: string; contacts?: Array<{
-      name: string; title: string | null; is_champion: boolean;
-    }> } | null;
-    const contacts = (account?.contacts ?? []);
-    const interactions = interactionsRes.data ?? [];
-    const signals = signalsRes.data ?? [];
+      const contactsText = contacts.length > 0
+        ? contacts.map(c =>
+            `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${c.is_champion ? 'yes' : 'no'}`
+          ).join('\n')
+        : 'No contacts logged yet.';
 
-    const days = Math.floor(
-      (Date.now() - new Date(deal.last_activity_at).getTime()) /
-      (1000 * 60 * 60 * 24)
-    );
+      const interactionsText = interactions.length > 0
+        ? interactions.map(i => {
+            const d = new Date(i.created_at).toLocaleDateString('en-US', {
+              month: 'short', day: 'numeric',
+            });
+            return `${d} | ${i.type} | ${(i.raw_content ?? '').slice(0, 200)}`;
+          }).join('\n')
+        : 'No interactions logged yet.';
 
-    const contactsText = contacts.length > 0
-      ? contacts.map(c =>
-          `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${c.is_champion ? 'yes' : 'no'}`
-        ).join('\n')
-      : 'No contacts logged yet.';
+      const signalsText = signals.length > 0
+        ? signals.map(s => `${s.signal_type} | ${s.content}`).join('\n')
+        : 'No signals extracted yet.';
 
-    const interactionsText = interactions.length > 0
-      ? interactions.map(i => {
-          const d = new Date(i.created_at).toLocaleDateString('en-US', {
-            month: 'short', day: 'numeric',
-          });
-          return `${d} | ${i.type} | ${(i.raw_content ?? '').slice(0, 200)}`;
-        }).join('\n')
-      : 'No interactions logged yet.';
-
-    const signalsText = signals.length > 0
-      ? signals.map(s => `${s.signal_type} | ${s.content}`).join('\n')
-      : 'No signals extracted yet.';
-
-    const userPrompt = `DEAL: ${deal.name}
+      userPrompt = `DEAL: ${deal.name}
 ACCOUNT: ${account?.name ?? 'Unknown'}
 STAGE: ${deal.stage}
 VALUE: ${deal.value ? `$${Number(deal.value).toLocaleString()}` : 'Not set'}
@@ -126,6 +138,10 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
 
 **PROPOSED NEXT STEP**
 [Single sentence — what to walk out having agreed on]`;
+
+      // Cache the assembled context
+      setCached(cacheKey, userPrompt);
+    }
 
     // Stream response
     const stream = await anthropic.messages.stream({

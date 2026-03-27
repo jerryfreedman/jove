@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase';
+import Logo from '@/components/ui/Logo';
 import { COLORS, FONTS } from '@/lib/design-system';
 import {
   STREAK_WEEKDAYS_ONLY,
+  STREAK_MILESTONE_DAYS,
 } from '@/lib/constants';
 import type { DealRow, InteractionType } from '@/lib/types';
 
@@ -160,6 +162,33 @@ export default function CaptureSheet({
 
     // Trigger logo bloom on home screen
     localStorage.setItem('jove_bloom_trigger', String(Date.now()));
+
+    // Check for streak milestone — count consecutive days
+    const { data: recentLogs } = await supabase
+      .from('streak_log')
+      .select('log_date')
+      .eq('user_id', userId)
+      .order('log_date', { ascending: false })
+      .limit(120);
+
+    if (recentLogs) {
+      let streakCount = recentLogs.length > 0 ? 1 : 0;
+      for (let i = 1; i < recentLogs.length; i++) {
+        const curr = new Date(recentLogs[i - 1].log_date);
+        const prev = new Date(recentLogs[i].log_date);
+        const diffDays = Math.round(
+          (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (diffDays <= 2) {
+          streakCount++;
+        } else {
+          break;
+        }
+      }
+      if (STREAK_MILESTONE_DAYS.includes(streakCount)) {
+        localStorage.setItem('jove_milestone_trigger', String(Date.now()));
+      }
+    }
   };
 
   // ── SAVE CAPTURE ─────────────────────────────────────────
@@ -455,8 +484,11 @@ export default function CaptureSheet({
               textAlign: 'center',
             }}
           >
-            <div style={{ fontSize: 34, marginBottom: 12 }}>
-              &#10022;
+            <div style={{
+              animation: 'logoBloom 0.8s ease-out both',
+              marginBottom: 12,
+            }}>
+              <Logo light showWordmark={false} size={44} onClick={() => {}} />
             </div>
             <p
               style={{
@@ -996,6 +1028,11 @@ export default function CaptureSheet({
         @keyframes captureSheetSpin {
           from { transform: rotate(0deg); }
           to   { transform: rotate(360deg); }
+        }
+        @keyframes logoBloom {
+          0%   { transform: scale(0.6); opacity: 0; }
+          60%  { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
         }
       `}</style>
     </>

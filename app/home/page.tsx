@@ -267,7 +267,7 @@ export default function HomePage() {
 
         supabase
           .from('meetings')
-          .select('*')
+          .select('id, title, scheduled_at, deal_id, attendees, debrief_completed, debrief_prompted_at')
           .eq('user_id', authUser.id)
           .gte('scheduled_at', todayStr)
           .order('scheduled_at', { ascending: true })
@@ -275,7 +275,7 @@ export default function HomePage() {
 
         supabase
           .from('deals')
-          .select('*')
+          .select('id, name, stage, last_activity_at, snoozed_until, intel_score, momentum_score, signal_velocity, next_action, account_id, user_id')
           .eq('user_id', authUser.id)
           .not('stage', 'in', '("Closed Won","Closed Lost")')
           .lt('last_activity_at', cutoff.toISOString())
@@ -285,7 +285,7 @@ export default function HomePage() {
 
         supabase
           .from('deals')
-          .select('*')
+          .select('id, name, stage, last_activity_at, snoozed_until, intel_score, momentum_score, signal_velocity, next_action, account_id, user_id')
           .eq('user_id', authUser.id)
           .not('stage', 'in', '("Closed Won","Closed Lost")')
           .order('last_activity_at', { ascending: false })
@@ -293,7 +293,7 @@ export default function HomePage() {
 
         supabase
           .from('signals')
-          .select('*')
+          .select('id, content, signal_type, deal_id, created_at')
           .eq('user_id', authUser.id)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -301,7 +301,7 @@ export default function HomePage() {
 
         supabase
           .from('streak_log')
-          .select('*')
+          .select('id, log_date, capture_count, user_id')
           .eq('user_id', authUser.id)
           .gte('log_date', new Date(Date.now() - 120 * 24 * 60 * 60 * 1000)
             .toISOString().split('T')[0])
@@ -349,12 +349,18 @@ export default function HomePage() {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
 
-  // ── LOGO BLOOM LISTENER ──────────────────────────────────
+  // ── LOGO BLOOM + MILESTONE LISTENER ──────────────────────
+  const [logoMilestone, setLogoMilestone] = useState(false);
+
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'jove_bloom_trigger') {
         setLogoBloom(true);
         setTimeout(() => setLogoBloom(false), 800);
+      }
+      if (e.key === 'jove_milestone_trigger') {
+        setLogoMilestone(true);
+        setTimeout(() => setLogoMilestone(false), 2000);
       }
     };
     window.addEventListener('storage', handleStorage);
@@ -571,17 +577,24 @@ export default function HomePage() {
           {/* Logo — taps to settings */}
           <div
             style={{
-              transition: 'box-shadow 0.4s ease, transform 0.4s ease',
+              transition: logoMilestone
+                ? 'box-shadow 2s ease, transform 2s ease'
+                : 'box-shadow 0.4s ease, transform 0.4s ease',
               borderRadius: 12,
-              ...(logoBloom
+              ...(logoMilestone
                 ? {
-                    boxShadow: '0 0 24px rgba(232,160,48,0.5)',
-                    transform: 'scale(1.15)',
+                    boxShadow: '0 0 24px 12px rgba(232,160,48,0.4)',
+                    transform: 'scale(1.2)',
                   }
-                : {
-                    boxShadow: 'none',
-                    transform: 'scale(1)',
-                  }),
+                : logoBloom
+                  ? {
+                      boxShadow: '0 0 24px rgba(232,160,48,0.5)',
+                      transform: 'scale(1.15)',
+                    }
+                  : {
+                      boxShadow: 'none',
+                      transform: 'scale(1)',
+                    }),
             }}
           >
             <Logo light={scene.lightText} showWordmark size={30} />

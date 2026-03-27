@@ -284,6 +284,7 @@ export default function SettingsPage() {
       maxWidth:    390,
       margin:      '0 auto',
       paddingBottom:60,
+      animation:   'fadeIn 0.28s ease both',
     }}>
 
       {/* Header */}
