@@ -25,6 +25,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var h = new Date().getHours();
+            var isDark = h >= 19 || h < 8;
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', isDark ? '#060a12' : '#F7F3EC');
+          })();
+        ` }} />
+      </head>
       <body className="font-sans antialiased bg-jove-bg text-jove-cream">
         {children}
       </body>

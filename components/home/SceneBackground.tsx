@@ -18,9 +18,49 @@ export default function SceneBackground() {
 
   const skyGradient   = `linear-gradient(to bottom, ${sc.sky.join(',')})`;
   const waterGradient = `linear-gradient(to bottom, ${sc.water.join(',')})`;
-  const skyBottom     = sc.sky[sc.sky.length - 1];
-  const isSetting     = sc.sun.top > 65;
-  const sunSize       = isSetting ? 26 : 44;
+
+  // ── Sun rendering logic ──────────────────────────────────
+  const isClipped = sc.sun.top >= 60 && sc.sun.opacity > 0;
+  const isInSky   = sc.sun.top < 60 && sc.sun.opacity > 0;
+  const isNight   = sc.sun.opacity === 0;
+
+  // Clipped sun params by period
+  let clipSunSize = 0;
+  let clipHalf = 0;
+  let clipGradient = '';
+
+  if (isClipped) {
+    if (h >= 5 && h < 6) {
+      // Pre-dawn
+      clipSunSize = 44; clipHalf = 22;
+      clipGradient = 'radial-gradient(circle,#fffee8 0%,#fee878 20%,#f8b030 42%,#ee7010 58%,rgba(220,100,20,0.18) 75%,transparent 100%)';
+    } else if (h >= 6 && h < 8) {
+      // Sunrise
+      clipSunSize = 52; clipHalf = 26;
+      clipGradient = 'radial-gradient(circle,#fffee8 0%,#fee870 22%,#f8b030 44%,#ee8010 60%,rgba(230,120,20,0.16) 76%,transparent 100%)';
+    } else if (h >= 16 && h < 19) {
+      // Golden hour
+      clipSunSize = 60; clipHalf = 30;
+      clipGradient = 'radial-gradient(circle,#fffee8 0%,#fee860 20%,#f8ac28 40%,#ee7808 55%,rgba(230,110,10,0.18) 72%,transparent 100%)';
+    } else if (h >= 19 && h < 22) {
+      // Dusk
+      clipSunSize = 40; clipHalf = 20;
+      clipGradient = 'radial-gradient(circle,#fff4d0 0%,#f8c060 24%,#f09020 44%,#cc6010 58%,rgba(190,80,15,0.16) 74%,transparent 100%)';
+    }
+  }
+
+  // In-sky sun params
+  let skySunSize = 0;
+  let skySunShadow = '';
+  if (isInSky) {
+    if (h >= 8 && h < 11) {
+      skySunSize = 32;
+      skySunShadow = '0 0 20px 8px rgba(250,200,70,0.2)';
+    } else if (h >= 11 && h < 16) {
+      skySunSize = 28;
+      skySunShadow = '0 0 18px 6px rgba(250,205,70,0.18)';
+    }
+  }
 
   return (
     <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -78,58 +118,48 @@ export default function SceneBackground() {
         </div>
       )}
 
-      {/* Atmospheric haze at horizon */}
-      <div
-        className="absolute pointer-events-none"
-        style={{
-          top: '42%',
-          left: 0,
-          right: 0,
-          height: 220,
-          background: `radial-gradient(ellipse 82% 60% at 50% 0%, ${sc.haze}, transparent)`,
-          transform: 'translateY(-16%)',
-          animation: 'hazeBreath 10s ease-in-out infinite',
-        }}
-      />
+      {/* Clipped sun — pre-dawn, sunrise, golden hour, dusk */}
+      {isClipped && clipSunSize > 0 && (
+        <div style={{
+          position: 'absolute',
+          left: 0, right: 0, top: 0,
+          height: '62%',
+          overflow: 'hidden',
+          zIndex: 3,
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            position: 'absolute',
+            left: `calc(50% - ${clipHalf}px)`,
+            bottom: -clipHalf,
+            width: clipSunSize,
+            height: clipSunSize,
+            borderRadius: '50%',
+            background: clipGradient,
+            animation: 'breath 9s ease-in-out infinite',
+          }} />
+        </div>
+      )}
 
-      {/* Sun */}
-      {sc.sun.opacity > 0 && (
+      {/* In-sky sun — morning, midday */}
+      {isInSky && skySunSize > 0 && (
         <div
           className="absolute"
           style={{
             left: '50%',
             top: `${sc.sun.top}%`,
             transform: 'translate(-50%, -50%)',
-            opacity: sc.sun.opacity,
             zIndex: 3,
             animation: 'breath 9s ease-in-out infinite',
+            pointerEvents: 'none',
           }}
         >
-          {/* Outer glow */}
           <div style={{
-            position: 'absolute',
-            inset: isSetting ? -30 : -22,
+            width: skySunSize,
+            height: skySunSize,
             borderRadius: '50%',
-            background: isSetting
-              ? 'radial-gradient(circle, rgba(248,200,80,0.18), rgba(240,158,48,0.06) 50%, transparent 70%)'
-              : 'radial-gradient(circle, rgba(248,200,80,0.12), rgba(240,158,48,0.04) 55%, transparent 70%)',
-          }} />
-          {/* Mid glow */}
-          <div style={{
-            position: 'absolute',
-            inset: isSetting ? -12 : -9,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(248,188,70,0.2), transparent 70%)',
-          }} />
-          {/* Sun body */}
-          <div style={{
-            width: sunSize,
-            height: sunSize,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle at 38% 36%, #FFFCE0, #F8C040)',
-            boxShadow: isSetting
-              ? '0 0 36px 14px rgba(248,190,64,0.30)'
-              : '0 0 28px 10px rgba(248,190,64,0.24)',
+            background: 'radial-gradient(circle,#fffde8 0%,#fcd048 50%,#f0a020 100%)',
+            boxShadow: skySunShadow,
           }} />
         </div>
       )}
@@ -138,43 +168,11 @@ export default function SceneBackground() {
       <div
         className="absolute left-0 right-0 bottom-0"
         style={{
-          top: '60%',
+          top: '62%',
           background: waterGradient,
           zIndex: 2,
         }}
       >
-        {/* Sky-to-water horizon blend */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 40,
-          background: `linear-gradient(to bottom, ${skyBottom}, transparent)`,
-          pointerEvents: 'none',
-        }} />
-        {/* Horizon shimmer line */}
-        <div style={{
-          position: 'absolute',
-          top: 40,
-          left: '5%',
-          right: '5%',
-          height: 1,
-          background: 'linear-gradient(to right, transparent, rgba(255,230,150,0.36), transparent)',
-        }} />
-        {/* Sun reflection column */}
-        <div style={{
-          position: 'absolute',
-          top: 2,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 28,
-          height: 58,
-          background: 'linear-gradient(to bottom, rgba(255,228,148,0.15), transparent)',
-          borderRadius: '0 0 50% 50%',
-          filter: 'blur(6px)',
-          animation: 'reflGlow 7s ease-in-out infinite',
-        }} />
         {/* Waves */}
         {[18, 42, 68].map((top, i) => (
           <div
@@ -198,27 +196,27 @@ export default function SceneBackground() {
       <svg
         className="absolute bottom-0 left-0 w-full pointer-events-none"
         style={{ zIndex: 5 }}
-        viewBox="0 0 390 90"
+        viewBox="0 0 100 30"
         preserveAspectRatio="none"
       >
         <defs>
           <linearGradient id="mf" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%"   stopColor={sc.mf} />
-            <stop offset="100%" stopColor={sc.mf} stopOpacity={0.75} />
+            <stop offset="100%" stopColor={sc.mf} stopOpacity={0.85} />
           </linearGradient>
           <linearGradient id="mn" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%"   stopColor={sc.mn} />
-            <stop offset="100%" stopColor={sc.mn} stopOpacity={0.88} />
+            <stop offset="100%" stopColor={sc.mn} stopOpacity={0.85} />
           </linearGradient>
         </defs>
         {/* Far range */}
         <path
-          d="M0,90 L0,56 C24,34 48,48 76,20 C104,-8 132,38 162,26 C192,14 220,44 250,18 C280,-8 308,34 336,28 C356,24 374,36 390,38 L390,90 Z"
+          d="M0,30 L0,18 C5,11 11,14 18,6 C25,-2 32,11 40,8 C48,5 54,14 62,10 C70,-4 78,9 86,7 C91,5 96,9 100,8 L100,30Z"
           fill="url(#mf)"
         />
         {/* Near range */}
         <path
-          d="M0,90 L0,72 C18,54 38,64 62,42 C86,20 110,54 138,44 C166,34 190,58 218,46 C246,34 270,52 296,36 C316,24 340,42 366,48 L390,52 L390,90 Z"
+          d="M0,30 L0,23 C4,17 9,20 15,13 C21,6 28,18 35,14 C42,10 48,19 56,15 C64,11 71,18 79,13 C84,9 91,14 98,15 L100,17 L100,30Z"
           fill="url(#mn)"
         />
       </svg>

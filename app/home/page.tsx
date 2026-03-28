@@ -198,16 +198,10 @@ export default function HomePage() {
 
   // ── DYNAMIC THEME-COLOR (iOS status bar) ────────────────
   useEffect(() => {
-    const skyTop = scene.sky[0];
-    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.name = 'theme-color';
-      document.head.appendChild(meta);
-    }
-    meta.content = skyTop;
-    return () => { meta!.content = '#F7F3EC'; };
-  }, [scene.sky]);
+    const topColor = scene.sky[0].split(' ')[0];
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', topColor);
+  }, [scene]);
 
   // ── OFFLINE DETECTION ──────────────────────────────────
   useEffect(() => {
