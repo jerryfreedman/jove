@@ -188,11 +188,29 @@ export default function HomePage() {
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
 
-  // Sun tap target must match the visual sun position in SceneBackground.
-  // During clipped periods (dusk/golden hour/pre-dawn/sunrise) the sun sits
-  // at the horizon (top: 62%). Otherwise it uses sc.sun.top.
-  const sunIsClipped = (h >= 5 && h < 8) || (h >= 16 && h < 22);
-  const sunTopPct    = sunIsClipped ? 62 : scene.sun.top;
+  // Sun tap target must match the visual sun in SceneBackground exactly.
+  //
+  // SceneBackground renders two modes:
+  //   Clipped sun (pre-dawn/sunrise/golden-hour/dusk): a circle inside a
+  //     container with height:62% + overflow:hidden, positioned at
+  //     bottom: -clipHalf. Only the TOP half is visible above the horizon.
+  //     Visual center of the visible portion = 62% minus clipHalf/2 in px.
+  //   In-sky sun (morning/midday): absolutely placed at sc.sun.top%
+  //     with translate(-50%,-50%). Tap target matches directly.
+  //
+  // clipHalf values replicated from SceneBackground.tsx:
+  const isClippedSun = scene.sun.top >= 60 && scene.sun.opacity > 0;
+  const clipHalf =
+    (h >= 5 && h < 6)   ? 22   // pre-dawn
+  : (h >= 6 && h < 8)   ? 26   // sunrise
+  : (h >= 16 && h < 19) ? 30   // golden hour
+  : (h >= 19 && h < 22) ? 20   // dusk
+  : 0;
+  // For clipped sun: position at the visible center (halfway up the exposed half)
+  // For in-sky sun: position at sc.sun.top%
+  const sunTopStyle = isClippedSun
+    ? `calc(62% - ${clipHalf / 2}px)`
+    : `${scene.sun.top}%`;
 
   // Text color adapts to sky brightness
   const textPrimary   = scene.lightText
@@ -469,7 +487,7 @@ export default function HomePage() {
             style={{
               position:     'absolute',
               left:         '50%',
-              top:          `${sunTopPct}%`,
+              top:          sunTopStyle,
               transform:    'translate(-50%, -50%)',
               width:        110,
               height:       110,
@@ -487,10 +505,10 @@ export default function HomePage() {
             style={{
               position:     'absolute',
               left:         '50%',
-              top:          `${sunTopPct}%`,
+              top:          sunTopStyle,
               transform:    'translate(-50%, -50%)',
-              width:        80,
-              height:       80,
+              width:        100,
+              height:       100,
               borderRadius: '50%',
               cursor:       'pointer',
               zIndex:       15,
@@ -512,7 +530,7 @@ export default function HomePage() {
               style={{
                 position:     'absolute',
                 left:         '50%',
-                top:          `${sunTopPct}%`,
+                top:          sunTopStyle,
                 transform:    'translate(-50%, -50%)',
                 width:        90,
                 height:       90,
@@ -526,13 +544,13 @@ export default function HomePage() {
           )}
         </>
       ) : (
-        /* ── NIGHT FALLBACK TAP TARGET ─────────────── */
+        /* ── NIGHT FALLBACK TAP TARGET (matches moon at 68%/12%) ── */
         <div
           onClick={() => router.push('/briefing')}
           style={{
             position:     'absolute',
-            left:         '50%',
-            top:          '75%',
+            left:         '68%',
+            top:          '12%',
             transform:    'translate(-50%, -50%)',
             width:        64,
             height:       64,
