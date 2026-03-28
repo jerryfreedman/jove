@@ -93,10 +93,13 @@ export default function DealDetailPage() {
   const [savingLog, setSavingLog] = useState(false);
 
   const [copyConfirmed, setCopyConfirmed] = useState(false);
-  const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const archiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Close deal state
+  const [showCloseForm, setShowCloseForm]   = useState(false);
+  const [closeType, setCloseType]           = useState<'Closed Won' | 'Closed Lost' | null>(null);
+  const [closeReason, setCloseReason]       = useState('');
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -232,6 +235,53 @@ export default function DealDetailPage() {
     navigator.clipboard.writeText(text);
     setCopyConfirmed(true);
     setTimeout(() => setCopyConfirmed(false), 1800);
+  };
+
+  // ── CLOSE DEAL ──────────────────────────────────────────────
+  const handleCloseDeal = async () => {
+    if (!userId || !closeType) return;
+
+    // Save close reason as a signal
+    if (closeReason.trim()) {
+      await supabase.from('interactions').insert({
+        user_id:          userId,
+        deal_id:          dealId,
+        type:             'note',
+        raw_content:      `${closeType}: ${closeReason.trim()}`,
+        extraction_status:'pending',
+      });
+    }
+
+    // Update deal stage
+    await supabase
+      .from('deals')
+      .update({
+        stage:            closeType,
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq('id', dealId)
+      .eq('user_id', userId);
+
+    // If Closed Won — trigger logo bloom
+    if (closeType === 'Closed Won') {
+      localStorage.setItem('jove_bloom_trigger', String(Date.now()));
+    }
+
+    router.push('/deals');
+  };
+
+  // ── DELETE DEAL ─────────────────────────────────────────────
+  const handleDeleteDeal = async () => {
+    if (!userId) return;
+    await Promise.all([
+      supabase.from('signals').delete()
+        .eq('deal_id', dealId).eq('user_id', userId),
+      supabase.from('interactions').delete()
+        .eq('deal_id', dealId).eq('user_id', userId),
+    ]);
+    await supabase.from('deals').delete()
+      .eq('id', dealId).eq('user_id', userId);
+    router.push('/deals');
   };
 
   // ── CHAMPION TOGGLE ───────────────────────────────────────
@@ -1143,125 +1193,224 @@ export default function DealDetailPage() {
         })}
       </div>
 
-      {/* ── ARCHIVE / DELETE ────────────────────────── */}
-      {!confirmDelete ? (
+      {/* ── CLOSE DEAL ─────────────────────────────── */}
+      <div style={{
+        margin: '24px 18px 0',
+        paddingTop: 16,
+        borderTop: '0.5px solid rgba(26,20,16,0.08)',
+      }}>
         <div style={{
-          margin: '24px 18px 0',
-          paddingTop: 16,
-          borderTop: '0.5px solid rgba(26,20,16,0.08)',
-          display: 'flex',
-          gap: 10,
+          fontSize: 9,
+          fontWeight: 700,
+          letterSpacing: '2px',
+          textTransform: 'uppercase',
+          color: 'rgba(26,20,16,0.28)',
+          marginBottom: 12,
         }}>
-          <button
-            onClick={async () => {
-              if (confirmArchive) {
-                if (!userId) return;
-                if (archiveTimer.current) clearTimeout(archiveTimer.current);
-                await supabase
-                  .from('deals')
-                  .update({ stage: 'Closed Lost' })
-                  .eq('id', dealId)
-                  .eq('user_id', userId);
-                router.push('/deals');
-              } else {
-                setConfirmArchive(true);
-                archiveTimer.current = setTimeout(() => {
-                  setConfirmArchive(false);
-                }, 3000);
-              }
-            }}
-            style={{
-              flex: 1,
-              padding: '10px 0',
-              borderRadius: 10,
-              border: confirmArchive
-                ? '0.5px solid rgba(232,160,48,0.5)'
-                : '0.5px solid rgba(26,20,16,0.12)',
-              background: confirmArchive
-                ? 'rgba(232,160,48,0.06)'
-                : 'transparent',
-              color: confirmArchive
-                ? COLORS.amber
-                : 'rgba(26,20,16,0.36)',
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: '1.5px',
-              textTransform: 'uppercase',
-              cursor: 'pointer',
-              fontFamily: "'DM Sans', sans-serif",
-              transition: 'all 0.18s',
-            }}
-          >
-            {confirmArchive ? 'Archive — tap to confirm' : 'Archive Deal'}
-          </button>
-          <button
-            onClick={() => {
-              setConfirmDelete(true);
-              setTimeout(() => setConfirmDelete(false), 3000);
-            }}
-            style={{
-              flex: 1,
-              padding: '10px 0',
-              borderRadius: 10,
-              border: '0.5px solid rgba(224,88,64,0.2)',
-              background: 'transparent',
-              color: 'rgba(224,88,64,0.5)',
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: '1.5px',
-              textTransform: 'uppercase',
-              cursor: 'pointer',
-              fontFamily: "'DM Sans', sans-serif",
-            }}
-          >
-            Delete Deal
-          </button>
+          Close Deal
         </div>
-      ) : (
-        <div style={{ margin: '24px 18px 0', textAlign: 'center' }}>
-          <p style={{
-            fontSize: 13, fontWeight: 300,
-            color: 'rgba(26,20,16,0.5)', marginBottom: 12,
-          }}>
-            Delete this deal permanently?
-          </p>
+
+        {!showCloseForm ? (
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => setConfirmDelete(false)}
+            <button
+              onClick={() => { setCloseType('Closed Won'); setShowCloseForm(true); }}
               style={{
-                flex: 1, padding: '10px 0', borderRadius: 10,
-                border: '0.5px solid rgba(26,20,16,0.12)',
-                background: 'transparent',
-                color: 'rgba(26,20,16,0.4)',
-                fontSize: 10, fontWeight: 600,
-                letterSpacing: '1.5px', textTransform: 'uppercase',
-                cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                flex: 1,
+                padding: '11px 0',
+                borderRadius: 12,
+                border: '0.5px solid rgba(72,200,120,0.3)',
+                background: 'rgba(72,200,120,0.06)',
+                color: '#48C878',
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                fontFamily: "'DM Sans', sans-serif",
               }}
-            >Cancel</button>
-            <button onClick={async () => {
-              if (!userId) return;
-              await Promise.all([
-                supabase.from('signals').delete()
-                  .eq('deal_id', dealId).eq('user_id', userId),
-                supabase.from('interactions').delete()
-                  .eq('deal_id', dealId).eq('user_id', userId),
-              ]);
-              await supabase.from('deals').delete()
-                .eq('id', dealId).eq('user_id', userId);
-              router.push('/deals');
-            }}
+            >
+              Closed Won
+            </button>
+            <button
+              onClick={() => { setCloseType('Closed Lost'); setShowCloseForm(true); }}
               style={{
-                flex: 1, padding: '10px 0', borderRadius: 10,
-                border: 'none',
-                background: 'rgba(224,88,64,0.1)',
+                flex: 1,
+                padding: '11px 0',
+                borderRadius: 12,
+                border: '0.5px solid rgba(224,88,64,0.3)',
+                background: 'rgba(224,88,64,0.06)',
                 color: '#E05840',
-                fontSize: 10, fontWeight: 700,
-                letterSpacing: '1.5px', textTransform: 'uppercase',
-                cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                fontFamily: "'DM Sans', sans-serif",
               }}
-            >Yes, Delete</button>
+            >
+              Closed Lost
+            </button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div>
+            <div style={{
+              fontSize: 13,
+              fontWeight: 400,
+              color: '#1A1410',
+              marginBottom: 8,
+            }}>
+              {closeType === 'Closed Won'
+                ? 'What made this a win?'
+                : 'Why did this close lost?'}
+            </div>
+            <textarea
+              autoFocus
+              value={closeReason}
+              onChange={e => setCloseReason(e.target.value)}
+              placeholder={closeType === 'Closed Won'
+                ? 'e.g. Best price, strong champion, fast implementation...'
+                : 'e.g. Went with competitor, budget cut, no decision...'}
+              rows={3}
+              style={{
+                width: '100%',
+                background: '#FFFFFF',
+                border: '0.5px solid rgba(200,160,80,0.28)',
+                borderRadius: 12,
+                padding: '12px 14px',
+                fontSize: 13,
+                fontWeight: 300,
+                color: '#1A1410',
+                outline: 'none',
+                resize: 'none',
+                lineHeight: 1.55,
+                marginBottom: 10,
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+              onFocus={e => { e.target.style.borderColor = 'rgba(232,160,48,0.4)'; }}
+              onBlur={e  => { e.target.style.borderColor = 'rgba(200,160,80,0.28)'; }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleCloseDeal}
+                style={{
+                  flex: 1,
+                  padding: '12px 0',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: closeType === 'Closed Won'
+                    ? 'linear-gradient(135deg, #38a860, #48C878)'
+                    : 'linear-gradient(135deg, #c04030, #E05840)',
+                  color: 'white',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '1.5px',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Confirm {closeType === 'Closed Won' ? 'Win 🎉' : 'Loss'}
+              </button>
+              <button
+                onClick={() => { setShowCloseForm(false); setCloseReason(''); setCloseType(null); }}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                  border: '0.5px solid rgba(26,20,16,0.12)',
+                  background: 'transparent',
+                  color: 'rgba(26,20,16,0.4)',
+                  fontSize: 10,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Hard delete — buried below close form */}
+            <button
+              onClick={() => setConfirmDelete(true)}
+              style={{
+                marginTop: 16,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: 500,
+                color: 'rgba(26,20,16,0.22)',
+                fontFamily: "'DM Sans', sans-serif",
+                letterSpacing: '0.5px',
+                padding: 0,
+              }}
+            >
+              Delete this deal permanently
+            </button>
+          </div>
+        )}
+
+        {/* Delete confirmation */}
+        {confirmDelete && (
+          <div style={{
+            marginTop: 12,
+            padding: '12px 14px',
+            background: 'rgba(224,88,64,0.06)',
+            border: '0.5px solid rgba(224,88,64,0.2)',
+            borderRadius: 12,
+          }}>
+            <p style={{
+              fontSize: 12,
+              fontWeight: 300,
+              color: 'rgba(26,20,16,0.5)',
+              marginBottom: 10,
+            }}>
+              Permanently delete this deal and all its history?
+              This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleDeleteDeal}
+                style={{
+                  flex: 1,
+                  padding: '9px 0',
+                  borderRadius: 9,
+                  border: 'none',
+                  background: 'rgba(224,88,64,0.12)',
+                  color: '#E05840',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '1.5px',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Yes, Delete
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                style={{
+                  flex: 1,
+                  padding: '9px 0',
+                  borderRadius: 9,
+                  border: '0.5px solid rgba(26,20,16,0.12)',
+                  background: 'transparent',
+                  color: 'rgba(26,20,16,0.4)',
+                  fontSize: 9,
+                  fontWeight: 600,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── BOTTOM ACTION BAR ─────────────────────────── */}
       <div style={{

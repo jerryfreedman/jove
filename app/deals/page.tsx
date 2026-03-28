@@ -55,6 +55,7 @@ export default function DealsPage() {
   const [filterMode, setFilterMode] = useState<FilterMode>(null);
   const [showAddDeal, setShowAddDeal] = useState(false);
   const [userId, setUserId]         = useState<string | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
 
   // ── FETCH DATA ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -148,9 +149,17 @@ export default function DealsPage() {
     return true;
   });
 
+  // ── SEPARATE CLOSED vs ACTIVE ─────────────────────────────
+  const closedDeals = filteredDeals.filter(
+    d => d.stage === 'Closed Won' || d.stage === 'Closed Lost'
+  );
+  const activeDeals = filteredDeals.filter(
+    d => d.stage !== 'Closed Won' && d.stage !== 'Closed Lost'
+  );
+
   // ── GROUP BY ACCOUNT ──────────────────────────────────────
   const grouped: GroupedDeals = {};
-  for (const deal of filteredDeals) {
+  for (const deal of activeDeals) {
     if (!grouped[deal.account_name]) grouped[deal.account_name] = [];
     grouped[deal.account_name].push(deal);
   }
@@ -662,6 +671,104 @@ export default function DealsPage() {
             })}
           </div>
         ))}
+
+        {/* ── CLOSED DEALS SECTION ──────────────────────── */}
+        {closedDeals.length > 0 && (
+          <div style={{ margin: '8px 18px 0' }}>
+            <button
+              onClick={() => setShowClosed(!showClosed)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 0',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                color: 'rgba(26,20,16,0.3)',
+                fontFamily: "'DM Sans', sans-serif",
+                width: '100%',
+              }}
+            >
+              <span style={{
+                display: 'inline-block',
+                transform: showClosed ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+                fontSize: 12,
+              }}>›</span>
+              {showClosed ? 'Hide' : `${closedDeals.length} closed deal${closedDeals.length !== 1 ? 's' : ''}`}
+            </button>
+
+            {showClosed && closedDeals.map(deal => {
+              const stage = STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'];
+              return (
+                <div
+                  key={deal.id}
+                  onClick={() => router.push(`/deals/${deal.id}`)}
+                  style={{
+                    margin: '0 0 6px',
+                    background: '#FFFFFF',
+                    border: '0.5px solid rgba(200,160,80,0.1)',
+                    borderRadius: 14,
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    boxShadow: '0 1px 4px rgba(26,20,16,0.04)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontFamily: "'Cormorant Garamond', serif",
+                      fontSize: 16,
+                      fontWeight: 400,
+                      color: '#1A1410',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {deal.name}
+                    </div>
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 300,
+                      color: 'rgba(26,20,16,0.4)',
+                      marginTop: 2,
+                    }}>
+                      {deal.account_name}
+                    </div>
+                  </div>
+                  <div style={{
+                    fontSize: 9,
+                    fontWeight: 600,
+                    letterSpacing: '0.8px',
+                    textTransform: 'uppercase',
+                    color: stage.color,
+                    background: stage.bg,
+                    border: `0.5px solid ${stage.border}`,
+                    borderRadius: 20,
+                    padding: '3px 9px',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}>
+                    {deal.stage}
+                  </div>
+                  <div style={{
+                    color: 'rgba(26,20,16,0.2)',
+                    fontSize: 16,
+                    flexShrink: 0,
+                  }}>›</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── FLOATING + BUTTON ────────────────────────────── */}

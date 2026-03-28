@@ -509,7 +509,7 @@ export default function MeetingsPage() {
       {/* Floating + button */}
       <div style={{
         position: 'fixed', bottom: 32,
-        right: 'max(calc(50% - 195px + 20px), 20px)',
+        right: 20,
         zIndex: 30,
       }}>
         <button
