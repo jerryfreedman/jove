@@ -75,7 +75,11 @@ export default function SettingsPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
+    const prev = document.body.style.backgroundColor;
     document.body.style.backgroundColor = '#F7F3EC';
+    return () => {
+      document.body.style.backgroundColor = prev;
+    };
   }, []);
 
   // Clean up delete confirmation timeout on unmount

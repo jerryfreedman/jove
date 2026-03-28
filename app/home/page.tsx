@@ -193,8 +193,13 @@ export default function HomePage() {
   useEffect(() => {
     const topColor = scene.sky[0].split(' ')[0];
     document.body.style.backgroundColor = topColor;
+    // Also update meta theme-color so iOS status bar
+    // tint matches the sky rather than the static dark default
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', topColor);
     return () => {
       document.body.style.backgroundColor = '#060a12';
+      if (meta) meta.setAttribute('content', '#060a12');
     };
   }, [scene]);
 
