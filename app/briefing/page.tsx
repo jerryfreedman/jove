@@ -427,28 +427,22 @@ export default function BriefingPage() {
   return (
     <>
     <div style={{
-      height:       '100vh',
-      overflowY:    'auto',
+      display:      'flex',
+      flexDirection: 'column',
+      height:       '100dvh',
+      overflow:     'hidden',
       fontFamily:   "'DM Sans', sans-serif",
-      paddingBottom: 80,
       animation:    'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
-      <div style={{
-        background:  '#F7F3EC',
-        minHeight:   '100dvh',
-        paddingTop:  'env(safe-area-inset-top)',
-      }}>
-
       {/* ── HEADER ─────────────────────────────────── */}
       <div style={{
+        flexShrink:   0,
         display:      'flex',
         alignItems:   'center',
         gap:          14,
-        paddingTop: '12px', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
-        position:     'sticky',
-        top:          0,
         zIndex:       20,
       }}>
         <button
@@ -523,6 +517,9 @@ export default function BriefingPage() {
           Copy
         </button>
       </div>
+
+      {/* ── ZONE 2: SCROLLABLE CONTENT ─────────────── */}
+      <div style={{ flex: 1, overflowY: 'auto', background: '#F7F3EC' }}>
 
       {/* ── ERROR STATE ─────────────────────────── */}
       {fetchError && (
@@ -1013,6 +1010,23 @@ export default function BriefingPage() {
       </div>
       )}
 
+      <style>{`
+        @keyframes shimmer {
+          0%,100% { opacity: 0.4; }
+          50%      { opacity: 1; }
+        }
+        @keyframes slideOut {
+          from { opacity: 1; transform: translateX(0) scaleY(1); max-height: 200px; }
+          to   { opacity: 0; transform: translateX(20px) scaleY(0); max-height: 0; overflow: hidden; }
+        }
+        @keyframes dotBlink {
+          0%,100% { opacity: 1; }
+          50%      { opacity: 0.3; }
+        }
+      `}</style>
+      </div>
+    </div>
+
       {/* ── CAPTURE SHEET ────────────────────────────── */}
       {showCapture && userId && (
         <CaptureSheet
@@ -1037,23 +1051,6 @@ export default function BriefingPage() {
           onComplete={() => setShowBriefingTour(false)}
         />
       )}
-
-      <style>{`
-        @keyframes shimmer {
-          0%,100% { opacity: 0.4; }
-          50%      { opacity: 1; }
-        }
-        @keyframes slideOut {
-          from { opacity: 1; transform: translateX(0) scaleY(1); max-height: 200px; }
-          to   { opacity: 0; transform: translateX(20px) scaleY(0); max-height: 0; overflow: hidden; }
-        }
-        @keyframes dotBlink {
-          0%,100% { opacity: 1; }
-          50%      { opacity: 0.3; }
-        }
-      `}</style>
-    </div>
-    </div>
     </>
   );
 }

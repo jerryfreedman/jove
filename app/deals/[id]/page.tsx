@@ -505,27 +505,22 @@ export default function DealDetailPage() {
 
   return (
     <>
-    <div style={{ position: 'relative', height: '100vh' }}>
     <div style={{
-      height:      '100vh',
-      overflowY:   'auto',
-      fontFamily:  "'DM Sans', sans-serif",
-      paddingBottom:100,
-      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      display:       'flex',
+      flexDirection: 'column',
+      height:        '100dvh',
+      overflow:      'hidden',
+      fontFamily:    "'DM Sans', sans-serif",
+      animation:     'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      background:    '#F7F3EC',
     }}>
-      <div style={{
-        background:  '#F7F3EC',
-        minHeight:   '100dvh',
-        paddingTop:  'env(safe-area-inset-top)',
-      }}>
 
       {/* ── HEADER ────────────────────────────────────── */}
       <div style={{
-        paddingTop: '12px', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
-        position:     'sticky',
-        top:          0,
+        flexShrink:   0,
         zIndex:       20,
       }}>
         <div style={{
@@ -700,6 +695,12 @@ export default function DealDetailPage() {
           )}
         </div>
       </div>
+
+      {/* ── SCROLLABLE CONTENT ────────────────────────────────── */}
+      <div style={{
+        flex:       1,
+        overflowY:  'auto',
+      }}>
 
       {/* ── NEXT ACTION ───────────────────────────────── */}
       <div style={{
@@ -1325,164 +1326,14 @@ export default function DealDetailPage() {
           Close deal
         </button>
       </div>
-
-      {/* ── LOG INTERACTION SHEET ─────────────────────── */}
-      {showLogSheet && (
-        <>
-          <div
-            onClick={() => setShowLogSheet(false)}
-            style={{
-              position:      'fixed',
-              inset:         0,
-              zIndex:        290,
-              background:    'rgba(26,20,16,0.4)',
-              backdropFilter:'blur(4px)',
-            }}
-          />
-          <div style={{
-            position:     'fixed',
-            bottom:       0,
-            left:         '50%',
-            transform:    'translateX(-50%)',
-            zIndex:       300,
-            width:        '100%',
-            background:   '#F7F3EC',
-            borderTop:    '0.5px solid rgba(200,160,80,0.3)',
-            borderRadius: '22px 22px 0 0',
-            padding:      '0 20px 48px',
-            fontFamily:   "'DM Sans', sans-serif",
-          }}>
-            <div style={{
-              width:        36,
-              height:       4,
-              borderRadius: 2,
-              background:   'rgba(26,20,16,0.12)',
-              margin:       '14px auto 20px',
-            }} />
-            <h3 style={{
-              fontFamily:   "'Cormorant Garamond', serif",
-              fontSize:     20,
-              fontWeight:   400,
-              color:        '#1A1410',
-              marginBottom: 16,
-            }}>
-              Log Interaction
-            </h3>
-
-            {/* Type selector */}
-            <div style={{
-              display:      'flex',
-              gap:          8,
-              marginBottom: 14,
-            }}>
-              {(['email','call','meeting','note'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setLogType(t)}
-                  style={{
-                    padding:      '7px 14px',
-                    borderRadius: 20,
-                    border:       '0.5px solid',
-                    borderColor:  logType === t
-                      ? 'rgba(232,160,48,0.5)'
-                      : 'rgba(26,20,16,0.12)',
-                    background:   logType === t
-                      ? 'rgba(232,160,48,0.1)'
-                      : '#FFFFFF',
-                    color:        logType === t
-                      ? COLORS.amber
-                      : 'rgba(26,20,16,0.44)',
-                    fontSize:     11,
-                    fontWeight:   logType === t ? 600 : 300,
-                    cursor:       'pointer',
-                    fontFamily:   "'DM Sans', sans-serif",
-                    textTransform:'capitalize',
-                    transition:   'all 0.18s',
-                  }}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-
-            <textarea
-              autoFocus
-              value={logContent}
-              onChange={e => setLogContent(e.target.value)}
-              placeholder="What happened?"
-              rows={4}
-              style={{
-                width:        '100%',
-                background:   '#FFFFFF',
-                border:       '0.5px solid rgba(200,160,80,0.28)',
-                borderRadius: 14,
-                padding:      '14px 16px',
-                fontSize:     14,
-                fontWeight:   300,
-                color:        '#1A1410',
-                outline:      'none',
-                resize:       'none',
-                lineHeight:   1.65,
-                marginBottom: 14,
-                fontFamily:   "'DM Sans', sans-serif",
-              }}
-              onFocus={e => { e.target.style.borderColor = 'rgba(232,160,48,0.4)'; }}
-              onBlur={e => { e.target.style.borderColor = 'rgba(200,160,80,0.28)'; }}
-            />
-
-            <button
-              onClick={handleLogInteraction}
-              disabled={savingLog || !logContent.trim()}
-              style={{
-                width:         '100%',
-                padding:       '14px 0',
-                borderRadius:  14,
-                border:        'none',
-                background:    logContent.trim() && !savingLog
-                  ? 'linear-gradient(135deg, #C87820, #E09838)'
-                  : 'rgba(26,20,16,0.08)',
-                color:         logContent.trim() && !savingLog
-                  ? 'white'
-                  : 'rgba(26,20,16,0.28)',
-                fontSize:      11,
-                fontWeight:    700,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                cursor:        logContent.trim() && !savingLog
-                  ? 'pointer'
-                  : 'default',
-                fontFamily:    "'DM Sans', sans-serif",
-                transition:    'all 0.2s',
-              }}
-            >
-              {savingLog ? 'Saving...' : 'Log It →'}
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Deal Drawer Tour */}
-      {showDrawerTour && (
-        <SpotlightTour
-          stops={[
-            { ref: chatRef, copy: 'Ask Jove anything about this deal.', position: 'above' as const },
-          ]}
-          storageKey="jove_tour_deal_drawer"
-          onComplete={() => setShowDrawerTour(false)}
-        />
-      )}
       </div>
-    </div>
 
       {/* ── BOTTOM ACTION BAR ─────────────────────────── */}
       <div style={{
-        position:   'fixed',
-        bottom:     0,
-        left:       0,
-        right:      0,
+        flexShrink: 0,
         background: '#F7F3EC',
         borderTop:  '0.5px solid rgba(200,160,80,0.2)',
-        padding:    '12px 18px 32px',
+        padding:    '12px 18px env(safe-area-inset-bottom)',
         zIndex:     30,
         display:    'flex',
         gap:        10,
@@ -1533,6 +1384,153 @@ export default function DealDetailPage() {
         </div>
 
       </div>
+    </div>
+
+    {/* ── LOG INTERACTION SHEET ─────────────────────── */}
+    {showLogSheet && (
+      <>
+        <div
+          onClick={() => setShowLogSheet(false)}
+          style={{
+            position:      'fixed',
+            inset:         0,
+            zIndex:        290,
+            background:    'rgba(26,20,16,0.4)',
+            backdropFilter:'blur(4px)',
+          }}
+        />
+        <div style={{
+          position:     'fixed',
+          bottom:       0,
+          left:         '50%',
+          transform:    'translateX(-50%)',
+          zIndex:       300,
+          width:        '100%',
+          background:   '#F7F3EC',
+          borderTop:    '0.5px solid rgba(200,160,80,0.3)',
+          borderRadius: '22px 22px 0 0',
+          padding:      '0 20px 48px',
+          fontFamily:   "'DM Sans', sans-serif",
+        }}>
+          <div style={{
+            width:        36,
+            height:       4,
+            borderRadius: 2,
+            background:   'rgba(26,20,16,0.12)',
+            margin:       '14px auto 20px',
+          }} />
+          <h3 style={{
+            fontFamily:   "'Cormorant Garamond', serif",
+            fontSize:     20,
+            fontWeight:   400,
+            color:        '#1A1410',
+            marginBottom: 16,
+          }}>
+            Log Interaction
+          </h3>
+
+          {/* Type selector */}
+          <div style={{
+            display:      'flex',
+            gap:          8,
+            marginBottom: 14,
+          }}>
+            {(['email','call','meeting','note'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setLogType(t)}
+                style={{
+                  padding:      '7px 14px',
+                  borderRadius: 20,
+                  border:       '0.5px solid',
+                  borderColor:  logType === t
+                    ? 'rgba(232,160,48,0.5)'
+                    : 'rgba(26,20,16,0.12)',
+                  background:   logType === t
+                    ? 'rgba(232,160,48,0.1)'
+                    : '#FFFFFF',
+                  color:        logType === t
+                    ? COLORS.amber
+                    : 'rgba(26,20,16,0.44)',
+                  fontSize:     11,
+                  fontWeight:   logType === t ? 600 : 300,
+                  cursor:       'pointer',
+                  fontFamily:   "'DM Sans', sans-serif",
+                  textTransform:'capitalize',
+                  transition:   'all 0.18s',
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          <textarea
+            autoFocus
+            value={logContent}
+            onChange={e => setLogContent(e.target.value)}
+            placeholder="What happened?"
+            rows={4}
+            style={{
+              width:        '100%',
+              background:   '#FFFFFF',
+              border:       '0.5px solid rgba(200,160,80,0.28)',
+              borderRadius: 14,
+              padding:      '14px 16px',
+              fontSize:     14,
+              fontWeight:   300,
+              color:        '#1A1410',
+              outline:      'none',
+              resize:       'none',
+              lineHeight:   1.65,
+              marginBottom: 14,
+              fontFamily:   "'DM Sans', sans-serif",
+            }}
+            onFocus={e => { e.target.style.borderColor = 'rgba(232,160,48,0.4)'; }}
+            onBlur={e => { e.target.style.borderColor = 'rgba(200,160,80,0.28)'; }}
+          />
+
+          <button
+            onClick={handleLogInteraction}
+            disabled={savingLog || !logContent.trim()}
+            style={{
+              width:         '100%',
+              padding:       '14px 0',
+              borderRadius:  14,
+              border:        'none',
+              background:    logContent.trim() && !savingLog
+                ? 'linear-gradient(135deg, #C87820, #E09838)'
+                : 'rgba(26,20,16,0.08)',
+              color:         logContent.trim() && !savingLog
+                ? 'white'
+                : 'rgba(26,20,16,0.28)',
+              fontSize:      11,
+              fontWeight:    700,
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              cursor:        logContent.trim() && !savingLog
+                ? 'pointer'
+                : 'default',
+              fontFamily:    "'DM Sans', sans-serif",
+              transition:    'all 0.2s',
+            }}
+          >
+            {savingLog ? 'Saving...' : 'Log It →'}
+          </button>
+        </div>
+      </>
+    )}
+
+    {/* Deal Drawer Tour */}
+    {showDrawerTour && (
+      <SpotlightTour
+        stops={[
+          { ref: chatRef, copy: 'Ask Jove anything about this deal.', position: 'above' as const },
+        ]}
+        storageKey="jove_tour_deal_drawer"
+        onComplete={() => setShowDrawerTour(false)}
+      />
+    )}
 
     {/* ── CLOSE DEAL FULL-SCREEN OVERLAY ─────────── */}
     {showCloseScreen && (
@@ -1791,7 +1789,6 @@ export default function DealDetailPage() {
       </div>
     )}
 
-    </div>
     </>
   );
 }

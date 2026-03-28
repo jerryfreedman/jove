@@ -285,27 +285,22 @@ function MeetingsPageInner() {
   return (
     <>
     <div style={{
-      height:      '100vh',
-      overflowY:   'auto',
+      display:     'flex',
+      flexDirection: 'column',
+      height:      '100dvh',
+      overflow:    'hidden',
       fontFamily:  "'DM Sans', sans-serif",
-      paddingBottom:100,
       animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
-      <div style={{
-        background:  '#F7F3EC',
-        minHeight:   '100dvh',
-        paddingTop:  'env(safe-area-inset-top)',
-      }}>
       {/* Header */}
       <div style={{
         display:      'flex',
         alignItems:   'center',
         gap:          12,
-        paddingTop: '12px', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
-        position:     'sticky',
-        top:          0,
+        flexShrink:   0,
         zIndex:       20,
       }}>
         <button
@@ -355,6 +350,8 @@ function MeetingsPageInner() {
         />
       </div>
 
+      {/* Zone 2: Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
       <div style={{ padding: '16px 18px 0' }}>
 
         {/* Screenshot confirmation screen */}
@@ -543,7 +540,6 @@ function MeetingsPageInner() {
           </div>
         )}
       </div>
-
       </div>
     </div>
 

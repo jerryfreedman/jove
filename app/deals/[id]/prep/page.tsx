@@ -127,31 +127,26 @@ export default function PrepPage() {
   return (
     <>
     <div style={{
-      height: '100vh',
-      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100dvh',
+      overflow: 'hidden',
       fontFamily: FONTS.sans,
-      paddingBottom: 80,
       animation: 'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
-      <div style={{
-        background: COLORS.cream,
-        minHeight: '100dvh',
-        paddingTop: 'env(safe-area-inset-top)',
-      }}>
 
-      {/* Header */}
+      {/* Zone 1: Header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        paddingTop: '12px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
         paddingLeft: '20px',
         paddingRight: '20px',
         paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background: COLORS.cream,
-        position: 'sticky',
-        top: 0,
+        flexShrink: 0,
         zIndex: 20,
       }}>
         <button
@@ -197,7 +192,8 @@ export default function PrepPage() {
         </button>
       </div>
 
-      {/* Brief content */}
+      {/* Zone 2: Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto', background: COLORS.cream }}>
       <div style={{ padding: '20px 20px 0' }}>
         {fromCache && (
           <div style={{
@@ -256,13 +252,21 @@ export default function PrepPage() {
         )}
       </div>
 
-      {/* Bottom bar */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
+      </div>
+
+      {/* Zone 3: Bottom bar */}
       {brief && !loading && (
         <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
           background: COLORS.cream,
           borderTop: '0.5px solid rgba(200,160,80,0.18)',
-          padding: '12px 18px 32px',
+          padding: '12px 18px env(safe-area-inset-bottom)',
+          flexShrink: 0,
           zIndex: 30, display: 'flex', gap: 10,
         }}>
           <button
@@ -295,14 +299,6 @@ export default function PrepPage() {
           </button>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
-        }
-      `}</style>
-      </div>
     </div>
     </>
   );

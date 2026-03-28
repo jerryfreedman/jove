@@ -159,27 +159,25 @@ export default function IdeasPage() {
   return (
     <>
     <div style={{
-      height:      '100vh',
-      overflowY:   'auto',
-      fontFamily:  "'DM Sans', sans-serif",
-      paddingBottom:60,
-      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      display:      'flex',
+      flexDirection:'column',
+      height:       '100dvh',
+      overflow:     'hidden',
+      fontFamily:   "'DM Sans', sans-serif",
+      animation:    'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
-      <div style={{
-        background:  '#F7F3EC',
-        minHeight:   '100dvh',
-        paddingTop:  'env(safe-area-inset-top)',
-      }}>
-      {/* Header */}
+      {/* Zone 1: Header */}
       <div style={{
         display:      'flex',
         alignItems:   'center',
         gap:          12,
-        paddingTop: '12px', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
+        paddingTop:   'calc(env(safe-area-inset-top) + 12px)',
+        paddingLeft:  '20px',
+        paddingRight: '20px',
+        paddingBottom:'16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
-        position:     'sticky',
-        top:          0,
+        flexShrink:   0,
         zIndex:       20,
       }}>
         <button
@@ -209,230 +207,237 @@ export default function IdeasPage() {
         </div>
       </div>
 
-      {/* Filter pills */}
+      {/* Zone 2: Scrollable content */}
       <div style={{
-        display:    'flex',
-        gap:        8,
-        padding:    '14px 18px 0',
-        overflowX:  'auto',
-        scrollbarWidth: 'none',
+        flex:       1,
+        overflowY:  'auto',
+        background: '#F7F3EC',
       }}>
-        {['all', 'raw', 'developing', 'linked', 'archived'].map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            style={{
-              padding:      '6px 14px',
-              borderRadius: 20,
-              border:       '0.5px solid',
-              borderColor:  filter === f
-                ? 'rgba(232,160,48,0.5)'
-                : 'rgba(26,20,16,0.12)',
-              background:   filter === f
-                ? 'rgba(232,160,48,0.1)'
-                : '#FFFFFF',
-              color:        filter === f
-                ? COLORS.amber
-                : 'rgba(26,20,16,0.44)',
-              fontSize:     11, fontWeight: filter === f ? 600 : 300,
-              cursor:       'pointer',
-              fontFamily:   "'DM Sans', sans-serif",
-              textTransform:'capitalize',
-              whiteSpace:   'nowrap',
-              transition:   'all 0.18s',
-            }}
-          >
-            {f === 'all' ? 'All active' : f}
-          </button>
-        ))}
-      </div>
-
-      {/* Ideas list */}
-      <div ref={ideasContentRef} style={{ padding: '14px 18px 0' }}>
-        {loading && (
-          <div style={{ padding: '40px 0', textAlign: 'center' }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: '50%',
-              border: '2px solid rgba(232,160,48,0.2)',
-              borderTop: `2px solid ${COLORS.amber}`,
-              animation: 'spin 0.8s linear infinite',
-              margin: '0 auto',
-            }} />
-          </div>
-        )}
-
-        {!loading && filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '50px 0' }}>
-            <p style={{
-              fontFamily: "'Cormorant Garamond', serif",
-              fontSize:   24, fontWeight: 300,
-              color:      'rgba(26,20,16,0.4)', marginBottom: 8,
-            }}>
-              {filter === 'all'
-                ? 'No ideas yet.'
-                : `No ${filter} ideas.`}
-            </p>
-            <p style={{
-              fontSize: 13, fontWeight: 300, color: 'rgba(26,20,16,0.3)',
-            }}>
-              {filter === 'all'
-                ? 'Capture ideas with the 💡 tile on the home screen.'
-                : 'Change the filter to see other ideas.'}
-            </p>
-          </div>
-        )}
-
-        {filtered.map(idea => {
-          const config = STATUS_CONFIG[idea.status] ?? STATUS_CONFIG.raw;
-          const linkedDeal = idea.deal_id
-            ? deals.find(d => d.id === idea.deal_id)
-            : null;
-
-          return (
-            <div
-              key={idea.id}
+        {/* Filter pills */}
+        <div style={{
+          display:    'flex',
+          gap:        8,
+          padding:    '14px 18px 0',
+          overflowX:  'auto',
+          scrollbarWidth: 'none',
+        }}>
+          {['all', 'raw', 'developing', 'linked', 'archived'].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
               style={{
-                background:   '#FFFFFF',
-                border:       '0.5px solid rgba(200,160,80,0.16)',
-                borderRadius: 14,
-                padding:      '14px 16px',
-                marginBottom: 10,
-                boxShadow:    '0 1px 6px rgba(26,20,16,0.05)',
+                padding:      '6px 14px',
+                borderRadius: 20,
+                border:       '0.5px solid',
+                borderColor:  filter === f
+                  ? 'rgba(232,160,48,0.5)'
+                  : 'rgba(26,20,16,0.12)',
+                background:   filter === f
+                  ? 'rgba(232,160,48,0.1)'
+                  : '#FFFFFF',
+                color:        filter === f
+                  ? COLORS.amber
+                  : 'rgba(26,20,16,0.44)',
+                fontSize:     11, fontWeight: filter === f ? 600 : 300,
+                cursor:       'pointer',
+                fontFamily:   "'DM Sans', sans-serif",
+                textTransform:'capitalize',
+                whiteSpace:   'nowrap',
+                transition:   'all 0.18s',
               }}
             >
-              {/* Status badge + date */}
+              {f === 'all' ? 'All active' : f}
+            </button>
+          ))}
+        </div>
+
+        {/* Ideas list */}
+        <div ref={ideasContentRef} style={{ padding: '14px 18px 0' }}>
+          {loading && (
+            <div style={{ padding: '40px 0', textAlign: 'center' }}>
               <div style={{
-                display:      'flex',
-                alignItems:   'center',
-                gap:          8,
-                marginBottom: 8,
-              }}>
-                <div style={{
-                  fontSize:     8, fontWeight: 700, letterSpacing: '1px',
-                  textTransform:'uppercase',
-                  color:        config.color,
-                  background:   config.bg,
-                  border:       `0.5px solid ${config.border}`,
-                  borderRadius: 20,
-                  padding:      '3px 9px',
-                }}>
-                  {config.label}
-                </div>
-                <span style={{
-                  fontSize:   10, fontWeight: 300,
-                  color:      'rgba(26,20,16,0.3)', marginLeft: 'auto',
-                }}>
-                  {new Date(idea.created_at).toLocaleDateString('en-US', {
-                    month: 'short', day: 'numeric',
-                  })}
-                </span>
-              </div>
+                width: 24, height: 24, borderRadius: '50%',
+                border: '2px solid rgba(232,160,48,0.2)',
+                borderTop: `2px solid ${COLORS.amber}`,
+                animation: 'spin 0.8s linear infinite',
+                margin: '0 auto',
+              }} />
+            </div>
+          )}
 
-              {/* Content */}
+          {!loading && filtered.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '50px 0' }}>
               <p style={{
-                fontSize:   14, fontWeight: 300,
-                color:      '#1A1410', lineHeight: 1.6,
-                margin:     0, marginBottom: 12,
+                fontFamily: "'Cormorant Garamond', serif",
+                fontSize:   24, fontWeight: 300,
+                color:      'rgba(26,20,16,0.4)', marginBottom: 8,
               }}>
-                {idea.content}
+                {filter === 'all'
+                  ? 'No ideas yet.'
+                  : `No ${filter} ideas.`}
               </p>
+              <p style={{
+                fontSize: 13, fontWeight: 300, color: 'rgba(26,20,16,0.3)',
+              }}>
+                {filter === 'all'
+                  ? 'Capture ideas with the 💡 tile on the home screen.'
+                  : 'Change the filter to see other ideas.'}
+              </p>
+            </div>
+          )}
 
-              {/* Linked deal */}
-              {linkedDeal && (
-                <div
-                  onClick={() => router.push(`/deals/${linkedDeal.id}`)}
-                  style={{
-                    display:      'inline-flex',
-                    alignItems:   'center',
-                    gap:          5,
-                    fontSize:     10, fontWeight: 600,
-                    letterSpacing:'0.8px', textTransform: 'uppercase',
-                    color:        COLORS.teal,
-                    background:   'rgba(56,184,200,0.08)',
-                    border:       '0.5px solid rgba(56,184,200,0.22)',
+          {filtered.map(idea => {
+            const config = STATUS_CONFIG[idea.status] ?? STATUS_CONFIG.raw;
+            const linkedDeal = idea.deal_id
+              ? deals.find(d => d.id === idea.deal_id)
+              : null;
+
+            return (
+              <div
+                key={idea.id}
+                style={{
+                  background:   '#FFFFFF',
+                  border:       '0.5px solid rgba(200,160,80,0.16)',
+                  borderRadius: 14,
+                  padding:      '14px 16px',
+                  marginBottom: 10,
+                  boxShadow:    '0 1px 6px rgba(26,20,16,0.05)',
+                }}
+              >
+                {/* Status badge + date */}
+                <div style={{
+                  display:      'flex',
+                  alignItems:   'center',
+                  gap:          8,
+                  marginBottom: 8,
+                }}>
+                  <div style={{
+                    fontSize:     8, fontWeight: 700, letterSpacing: '1px',
+                    textTransform:'uppercase',
+                    color:        config.color,
+                    background:   config.bg,
+                    border:       `0.5px solid ${config.border}`,
                     borderRadius: 20,
-                    padding:      '4px 10px',
-                    cursor:       'pointer',
-                    marginBottom: 10,
-                  }}
-                >
-                  → {linkedDeal.name}
+                    padding:      '3px 9px',
+                  }}>
+                    {config.label}
+                  </div>
+                  <span style={{
+                    fontSize:   10, fontWeight: 300,
+                    color:      'rgba(26,20,16,0.3)', marginLeft: 'auto',
+                  }}>
+                    {new Date(idea.created_at).toLocaleDateString('en-US', {
+                      month: 'short', day: 'numeric',
+                    })}
+                  </span>
                 </div>
-              )}
 
-              {/* Actions */}
-              {idea.status !== 'archived' && idea.status !== 'linked' && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {idea.status === 'raw' && (
+                {/* Content */}
+                <p style={{
+                  fontSize:   14, fontWeight: 300,
+                  color:      '#1A1410', lineHeight: 1.6,
+                  margin:     0, marginBottom: 12,
+                }}>
+                  {idea.content}
+                </p>
+
+                {/* Linked deal */}
+                {linkedDeal && (
+                  <div
+                    onClick={() => router.push(`/deals/${linkedDeal.id}`)}
+                    style={{
+                      display:      'inline-flex',
+                      alignItems:   'center',
+                      gap:          5,
+                      fontSize:     10, fontWeight: 600,
+                      letterSpacing:'0.8px', textTransform: 'uppercase',
+                      color:        COLORS.teal,
+                      background:   'rgba(56,184,200,0.08)',
+                      border:       '0.5px solid rgba(56,184,200,0.22)',
+                      borderRadius: 20,
+                      padding:      '4px 10px',
+                      cursor:       'pointer',
+                      marginBottom: 10,
+                    }}
+                  >
+                    → {linkedDeal.name}
+                  </div>
+                )}
+
+                {/* Actions */}
+                {idea.status !== 'archived' && idea.status !== 'linked' && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {idea.status === 'raw' && (
+                      <button
+                        onClick={() => handleStatusChange(idea, 'developing')}
+                        style={{
+                          padding:      '6px 12px', borderRadius: 9,
+                          border:       '0.5px solid rgba(232,160,48,0.3)',
+                          background:   'rgba(232,160,48,0.06)',
+                          color:        COLORS.amber,
+                          fontSize:     9, fontWeight: 700,
+                          letterSpacing:'1px', textTransform: 'uppercase',
+                          cursor:       'pointer',
+                          fontFamily:   "'DM Sans', sans-serif",
+                        }}
+                      >
+                        Develop →
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleStatusChange(idea, 'developing')}
+                      onClick={() => handleConvertToDeal(idea)}
+                      disabled={converting === idea.id}
                       style={{
                         padding:      '6px 12px', borderRadius: 9,
-                        border:       '0.5px solid rgba(232,160,48,0.3)',
-                        background:   'rgba(232,160,48,0.06)',
-                        color:        COLORS.amber,
+                        border:       '0.5px solid rgba(56,184,200,0.3)',
+                        background:   'rgba(56,184,200,0.06)',
+                        color:        COLORS.teal,
                         fontSize:     9, fontWeight: 700,
                         letterSpacing:'1px', textTransform: 'uppercase',
-                        cursor:       'pointer',
+                        cursor:       converting === idea.id ? 'default' : 'pointer',
                         fontFamily:   "'DM Sans', sans-serif",
                       }}
                     >
-                      Develop →
+                      {converting === idea.id ? 'Creating...' : 'Create Deal →'}
                     </button>
-                  )}
-                  <button
-                    onClick={() => handleConvertToDeal(idea)}
-                    disabled={converting === idea.id}
-                    style={{
-                      padding:      '6px 12px', borderRadius: 9,
-                      border:       '0.5px solid rgba(56,184,200,0.3)',
-                      background:   'rgba(56,184,200,0.06)',
-                      color:        COLORS.teal,
-                      fontSize:     9, fontWeight: 700,
-                      letterSpacing:'1px', textTransform: 'uppercase',
-                      cursor:       converting === idea.id ? 'default' : 'pointer',
-                      fontFamily:   "'DM Sans', sans-serif",
-                    }}
-                  >
-                    {converting === idea.id ? 'Creating...' : 'Create Deal →'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirmArchiveId === idea.id) {
-                        handleArchive(idea);
-                        setConfirmArchiveId(null);
-                      } else {
-                        setConfirmArchiveId(idea.id);
-                        setTimeout(() => setConfirmArchiveId(prev =>
-                          prev === idea.id ? null : prev
-                        ), 3000);
-                      }
-                    }}
-                    style={{
-                      padding:      '6px 12px', borderRadius: 9,
-                      border:       confirmArchiveId === idea.id
-                        ? '0.5px solid rgba(232,160,48,0.5)'
-                        : '0.5px solid rgba(26,20,16,0.1)',
-                      background:   confirmArchiveId === idea.id
-                        ? 'rgba(232,160,48,0.06)'
-                        : 'transparent',
-                      color:        confirmArchiveId === idea.id
-                        ? '#C87820'
-                        : 'rgba(26,20,16,0.3)',
-                      fontSize:     9, fontWeight: 500,
-                      letterSpacing:'1px', textTransform: 'uppercase',
-                      cursor:       'pointer',
-                      fontFamily:   "'DM Sans', sans-serif",
-                      transition:   'all 0.18s',
-                    }}
-                  >
-                    {confirmArchiveId === idea.id ? 'Archive — tap to confirm' : 'Archive'}
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
+                    <button
+                      onClick={() => {
+                        if (confirmArchiveId === idea.id) {
+                          handleArchive(idea);
+                          setConfirmArchiveId(null);
+                        } else {
+                          setConfirmArchiveId(idea.id);
+                          setTimeout(() => setConfirmArchiveId(prev =>
+                            prev === idea.id ? null : prev
+                          ), 3000);
+                        }
+                      }}
+                      style={{
+                        padding:      '6px 12px', borderRadius: 9,
+                        border:       confirmArchiveId === idea.id
+                          ? '0.5px solid rgba(232,160,48,0.5)'
+                          : '0.5px solid rgba(26,20,16,0.1)',
+                        background:   confirmArchiveId === idea.id
+                          ? 'rgba(232,160,48,0.06)'
+                          : 'transparent',
+                        color:        confirmArchiveId === idea.id
+                          ? '#C87820'
+                          : 'rgba(26,20,16,0.3)',
+                        fontSize:     9, fontWeight: 500,
+                        letterSpacing:'1px', textTransform: 'uppercase',
+                        cursor:       'pointer',
+                        fontFamily:   "'DM Sans', sans-serif",
+                        transition:   'all 0.18s',
+                      }}
+                    >
+                      {confirmArchiveId === idea.id ? 'Archive — tap to confirm' : 'Archive'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <style>{`
@@ -441,19 +446,18 @@ export default function IdeasPage() {
           to   { transform: rotate(360deg); }
         }
       `}</style>
-
-      {/* Ideas Tour */}
-      {showIdeasTour && (
-        <SpotlightTour
-          stops={[
-            { ref: ideasContentRef, copy: 'Early signals before they become deals.', position: 'below' as const },
-          ]}
-          storageKey="jove_tour_ideas"
-          onComplete={() => setShowIdeasTour(false)}
-        />
-      )}
-      </div>
     </div>
+
+    {/* SpotlightTour as fragment sibling */}
+    {showIdeasTour && (
+      <SpotlightTour
+        stops={[
+          { ref: ideasContentRef, copy: 'Early signals before they become deals.', position: 'below' as const },
+        ]}
+        storageKey="jove_tour_ideas"
+        onComplete={() => setShowIdeasTour(false)}
+      />
+    )}
     </>
   );
 }
