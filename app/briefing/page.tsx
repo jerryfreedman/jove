@@ -414,7 +414,7 @@ export default function BriefingPage() {
       background:   '#F7F3EC',
       fontFamily:   "'DM Sans', sans-serif",
       paddingBottom: 80,
-      animation:    'fadeIn 0.28s ease both',
+      animation:    'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
 
       {/* ── HEADER ─────────────────────────────────── */}

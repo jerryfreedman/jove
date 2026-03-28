@@ -137,6 +137,7 @@ export default function ClosePlanPage() {
       background:  '#F7F3EC',
       fontFamily:  "'DM Sans', sans-serif",
       paddingBottom:80,
+      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
       {/* Header */}
       <div style={{

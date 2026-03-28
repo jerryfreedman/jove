@@ -42,6 +42,8 @@ export default function MeetingsPage() {
   const [newDealId, setNewDealId]     = useState('');
   const [newAttendees, setNewAttendees] = useState('');
   const [saving, setSaving]           = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState<MeetingRow | null>(null);
+  const [showPast, setShowPast]       = useState(false);
 
   // Screenshot import
   const [importing, setImporting]     = useState(false);
@@ -185,17 +187,20 @@ export default function MeetingsPage() {
     marginBottom: 10,
   };
 
-  const MeetingCard = ({ meeting }: { meeting: MeetingRow }) => {
+  const MeetingCard = ({ meeting, onTap }: { meeting: MeetingRow; onTap: () => void }) => {
     const linkedDeal = deals.find(d => d.id === meeting.deal_id);
     return (
-      <div style={{
-        background:   '#FFFFFF',
-        border:       '0.5px solid rgba(200,160,80,0.16)',
-        borderRadius: 14,
-        padding:      '13px 16px',
-        marginBottom: 8,
-        boxShadow:    '0 1px 6px rgba(26,20,16,0.05)',
-      }}>
+      <div
+        onClick={onTap}
+        style={{
+          background:   '#FFFFFF',
+          border:       '0.5px solid rgba(200,160,80,0.16)',
+          borderRadius: 14,
+          padding:      '13px 16px',
+          marginBottom: 8,
+          boxShadow:    '0 1px 6px rgba(26,20,16,0.05)',
+          cursor:       'pointer',
+        }}>
         <div style={{
           fontFamily:   "'Cormorant Garamond', serif",
           fontSize:     17,
@@ -251,7 +256,7 @@ export default function MeetingsPage() {
       background:  '#F7F3EC',
       fontFamily:  "'DM Sans', sans-serif",
       paddingBottom:100,
-      animation:   'fadeIn 0.28s ease both',
+      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
       {/* Header */}
       <div style={{
@@ -437,23 +442,43 @@ export default function MeetingsPage() {
             }}>
               Upcoming
             </div>
-            {upcoming.map(m => <MeetingCard key={m.id} meeting={m} />)}
+            {upcoming.map(m => <MeetingCard key={m.id} meeting={m} onTap={() => setEditingMeeting(m)} />)}
           </div>
         )}
 
-        {/* Past */}
+        {/* Past — collapsed by default */}
         {past.length > 0 && (
-          <div>
-            <div style={{
-              fontSize:     9, fontWeight: 700, letterSpacing: '2px',
-              textTransform:'uppercase', color: 'rgba(26,20,16,0.3)',
-              marginBottom: 10,
-            }}>
-              Past
-            </div>
-            {past.slice(0, 10).map(m => (
-              <div key={m.id} style={{ opacity: 0.6 }}>
-                <MeetingCard meeting={m} />
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={() => setShowPast(!showPast)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 0',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                color: 'rgba(26,20,16,0.36)',
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            >
+              <span style={{
+                display: 'inline-block',
+                transform: showPast ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+                fontSize: 12,
+              }}>›</span>
+              {showPast ? 'Hide' : `${past.length} past meeting${past.length !== 1 ? 's' : ''}`}
+            </button>
+
+            {showPast && past.slice(0, 20).map(m => (
+              <div key={m.id} style={{ opacity: 0.55 }}>
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
               </div>
             ))}
           </div>
@@ -604,6 +629,285 @@ export default function MeetingsPage() {
         </>
       )}
     </div>
+
+    {/* Meeting Edit Sheet */}
+    {editingMeeting && (
+      <MeetingEditSheet
+        meeting={editingMeeting}
+        deals={deals}
+        onSave={async (updates) => {
+          if (!userId) return;
+          const { error } = await supabase
+            .from('meetings')
+            .update(updates)
+            .eq('id', editingMeeting.id)
+            .eq('user_id', userId);
+          if (!error) {
+            // Update deal last_activity_at if deal linked
+            if (updates.deal_id) {
+              await supabase
+                .from('deals')
+                .update({ last_activity_at: new Date().toISOString() })
+                .eq('id', updates.deal_id)
+                .eq('user_id', userId);
+            }
+            setEditingMeeting(null);
+            fetchData();
+          }
+        }}
+        onDelete={async () => {
+          if (!userId) return;
+          await supabase
+            .from('meetings')
+            .delete()
+            .eq('id', editingMeeting.id)
+            .eq('user_id', userId);
+          setEditingMeeting(null);
+          setMeetings(prev => prev.filter(m => m.id !== editingMeeting.id));
+        }}
+        onClose={() => setEditingMeeting(null)}
+      />
+    )}
+    </>
+  );
+}
+
+// ── MEETING EDIT SHEET COMPONENT ──────────────────────────────
+function MeetingEditSheet({
+  meeting,
+  deals,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  meeting: MeetingRow;
+  deals: DealRow[];
+  onSave: (updates: {
+    title: string;
+    scheduled_at: string;
+    deal_id: string | null;
+    attendees: string | null;
+  }) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const scheduled = new Date(meeting.scheduled_at);
+  const [title, setTitle] = useState(meeting.title);
+  const [date, setDate] = useState(
+    `${scheduled.getFullYear()}-${String(scheduled.getMonth() + 1).padStart(2, '0')}-${String(scheduled.getDate()).padStart(2, '0')}`
+  );
+  const [time, setTime] = useState(
+    `${String(scheduled.getHours()).padStart(2, '0')}:${String(scheduled.getMinutes()).padStart(2, '0')}`
+  );
+  const [dealId, setDealId] = useState(meeting.deal_id ?? '');
+  const [attendees, setAttendees] = useState(meeting.attendees ?? '');
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(true), 30);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleSave = async () => {
+    if (!title.trim() || !date || !time) return;
+    setSaving(true);
+    const scheduledAt = new Date(`${date}T${time}`).toISOString();
+    await onSave({
+      title: title.trim(),
+      scheduled_at: scheduledAt,
+      deal_id: dealId || null,
+      attendees: attendees.trim() || null,
+    });
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    await onDelete();
+    setDeleting(false);
+  };
+
+  const editInputStyle: React.CSSProperties = {
+    width: '100%',
+    background: '#FFFFFF',
+    border: '0.5px solid rgba(26,20,16,0.12)',
+    borderRadius: 12,
+    padding: '12px 14px',
+    fontSize: 14,
+    fontWeight: 300,
+    color: '#1A1410',
+    outline: 'none',
+    fontFamily: "'DM Sans', sans-serif",
+    marginBottom: 10,
+    boxSizing: 'border-box',
+  };
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 290,
+          background: 'rgba(26,20,16,0.4)',
+          backdropFilter: 'blur(4px)',
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 0.2s ease',
+        }}
+      />
+      <div style={{
+        position: 'fixed', bottom: 0,
+        left: '50%',
+        transform: visible
+          ? 'translateX(-50%) translateY(0)'
+          : 'translateX(-50%) translateY(100%)',
+        transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
+        zIndex: 300, width: '100%',
+        background: '#F7F3EC',
+        borderTop: '0.5px solid rgba(200,160,80,0.3)',
+        borderRadius: '22px 22px 0 0',
+        padding: '0 20px 48px',
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{
+          width: 36, height: 4, borderRadius: 2,
+          background: 'rgba(26,20,16,0.12)',
+          margin: '14px auto 20px',
+        }} />
+
+        {/* Title */}
+        <input
+          autoFocus
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Meeting title"
+          style={{
+            ...editInputStyle,
+            fontFamily: "'Cormorant Garamond', serif",
+            fontSize: 20,
+            fontWeight: 400,
+            marginBottom: 14,
+          }}
+        />
+
+        {/* Date + Time */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            style={{ ...editInputStyle, flex: 1, marginBottom: 0 }}
+          />
+          <input
+            type="time"
+            value={time}
+            onChange={e => setTime(e.target.value)}
+            style={{ ...editInputStyle, flex: 1, marginBottom: 0 }}
+          />
+        </div>
+
+        {/* Link to Deal */}
+        <select
+          value={dealId}
+          onChange={e => setDealId(e.target.value)}
+          style={{
+            ...editInputStyle,
+            color: dealId ? '#1A1410' : 'rgba(26,20,16,0.4)',
+            cursor: 'pointer',
+          }}
+        >
+          <option value="">No deal linked</option>
+          {deals.map(d => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
+
+        {/* Attendees */}
+        <input
+          value={attendees}
+          onChange={e => setAttendees(e.target.value)}
+          placeholder="Who was there?"
+          style={editInputStyle}
+        />
+
+        {/* Save */}
+        <button
+          onClick={handleSave}
+          disabled={saving || !title.trim() || !date || !time}
+          style={{
+            width: '100%', padding: '14px 0', borderRadius: 14,
+            border: 'none',
+            background: title.trim() && date && time && !saving
+              ? 'linear-gradient(135deg, #C87820, #E09838)'
+              : 'rgba(26,20,16,0.08)',
+            color: title.trim() && date && time && !saving
+              ? 'white' : 'rgba(26,20,16,0.28)',
+            fontSize: 11, fontWeight: 700, letterSpacing: '2px',
+            textTransform: 'uppercase',
+            cursor: title.trim() && date && time && !saving
+              ? 'pointer' : 'default',
+            fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s',
+          }}
+        >
+          {saving ? 'Saving...' : 'Save Changes →'}
+        </button>
+
+        {/* Delete */}
+        {!confirmDelete ? (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            style={{
+              display: 'block',
+              margin: '14px auto 0',
+              background: 'none', border: 'none',
+              cursor: 'pointer',
+              fontSize: 12, fontWeight: 400,
+              color: 'rgba(224,88,64,0.5)',
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            Delete meeting
+          </button>
+        ) : (
+          <div style={{
+            marginTop: 14, textAlign: 'center',
+          }}>
+            <p style={{
+              fontSize: 12, fontWeight: 300,
+              color: 'rgba(26,20,16,0.5)', marginBottom: 8,
+            }}>
+              Are you sure? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                style={{
+                  background: 'none', border: 'none',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  color: '#E05840',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                {deleting ? 'Deleting...' : 'Yes, delete'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                style={{
+                  background: 'none', border: 'none',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 400,
+                  color: 'rgba(26,20,16,0.4)',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </>
   );
 }

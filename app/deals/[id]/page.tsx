@@ -93,6 +93,7 @@ export default function DealDetailPage() {
   const [savingLog, setSavingLog] = useState(false);
 
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── FETCH DATA ─────────────────────────────────────────
@@ -410,7 +411,7 @@ export default function DealDetailPage() {
       background:  '#F7F3EC',
       fontFamily:  "'DM Sans', sans-serif",
       paddingBottom:100,
-      animation:   'fadeIn 0.28s ease both',
+      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
 
       {/* ── HEADER ────────────────────────────────────── */}
@@ -1135,6 +1136,108 @@ export default function DealDetailPage() {
           );
         })}
       </div>
+
+      {/* ── ARCHIVE / DELETE ────────────────────────── */}
+      {!confirmDelete ? (
+        <div style={{
+          margin: '24px 18px 0',
+          paddingTop: 16,
+          borderTop: '0.5px solid rgba(26,20,16,0.08)',
+          display: 'flex',
+          gap: 10,
+        }}>
+          <button
+            onClick={async () => {
+              if (!userId) return;
+              await supabase
+                .from('deals')
+                .update({ stage: 'Closed Lost' })
+                .eq('id', dealId)
+                .eq('user_id', userId);
+              router.push('/deals');
+            }}
+            style={{
+              flex: 1,
+              padding: '10px 0',
+              borderRadius: 10,
+              border: '0.5px solid rgba(26,20,16,0.12)',
+              background: 'transparent',
+              color: 'rgba(26,20,16,0.36)',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            Archive Deal
+          </button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            style={{
+              flex: 1,
+              padding: '10px 0',
+              borderRadius: 10,
+              border: '0.5px solid rgba(224,88,64,0.2)',
+              background: 'transparent',
+              color: 'rgba(224,88,64,0.5)',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            Delete Deal
+          </button>
+        </div>
+      ) : (
+        <div style={{ margin: '24px 18px 0', textAlign: 'center' }}>
+          <p style={{
+            fontSize: 13, fontWeight: 300,
+            color: 'rgba(26,20,16,0.5)', marginBottom: 12,
+          }}>
+            Delete this deal permanently?
+          </p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={() => setConfirmDelete(false)}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 10,
+                border: '0.5px solid rgba(26,20,16,0.12)',
+                background: 'transparent',
+                color: 'rgba(26,20,16,0.4)',
+                fontSize: 10, fontWeight: 600,
+                letterSpacing: '1.5px', textTransform: 'uppercase',
+                cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+              }}
+            >Cancel</button>
+            <button onClick={async () => {
+              if (!userId) return;
+              await Promise.all([
+                supabase.from('signals').delete()
+                  .eq('deal_id', dealId).eq('user_id', userId),
+                supabase.from('interactions').delete()
+                  .eq('deal_id', dealId).eq('user_id', userId),
+              ]);
+              await supabase.from('deals').delete()
+                .eq('id', dealId).eq('user_id', userId);
+              router.push('/deals');
+            }}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 10,
+                border: 'none',
+                background: 'rgba(224,88,64,0.1)',
+                color: '#E05840',
+                fontSize: 10, fontWeight: 700,
+                letterSpacing: '1.5px', textTransform: 'uppercase',
+                cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+              }}
+            >Yes, Delete</button>
+          </div>
+        </div>
+      )}
 
       {/* ── BOTTOM ACTION BAR ─────────────────────────── */}
       <div style={{

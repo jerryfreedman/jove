@@ -361,6 +361,7 @@ export default function DealChatPage() {
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
+      animation: 'pageFadeIn 0.22s ease both',
     }}>
 
       {/* Header */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import {
@@ -55,6 +55,8 @@ export default function DealsPage() {
   const [filterMode, setFilterMode] = useState<FilterMode>(null);
   const [showAddDeal, setShowAddDeal] = useState(false);
   const [userId, setUserId]         = useState<string | null>(null);
+  const [longPressedDealId, setLongPressedDealId] = useState<string | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── FETCH DATA ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -171,7 +173,7 @@ export default function DealsPage() {
         overflowY:  'auto',
         background: '#F7F3EC',
         fontFamily: "'DM Sans', sans-serif",
-        animation:  'fadeIn 0.28s ease both',
+        animation:  'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
       }}
     >
 
@@ -568,8 +570,30 @@ export default function DealsPage() {
               return (
                 <div
                   key={deal.id}
-                  onClick={() => router.push(`/deals/${deal.id}`)}
+                  onClick={() => {
+                    if (!longPressedDealId) router.push(`/deals/${deal.id}`);
+                  }}
+                  onMouseDown={() => {
+                    longPressTimer.current = setTimeout(() => {
+                      setLongPressedDealId(deal.id);
+                    }, 500);
+                  }}
+                  onMouseUp={() => {
+                    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  }}
+                  onMouseLeave={() => {
+                    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  }}
+                  onTouchStart={() => {
+                    longPressTimer.current = setTimeout(() => {
+                      setLongPressedDealId(deal.id);
+                    }, 500);
+                  }}
+                  onTouchEnd={() => {
+                    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  }}
                   style={{
+                    position:   'relative',
                     margin:     '0 18px 6px',
                     background: '#FFFFFF',
                     border:     attention
@@ -651,6 +675,71 @@ export default function DealsPage() {
                   }}>
                     ›
                   </div>
+
+                  {/* Long press overlay */}
+                  {longPressedDealId === deal.id && (
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        position: 'absolute',
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(247,243,236,0.96)',
+                        borderRadius: 14,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 12,
+                        zIndex: 10,
+                      }}
+                    >
+                      <button
+                        onClick={async () => {
+                          setLongPressedDealId(null);
+                          await supabase.from('deals').update({ stage: 'Closed Lost' })
+                            .eq('id', deal.id).eq('user_id', userId!);
+                          setDeals(prev => prev.filter(d => d.id !== deal.id));
+                        }}
+                        style={{
+                          padding: '8px 16px', borderRadius: 9,
+                          border: '0.5px solid rgba(26,20,16,0.15)',
+                          background: 'transparent',
+                          color: 'rgba(26,20,16,0.5)',
+                          fontSize: 10, fontWeight: 700,
+                          letterSpacing: '1px', textTransform: 'uppercase',
+                          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                        }}
+                      >Archive</button>
+                      <button
+                        onClick={async () => {
+                          setLongPressedDealId(null);
+                          await Promise.all([
+                            supabase.from('signals').delete().eq('deal_id', deal.id).eq('user_id', userId!),
+                            supabase.from('interactions').delete().eq('deal_id', deal.id).eq('user_id', userId!),
+                          ]);
+                          await supabase.from('deals').delete().eq('id', deal.id).eq('user_id', userId!);
+                          setDeals(prev => prev.filter(d => d.id !== deal.id));
+                        }}
+                        style={{
+                          padding: '8px 16px', borderRadius: 9,
+                          border: '0.5px solid rgba(224,88,64,0.25)',
+                          background: 'rgba(224,88,64,0.08)',
+                          color: '#E05840',
+                          fontSize: 10, fontWeight: 700,
+                          letterSpacing: '1px', textTransform: 'uppercase',
+                          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                        }}
+                      >Delete</button>
+                      <button
+                        onClick={() => setLongPressedDealId(null)}
+                        style={{
+                          padding: '8px 12px', borderRadius: 9,
+                          border: 'none', background: 'transparent',
+                          color: 'rgba(26,20,16,0.3)',
+                          fontSize: 16, cursor: 'pointer',
+                        }}
+                      >×</button>
+                    </div>
+                  )}
                 </div>
               );
             })}
