@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
@@ -26,6 +26,14 @@ function formatScheduledAt(dateStr: string): string {
 }
 
 export default function MeetingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <MeetingsPageInner />
+    </Suspense>
+  );
+}
+
+function MeetingsPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const supabase     = createClient();
