@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS, STAGE_STYLES } from '@/lib/design-system';
-import ThemeColor from '@/components/ui/ThemeColor';
 import type { DealRow, AccountRow } from '@/lib/types';
 
 type Message = {
@@ -355,7 +354,6 @@ export default function DealChatPage() {
 
   return (
     <>
-    <ThemeColor color="#0D0F12" />
     <div style={{
       height: '100vh',
       background: COLORS.bg,
@@ -370,7 +368,7 @@ export default function DealChatPage() {
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        padding: '52px 20px 14px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '14px',
         borderBottom: `0.5px solid ${COLORS.cardBorder}`,
         flexShrink: 0,
         background: COLORS.bg,

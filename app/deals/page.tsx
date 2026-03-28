@@ -8,7 +8,6 @@ import {
   STAGE_STYLES,
   getDaysColor,
 } from '@/lib/design-system';
-import ThemeColor from '@/components/ui/ThemeColor';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import type {
   DealRow,
@@ -166,7 +165,6 @@ export default function DealsPage() {
   // ── RENDER ─────────────────────────────────────────────────
   return (
     <>
-    <ThemeColor color="#F7F3EC" />
     <div
       style={{
         height:     '100vh',
@@ -182,7 +180,7 @@ export default function DealsPage() {
         display:      'flex',
         alignItems:   'center',
         gap:          14,
-        padding:      '52px 20px 16px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
         position:     'sticky',

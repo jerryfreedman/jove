@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
-import ThemeColor from '@/components/ui/ThemeColor';
 
 function renderMarkdown(text: string): React.ReactNode[] {
   return text.split('\n').map((line, i) => {
@@ -132,7 +131,6 @@ export default function ClosePlanPage() {
 
   return (
     <>
-    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -145,7 +143,7 @@ export default function ClosePlanPage() {
         display:      'flex',
         alignItems:   'center',
         gap:          12,
-        padding:      '52px 20px 16px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
         position:     'sticky',

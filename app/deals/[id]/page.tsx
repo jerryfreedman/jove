@@ -8,7 +8,6 @@ import {
   STAGE_STYLES,
   getDaysColor,
 } from '@/lib/design-system';
-import ThemeColor from '@/components/ui/ThemeColor';
 import type {
   DealRow,
   AccountRow,
@@ -342,7 +341,7 @@ export default function DealDetailPage() {
       <div style={{
         height:     '100vh',
         background: '#F7F3EC',
-        padding:    '52px 20px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px',
       }}>
         {[1,2,3].map(i => (
           <div key={i} style={{
@@ -405,7 +404,6 @@ export default function DealDetailPage() {
 
   return (
     <>
-    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -417,7 +415,7 @@ export default function DealDetailPage() {
 
       {/* ── HEADER ────────────────────────────────────── */}
       <div style={{
-        padding:      '52px 20px 16px',
+        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
         position:     'sticky',

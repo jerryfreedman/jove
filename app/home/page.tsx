@@ -220,12 +220,7 @@ export default function HomePage() {
     ? 'rgba(240,235,224,0.44)'
     : 'rgba(26,20,16,0.44)';
 
-  // ── DYNAMIC THEME-COLOR (iOS status bar) ────────────────
-  useEffect(() => {
-    const topColor = scene.sky[0].split(' ')[0];
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', topColor);
-  }, [scene]);
+  // Theme-color is now static (#060a12) — black-translucent handles transparency.
 
   // ── OFFLINE DETECTION ──────────────────────────────────
   useEffect(() => {
@@ -600,7 +595,7 @@ export default function HomePage() {
         {/* ── TOP BAR ──────────────────────────────── */}
         <div
           className="flex items-start justify-between"
-          style={{ padding: '50px 22px 0', ...anim(0.06) }}
+          style={{ paddingTop: 'env(safe-area-inset-top)', paddingLeft: 22, paddingRight: 22, ...anim(0.06) }}
         >
           {/* Logo — taps to settings */}
           <div
@@ -671,11 +666,6 @@ export default function HomePage() {
             style={{
               display:        'inline-block',
               padding:        '6px 20px 10px',
-              borderRadius:   18,
-              background:     scene.lightText
-                ? 'transparent'
-                : 'rgba(255,255,255,0.07)',
-              backdropFilter: scene.lightText ? 'none' : 'blur(8px)',
             }}
           >
             <div style={{
