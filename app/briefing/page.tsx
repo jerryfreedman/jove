@@ -298,7 +298,7 @@ export default function BriefingPage() {
         const response = await fetch('/api/do-this-first', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ context: context + historyContext }),
+          body:    JSON.stringify({ context: context + historyContext, userId }),
         });
 
         if (response.ok) {

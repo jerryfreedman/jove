@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Fetch deal context and voice profile in parallel
-      const [dealRes, interactionsRes, voiceRes] = await Promise.all([
+      const [dealRes, interactionsRes, voiceRes, kbRes] = await Promise.all([
         supabase
           .from('deals')
           .select('*, accounts(*, contacts(*))')
@@ -68,6 +68,11 @@ export async function POST(request: NextRequest) {
           .select('*')
           .eq('user_id', userId)
           .single(),
+        supabase
+          .from('knowledge_base')
+          .select('product_name, description, key_features, target_use_cases')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true }),
       ]);
 
       const deal = dealRes.data;
@@ -105,6 +110,20 @@ export async function POST(request: NextRequest) {
         ? `Opening: ${voice.opening_style}. Closing: ${voice.closing_style ?? 'varies'}. Formality: ${voice.formality_level ?? 'moderate'}.`
         : 'No voice profile yet — learning from your emails.';
 
+      const kbRows = kbRes.data ?? [];
+      const kbText = kbRows.length > 0
+        ? kbRows.map(kb => {
+            const lines = [`• ${kb.product_name}: ${kb.description}`];
+            if (kb.key_features?.length) {
+              lines.push(`  Features: ${kb.key_features.join(', ')}`);
+            }
+            if (kb.target_use_cases?.length) {
+              lines.push(`  Use cases: ${kb.target_use_cases.join(', ')}`);
+            }
+            return lines.join('\n');
+          }).join('\n\n')
+        : 'Not specified';
+
       systemPrompt = `You are Jove — an expert sales intelligence assistant for a senior sales professional.
 Be direct. Be specific to this deal.
 Never give generic sales advice.
@@ -131,7 +150,10 @@ RECENT INTERACTIONS:
 ${interactionsText}
 
 VOICE PROFILE:
-${voiceText}`;
+${voiceText}
+
+WHAT YOU SELL:
+${kbText}`;
 
       // Cache the assembled system prompt
       setCached(cacheKey, systemPrompt);

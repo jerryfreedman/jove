@@ -205,7 +205,7 @@ export default function OnboardingPage() {
         fetch('/api/do-this-first', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dealId: newDeal.id }),
+          body: JSON.stringify({ dealId: newDeal.id, userId }),
         }).catch(() => {});
         // Do not await — must not block saving flow
       }

@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Fetch all deal context in parallel
-      const [dealRes, interactionsRes, signalsRes] = await Promise.all([
+      const [dealRes, interactionsRes, signalsRes, kbRes] = await Promise.all([
         supabase
           .from('deals')
           .select('*, accounts(*, contacts(*))')
@@ -64,6 +64,11 @@ export async function POST(request: NextRequest) {
           .eq('is_duplicate', false)
           .order('created_at', { ascending: false })
           .limit(10),
+        supabase
+          .from('knowledge_base')
+          .select('product_name, description, key_features, target_use_cases')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true }),
       ]);
 
       if (dealRes.error || !dealRes.data) {
@@ -102,6 +107,20 @@ export async function POST(request: NextRequest) {
         ? signals.map(s => `${s.signal_type} | ${s.content}`).join('\n')
         : 'No signals extracted yet.';
 
+      const kbRows = kbRes.data ?? [];
+      const kbText = kbRows.length > 0
+        ? kbRows.map(kb => {
+            const lines = [`• ${kb.product_name}: ${kb.description}`];
+            if (kb.key_features?.length) {
+              lines.push(`  Features: ${kb.key_features.join(', ')}`);
+            }
+            if (kb.target_use_cases?.length) {
+              lines.push(`  Use cases: ${kb.target_use_cases.join(', ')}`);
+            }
+            return lines.join('\n');
+          }).join('\n\n')
+        : 'Not specified';
+
       userPrompt = `DEAL: ${deal.name}
 ACCOUNT: ${account?.name ?? 'Unknown'}
 STAGE: ${deal.stage}
@@ -118,6 +137,13 @@ ${interactionsText}
 
 RECENT SIGNALS:
 ${signalsText}
+
+WHAT YOU SELL:
+${kbText}
+
+Use the product context above to make your prep brief specific.
+Reference relevant features or use cases where they apply to
+this deal — don't mention products that aren't relevant.
 
 Generate exactly this structure:
 

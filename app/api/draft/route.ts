@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { context, intent } = await request.json();
+    const { context, intent, userId } = await request.json();
 
     if (!context || !intent) {
       return NextResponse.json(
@@ -11,6 +12,23 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    const supabase = await createServerSupabaseClient();
+    const { data: kbRows } = await supabase
+      .from('knowledge_base')
+      .select('product_name, description, key_features')
+      .eq('user_id', userId ?? '')
+      .order('created_at', { ascending: true });
+
+    const kbText = kbRows && kbRows.length > 0
+      ? kbRows.map((kb: { product_name: string; description: string; key_features: string[] | null }) => {
+          const parts = [`${kb.product_name}: ${kb.description}`];
+          if (kb.key_features?.length) {
+            parts.push(`Features: ${kb.key_features.join(', ')}`);
+          }
+          return parts.join(' | ');
+        }).join('\n')
+      : 'Not specified';
 
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
@@ -22,7 +40,13 @@ No sign-off like "Best regards" or "Sincerely" unless the tone clearly calls for
 Match the user's stated intent exactly.
 Format: Subject line first on its own line starting with "Subject:",
 then a blank line, then the email body.
-Keep it concise — under 150 words unless the context requires more.`,
+Keep it concise — under 150 words unless the context requires more.
+
+Products the user sells:
+${kbText}
+
+Reference specific product capabilities naturally where relevant.
+Never mention products that aren't relevant to the email context.`,
       messages: [
         {
           role: 'user',

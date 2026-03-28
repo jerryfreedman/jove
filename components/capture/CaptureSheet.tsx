@@ -300,6 +300,7 @@ export default function CaptureSheet({
         body: JSON.stringify({
           context: draftContext.trim(),
           intent: draftIntent.trim(),
+          userId,
         }),
       });
 

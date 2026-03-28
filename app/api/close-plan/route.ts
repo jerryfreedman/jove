@@ -77,12 +77,19 @@ export async function POST(request: NextRequest) {
       const interactions = interactionsRes.data ?? [];
       const signals      = signalsRes.data ?? [];
 
-      // Fetch contacts via account
-      const { data: contactsData } = await supabase
-        .from('contacts')
-        .select('name, title, is_champion, relationship_summary')
-        .eq('account_id', deal.account_id)
-        .eq('user_id', userId);
+      // Fetch contacts and knowledge base in parallel
+      const [{ data: contactsData }, kbRes] = await Promise.all([
+        supabase
+          .from('contacts')
+          .select('name, title, is_champion, relationship_summary')
+          .eq('account_id', deal.account_id)
+          .eq('user_id', userId),
+        supabase
+          .from('knowledge_base')
+          .select('product_name, description, key_features, target_use_cases')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true }),
+      ]);
 
       const contacts = (contactsData ?? []) as Array<{
         name: string;
@@ -117,6 +124,20 @@ export async function POST(request: NextRequest) {
         ? signals.map((s: { signal_type: string; content: string }) => `${s.signal_type}: ${s.content}`).join('\n')
         : 'No signals extracted yet.';
 
+      const kbRows = kbRes.data ?? [];
+      const kbText = kbRows.length > 0
+        ? kbRows.map(kb => {
+            const lines = [`• ${kb.product_name}: ${kb.description}`];
+            if (kb.key_features?.length) {
+              lines.push(`  Features: ${kb.key_features.join(', ')}`);
+            }
+            if (kb.target_use_cases?.length) {
+              lines.push(`  Use cases: ${kb.target_use_cases.join(', ')}`);
+            }
+            return lines.join('\n');
+          }).join('\n\n')
+        : 'Not specified';
+
       userPrompt = `Generate a strategic close plan for this opportunity.
 
 DEAL: ${deal.name}
@@ -137,6 +158,13 @@ ${interactionsText}
 
 EXTRACTED SIGNALS:
 ${signalsText}
+
+WHAT YOU SELL:
+${kbText}
+
+Reference specific products and features in your close plan
+where relevant. The NEXT MESSAGE TO SEND section should
+reference actual product capabilities, not generic value props.
 
 Generate exactly this structure:
 
