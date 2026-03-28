@@ -4,6 +4,15 @@
   "description": "Personal AI sales intelligence",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#060a12",
-  "theme_color": "#2070b8"
+  "theme_color": "#020408",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }

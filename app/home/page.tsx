@@ -223,14 +223,9 @@ export default function HomePage() {
   // ── DYNAMIC THEME-COLOR (iOS status bar) ────────────────
   useEffect(() => {
     const topColor = scene.sky[0].split(' ')[0];
-    let meta = document.querySelector('meta[name="theme-color"]');
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('name', 'theme-color');
-      document.head.appendChild(meta);
-    }
-    meta.setAttribute('content', topColor);
-  }, [h]);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', topColor);
+  }, [scene]);
 
   // ── OFFLINE DETECTION ──────────────────────────────────
   useEffect(() => {
