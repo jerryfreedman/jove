@@ -8,7 +8,7 @@ import Logo from '@/components/ui/Logo';
 import { getGreeting, getSceneForHour, COLORS } from '@/lib/design-system';
 
 // ── TYPES ──────────────────────────────────────────────────
-type Step = 'q1_company' | 'q2_role' | 'q3_deal' | 'saving' | 'ready';
+type Step = 'q1_company' | 'q2_role' | 'q3_deal' | 'q4_product' | 'saving' | 'ready';
 
 interface OnboardingState {
   company:  string;
@@ -43,11 +43,12 @@ export default function OnboardingPage() {
   const [data, setData]       = useState<OnboardingState>({
     company: '', industry: '', role: '', deal: '',
   });
+  const [productDescription, setProductDescription] = useState('');
   const [input, setInput]         = useState('');
   const [subInput, setSubInput]   = useState(''); // for industry on q1
   const [visible, setVisible]     = useState(false);
-  const [readyVisible, setReadyVisible] = useState(false);
   const [error, setError]         = useState('');
+  const [user, setUser]           = useState<any>(null);
 
   const h        = new Date().getHours();
   const scene    = getSceneForHour(h);
@@ -84,6 +85,7 @@ export default function OnboardingPage() {
     q1_company: 'What company do you sell for?',
     q2_role:    'What\'s your role?',
     q3_deal:    'What\'s one deal you\'re working on right now?',
+    q4_product: 'What do you sell?',
   };
 
   const HINTS: Record<string, string> = {
@@ -113,9 +115,10 @@ export default function OnboardingPage() {
     }
 
     if (step === 'q3_deal') {
-      const finalData = { ...data, deal: input.trim() };
-      setData(finalData);
-      await saveOnboarding(finalData);
+      setData(d => ({ ...d, deal: input.trim() }));
+      setInput('');
+      setStep('q4_product');
+      return;
     }
   };
 
@@ -131,8 +134,10 @@ export default function OnboardingPage() {
     setStep('saving');
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No user session');
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) throw new Error('No user session');
+      setUser(authUser);
+      const userId = authUser.id;
 
       // 1. Update users table
       const { error: userError } = await supabase
@@ -143,7 +148,7 @@ export default function OnboardingPage() {
           role:                  finalData.role || null,
           onboarding_completed:  true,
         })
-        .eq('id', user.id);
+        .eq('id', userId);
 
       if (userError) throw userError;
 
@@ -151,7 +156,7 @@ export default function OnboardingPage() {
       const { error: vpError } = await supabase
         .from('voice_profile')
         .upsert({
-          user_id:      user.id,
+          user_id:      userId,
           sample_count: 0,
         }, { onConflict: 'user_id', ignoreDuplicates: true });
 
@@ -164,7 +169,7 @@ export default function OnboardingPage() {
       const { data: accountData, error: accountError } = await supabase
         .from('accounts')
         .insert({
-          user_id:  user.id,
+          user_id:  userId,
           name:     accountName,
           industry: finalData.industry || null,
         })
@@ -175,26 +180,59 @@ export default function OnboardingPage() {
 
       // 4. Create first deal
       if (finalData.deal.trim()) {
-        const { error: dealError } = await supabase
+        const { data: newDeal, error: dealError } = await supabase
           .from('deals')
           .insert({
-            user_id:    user.id,
+            user_id:    userId,
             account_id: accountData.id,
             name:       finalData.deal.trim(),
             stage:      'Prospect',
             next_action_confirmed: false,
-          });
+          })
+          .select()
+          .single();
 
         if (dealError) throw dealError;
+
+        // Fire and forget — seeds briefing in background
+        // Deal is guaranteed committed at this point
+        fetch('/api/do-this-first', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dealId: newDeal.id }),
+        }).catch(() => {});
+        // Do not await — must not block saving flow
       }
 
-      // 5. Play "Jove is ready." moment
+      // 5. Write product to knowledge_base
+      if (productDescription.trim()) {
+        // Extract a meaningful product name from the description
+        // Use text before first dash or comma, or first 4 words
+        const raw = productDescription.trim();
+        const beforeDelimiter = raw.split(/[-,]/)[0].trim();
+        const words = beforeDelimiter.split(/\s+/);
+        const product_name = words.slice(0, 4).join(' ');
+
+        await supabase.from('knowledge_base').insert({
+          user_id:          userId,
+          product_name:     product_name,
+          description:      raw,
+          key_features:     null,
+          target_use_cases: null,
+          version:          null,
+          is_active_deal:   false,
+          notes:            null,
+          // NOTE: user can rename and expand this in
+          // Settings → Knowledge Base (built in Session 18)
+        });
+      }
+      // If productDescription is empty: skip insert entirely
+
+      // 6. Play "You're ready." moment
       setStep('ready');
-      setReadyVisible(true);
 
       setTimeout(() => {
-        setReadyVisible(false);
-        setTimeout(() => router.push('/home'), 600);
+        router.push('/home');
       }, 2200);
 
     } catch (err) {
@@ -219,8 +257,7 @@ export default function OnboardingPage() {
           style={{
             zIndex:     100,
             background: 'rgba(13,15,18,0.92)',
-            opacity:    readyVisible ? 1 : 0,
-            transition: 'opacity 0.6s ease',
+            opacity:    1,
           }}
         >
           <div style={{ animation: 'breath 5s ease-in-out infinite', marginBottom: 28 }}>
@@ -238,7 +275,13 @@ export default function OnboardingPage() {
               opacity:       0,
             }}
           >
-            Jove is ready.
+            {(() => {
+              const fullName = user?.user_metadata?.full_name
+                ?? user?.user_metadata?.name
+                ?? '';
+              const firstName = fullName.split(' ')[0] ?? '';
+              return firstName ? `You're ready, ${firstName}.` : "You're ready.";
+            })()}
           </p>
         </div>
       )}
@@ -270,20 +313,26 @@ export default function OnboardingPage() {
               justifyContent: 'center',
             }}
           >
-            {(['q1_company', 'q2_role', 'q3_deal'] as const).map((s) => (
-              <div
-                key={s}
-                style={{
-                  width:        step === s ? 24 : 8,
-                  height:       8,
-                  borderRadius: 4,
-                  background:   step === s
-                    ? COLORS.amber
-                    : 'rgba(232,160,48,0.25)',
-                  transition:   'all 0.4s ease',
-                }}
-              />
-            ))}
+            {(['q1_company', 'q2_role', 'q3_deal', 'q4_product'] as const).map((s, i) => {
+              const stepOrder = ['q1_company', 'q2_role', 'q3_deal', 'q4_product', 'saving', 'ready'];
+              const currentIdx = stepOrder.indexOf(step);
+              const pillIdx = stepOrder.indexOf(s);
+              const isActive = currentIdx >= pillIdx;
+              return (
+                <div
+                  key={s}
+                  style={{
+                    width:        step === s ? 24 : 8,
+                    height:       8,
+                    borderRadius: 4,
+                    background:   isActive
+                      ? COLORS.amber
+                      : 'rgba(232,160,48,0.25)',
+                    transition:   'all 0.4s ease',
+                  }}
+                />
+              );
+            })}
           </div>
 
           {/* Greeting — first step only */}
@@ -322,7 +371,7 @@ export default function OnboardingPage() {
           </h2>
 
           {/* Main input */}
-          {step !== 'saving' && (
+          {step !== 'saving' && step !== 'q4_product' && (
             <>
               <input
                 ref={inputRef}
@@ -425,7 +474,7 @@ export default function OnboardingPage() {
                     : 'none',
                 }}
               >
-                {step === 'q3_deal' ? 'Let\'s go \u2192' : 'Continue \u2192'}
+                Continue →
               </button>
 
               {/* Skip hint — deal step only */}
@@ -451,9 +500,104 @@ export default function OnboardingPage() {
             </>
           )}
 
+          {/* Step 4 — Product description */}
+          {step === 'q4_product' && (
+            <>
+              <p
+                style={{
+                  fontFamily:   "'DM Sans', sans-serif",
+                  fontSize:     14,
+                  fontWeight:   300,
+                  color:        textSecondary,
+                  marginBottom: 24,
+                  lineHeight:   1.5,
+                }}
+              >
+                Describe your main product or service in a sentence or two.
+                <br />
+                Jove uses this to give you sharper, more specific advice.
+              </p>
+
+              <textarea
+                rows={3}
+                value={productDescription}
+                onChange={e => setProductDescription(e.target.value)}
+                placeholder={"e.g. Cloud infrastructure for gaming companies —\ncolocation, burst cloud, and managed connectivity"}
+                style={{
+                  width:          '100%',
+                  background:     inputBg,
+                  border:         `0.5px solid ${inputBorder}`,
+                  borderRadius:   14,
+                  padding:        '16px 20px',
+                  fontSize:       16,
+                  fontWeight:     300,
+                  color:          textPrimary,
+                  outline:        'none',
+                  fontFamily:     "'DM Sans', sans-serif",
+                  marginBottom:   24,
+                  backdropFilter: 'blur(8px)',
+                  caretColor:     COLORS.amber,
+                  resize:         'none',
+                }}
+                onFocus={e => {
+                  e.target.style.borderColor = 'rgba(232,160,48,0.5)';
+                }}
+                onBlur={e => {
+                  e.target.style.borderColor = inputBorder;
+                }}
+              />
+
+              {/* Continue button */}
+              <button
+                onClick={() => {
+                  const finalData = { ...data };
+                  saveOnboarding(finalData);
+                }}
+                style={{
+                  width:          '100%',
+                  padding:        '15px 0',
+                  borderRadius:   14,
+                  border:         'none',
+                  background:     'linear-gradient(135deg, #C87820, #E09838)',
+                  color:          'white',
+                  fontSize:       11,
+                  fontWeight:     700,
+                  letterSpacing:  '2.5px',
+                  textTransform:  'uppercase' as const,
+                  cursor:         'pointer',
+                  fontFamily:     "'DM Sans', sans-serif",
+                  transition:     'all 0.2s ease',
+                  boxShadow:      '0 6px 24px rgba(200,120,32,0.3)',
+                }}
+              >
+                Continue →
+              </button>
+
+              {/* Skip link */}
+              <p
+                onClick={() => {
+                  setProductDescription('');
+                  const finalData = { ...data };
+                  saveOnboarding(finalData);
+                }}
+                style={{
+                  fontSize:   12,
+                  fontWeight: 300,
+                  color:      textSecondary,
+                  textAlign:  'center',
+                  marginTop:  16,
+                  cursor:     'pointer',
+                  opacity:    0.7,
+                }}
+              >
+                Skip for now
+              </p>
+            </>
+          )}
+
           {/* Saving state */}
           {step === 'saving' && (
-            <div style={{ textAlign: 'center' }}>
+            <div key="saving" style={{ textAlign: 'center', animation: 'fadeUp 0.4s ease both' }}>
               <div
                 style={{
                   width:        48,
