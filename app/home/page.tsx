@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useReducer } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
 import Logo from '@/components/ui/Logo';
 import StreakBadge from '@/components/ui/StreakBadge';
 import CaptureSheet from '@/components/capture/CaptureSheet';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
+import CalendarImportPrompt from '@/components/onboarding/CalendarImportPrompt';
 import { calculateStreak } from '@/lib/streak';
 import {
   getGreeting,
@@ -185,8 +187,59 @@ export default function HomePage() {
   const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
 
+  // ── FIRST VISIT OVERLAY STATE ────────────────────────────
+  const [firstVisitVisible, setFirstVisitVisible] = useState(
+    () => typeof window !== 'undefined'
+      ? localStorage.getItem('jove_first_visit_shown') !== 'true'
+      : false
+  );
+  const [firstVisitOpacity, setFirstVisitOpacity] = useState(1);
+
+  // ── TOUR & CALENDAR PROMPT STATE ─────────────────────────
+  const [showTour, setShowTour] = useState(false);
+  const [showCalendarPrompt, setShowCalendarPrompt] = useState(false);
+
+  // ── TOUR REFS ────────────────────────────────────────────
+  const sunRef     = useRef<HTMLDivElement>(null);
+  const captureRef = useRef<HTMLButtonElement>(null);
+  const dealsRef   = useRef<HTMLButtonElement>(null);
+  const logoRef    = useRef<HTMLDivElement>(null);
+
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
+
+  // ── FIRST VISIT OVERLAY FADE ─────────────────────────────
+  useEffect(() => {
+    if (!firstVisitVisible) return;
+
+    const fadeTimer = setTimeout(() => {
+      setFirstVisitOpacity(0);
+    }, 100);
+
+    const hideTimer = setTimeout(() => {
+      setFirstVisitVisible(false);
+      localStorage.setItem('jove_first_visit_shown', 'true');
+      // Fire tour directly from here — do NOT use a separate
+      // useEffect that checks the flag, because the flag is not
+      // set yet when that useEffect runs on mount.
+      if (localStorage.getItem('jove_tour_complete') !== 'true') {
+        setTimeout(() => setShowTour(true), 1400);
+      }
+    }, 900);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(hideTimer);
+    };
+  }, [firstVisitVisible]);
+
+  // ── RETURNING USER TOUR (overlay already shown, tour not complete) ──
+  useEffect(() => {
+    if (localStorage.getItem('jove_first_visit_shown') !== 'true') return;
+    if (localStorage.getItem('jove_tour_complete') === 'true') return;
+    const timer = setTimeout(() => setShowTour(true), 1400);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Sync body background with sky top color so the area behind
   // the iOS status bar shows the correct color.
@@ -512,6 +565,7 @@ export default function HomePage() {
 
           {/* Clickable sun overlay */}
           <div
+            ref={sunRef}
             onClick={() => router.push('/briefing')}
             style={{
               position:     'absolute',
@@ -615,6 +669,7 @@ export default function HomePage() {
         >
           {/* Logo — taps to settings */}
           <div
+            ref={logoRef}
             style={{
               transition: logoMilestone
                 ? 'box-shadow 2s ease, transform 2s ease'
@@ -919,6 +974,7 @@ export default function HomePage() {
         >
           {/* Capture button — amber circle */}
           <button
+            ref={captureRef}
             onClick={() => setShowCapture(true)}
             style={{
               width:        58,
@@ -951,6 +1007,7 @@ export default function HomePage() {
 
           {/* Deals pill */}
           <button
+            ref={dealsRef}
             onClick={() => router.push('/deals')}
             style={{
               display:        'flex',
@@ -984,6 +1041,75 @@ export default function HomePage() {
         </div>
 
       </div>
+
+      {/* ── SPOTLIGHT TOUR ─────────────────────── */}
+      {showTour && (
+        <SpotlightTour
+          stops={[
+            {
+              ref:      sunRef as React.RefObject<HTMLElement>,
+              copy:     'Your daily briefing. Tap every morning.',
+              position: 'below',
+            },
+            {
+              ref:      captureRef as React.RefObject<HTMLElement>,
+              copy:     'Log calls, emails, and ideas here.',
+              position: 'above',
+            },
+            {
+              ref:      dealsRef as React.RefObject<HTMLElement>,
+              copy:     'Your pipeline and open opportunities.',
+              position: 'above',
+            },
+            {
+              ref:      logoRef as React.RefObject<HTMLElement>,
+              copy:     'Settings and preferences.',
+              position: 'below',
+            },
+          ]}
+          storageKey="jove_tour_complete"
+          onComplete={() => {
+            setShowTour(false);
+            if (localStorage.getItem('jove_calendar_prompted') !== 'true') {
+              setShowCalendarPrompt(true);
+            }
+          }}
+          delayMs={0}
+        />
+      )}
+
+      {/* ── CALENDAR IMPORT PROMPT ────────────── */}
+      {showCalendarPrompt && (
+        <CalendarImportPrompt
+          onImport={() => {
+            localStorage.setItem('jove_calendar_prompted', 'true');
+            setShowCalendarPrompt(false);
+            router.push('/meetings?import=true');
+          }}
+          onSkip={() => {
+            localStorage.setItem('jove_calendar_prompted', 'true');
+            setShowCalendarPrompt(false);
+          }}
+        />
+      )}
+
+      {/* ── FIRST VISIT OVERLAY ───────────────── */}
+      {firstVisitVisible && (
+        <div style={{
+          position:       'fixed',
+          inset:          0,
+          zIndex:         200,
+          background:     '#060a12',
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          opacity:        firstVisitOpacity,
+          transition:     'opacity 0.7s ease',
+          pointerEvents:  firstVisitOpacity < 1 ? 'none' : 'auto',
+        }}>
+          <Logo light size={48} showWordmark />
+        </div>
+      )}
 
       {/* ── CAPTURE SHEET ────────────────────────── */}
       {showCapture && data?.user && (
