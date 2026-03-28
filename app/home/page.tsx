@@ -188,6 +188,12 @@ export default function HomePage() {
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
 
+  // Sun tap target must match the visual sun position in SceneBackground.
+  // During clipped periods (dusk/golden hour/pre-dawn/sunrise) the sun sits
+  // at the horizon (top: 62%). Otherwise it uses sc.sun.top.
+  const sunIsClipped = (h >= 5 && h < 8) || (h >= 16 && h < 22);
+  const sunTopPct    = sunIsClipped ? 62 : scene.sun.top;
+
   // Text color adapts to sky brightness
   const textPrimary   = scene.lightText
     ? 'rgba(252,246,234,0.94)'
@@ -463,7 +469,7 @@ export default function HomePage() {
             style={{
               position:     'absolute',
               left:         '50%',
-              top:          `${scene.sun.top}%`,
+              top:          `${sunTopPct}%`,
               transform:    'translate(-50%, -50%)',
               width:        110,
               height:       110,
@@ -481,7 +487,7 @@ export default function HomePage() {
             style={{
               position:     'absolute',
               left:         '50%',
-              top:          `${scene.sun.top}%`,
+              top:          `${sunTopPct}%`,
               transform:    'translate(-50%, -50%)',
               width:        80,
               height:       80,
@@ -506,7 +512,7 @@ export default function HomePage() {
               style={{
                 position:     'absolute',
                 left:         '50%',
-                top:          `${scene.sun.top}%`,
+                top:          `${sunTopPct}%`,
                 transform:    'translate(-50%, -50%)',
                 width:        90,
                 height:       90,
