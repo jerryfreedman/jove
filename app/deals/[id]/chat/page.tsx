@@ -62,6 +62,13 @@ export default function DealChatPage() {
   const messagesRef = useRef<Message[]>([]);
   const userIdRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    document.body.style.backgroundColor = '#0D0F12';
+    return () => {
+      document.body.style.backgroundColor = '#060a12';
+    };
+  }, []);
+
   // Keep refs in sync for cleanup
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { userIdRef.current = userId; }, [userId]);

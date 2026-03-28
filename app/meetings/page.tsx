@@ -81,6 +81,13 @@ export default function MeetingsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    document.body.style.backgroundColor = '#F7F3EC';
+    return () => {
+      document.body.style.backgroundColor = '#060a12';
+    };
+  }, []);
+
   const handleAddMeeting = async () => {
     if (!newTitle.trim() || !newDate || !newTime || !userId) return;
     setSaving(true);

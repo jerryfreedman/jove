@@ -49,6 +49,13 @@ export default function ClosePlanPage() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    document.body.style.backgroundColor = '#F7F3EC';
+    return () => {
+      document.body.style.backgroundColor = '#060a12';
+    };
+  }, []);
+
+  useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/'); return; }
