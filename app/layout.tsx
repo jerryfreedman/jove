@@ -6,7 +6,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#060a12",
+  themeColor: "#2070b8",
 };
 
 export const metadata: Metadata = {
@@ -29,9 +29,15 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             var h = new Date().getHours();
-            var isDark = h >= 19 || h < 8;
+            var c = h >= 22 || h < 5 ? '#020408'
+                  : h < 6  ? '#04060c'
+                  : h < 8  ? '#6888a8'
+                  : h < 11 ? '#3a88cc'
+                  : h < 16 ? '#2070b8'
+                  : h < 19 ? '#0f0618'
+                  : '#08040e';
             var meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', isDark ? '#060a12' : '#F7F3EC');
+            if (meta) meta.setAttribute('content', c);
           })();
         ` }} />
       </head>
