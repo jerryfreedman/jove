@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import Anthropic from '@anthropic-ai/sdk';
-import { SUPABASE_URL, CLAUDE_MODEL } from '@/lib/constants';
+import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
+import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
 
 export const maxDuration = 30;
@@ -163,10 +163,6 @@ Step 3: [Specific action — who owns it — realistic timeline]
       // Cache the assembled context
       setCached(cacheKey, userPrompt);
     }
-
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
 
     const stream = await anthropic.messages.stream({
       model:      CLAUDE_MODEL,

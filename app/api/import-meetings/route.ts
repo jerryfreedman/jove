@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
-import { CLAUDE_MODEL } from '@/lib/constants';
+import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,10 +8,6 @@ export async function POST(request: NextRequest) {
     if (!imageBase64) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
-
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
 
     const result = await anthropic.messages.create({
       model:      CLAUDE_MODEL,

@@ -14,7 +14,7 @@ import {
   formatTime,
   COLORS,
 } from '@/lib/design-system';
-import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
+import { PULSE_CHECK_DEFAULT_DAYS, SCENE_HORIZON_PERCENT } from '@/lib/constants';
 import type {
   DealRow,
   MeetingRow,
@@ -224,7 +224,7 @@ export default function HomePage() {
   // For clipped sun: position at the visible center (halfway up the exposed half)
   // For in-sky sun: position at sc.sun.top%
   const sunTopStyle = isClippedSun
-    ? `calc(62% - ${clipHalf / 2}px)`
+    ? `calc(${SCENE_HORIZON_PERCENT}% - ${clipHalf / 2}px)`
     : `${scene.sun.top}%`;
 
   // Text color adapts to sky brightness

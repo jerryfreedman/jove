@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import SignInClient from '@/components/ui/SignInClient';
 
 export default async function RootPage() {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();

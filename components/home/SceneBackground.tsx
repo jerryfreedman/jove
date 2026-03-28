@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { getSceneForHour } from '@/lib/design-system';
+import { SCENE_HORIZON_PERCENT } from '@/lib/constants';
 
 // Fixed star positions — generated once, never changes
 const STARS = Array.from({ length: 26 }, (_, i) => ({
@@ -122,7 +123,7 @@ export default function SceneBackground() {
         <div style={{
           position: 'absolute',
           left: 0, right: 0, top: 0,
-          height: '62%',
+          height: `${SCENE_HORIZON_PERCENT}%`,
           overflow: 'hidden',
           zIndex: 3,
           pointerEvents: 'none',
@@ -167,7 +168,7 @@ export default function SceneBackground() {
       <div
         className="absolute left-0 right-0 bottom-0"
         style={{
-          top: '62%',
+          top: `${SCENE_HORIZON_PERCENT}%`,
           background: waterGradient,
           zIndex: 2,
         }}

@@ -4,18 +4,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 html {
   background-color: #060a12;
   overscroll-behavior: none;
@@ -34,11 +22,6 @@ body {
   overflow: hidden;
   padding: 0;
   margin: 0;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
 }
 
 @keyframes pageReveal {
