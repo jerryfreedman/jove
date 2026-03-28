@@ -22,7 +22,6 @@ export default function SceneBackground() {
   // ── Sun rendering logic ──────────────────────────────────
   const isClipped = sc.sun.top >= 60 && sc.sun.opacity > 0;
   const isInSky   = sc.sun.top < 60 && sc.sun.opacity > 0;
-  const isNight   = sc.sun.opacity === 0;
 
   // Clipped sun params by period
   let clipSunSize = 0;
