@@ -673,8 +673,8 @@ export default function SettingsPage() {
               {(['mrr', 'arr'] as const).map(v => {
                 const current =
                   typeof window !== 'undefined'
-                    ? localStorage.getItem('jove_value_display') ?? 'mrr'
-                    : 'mrr';
+                    ? localStorage.getItem('jove_value_display') ?? 'arr'
+                    : 'arr';
                 const active = current === v;
                 return (
                   <button

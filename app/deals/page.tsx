@@ -58,8 +58,8 @@ export default function DealsPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [valueDisplay, setValueDisplay] =
     useState<'mrr' | 'arr'>(() => {
-      if (typeof window === 'undefined') return 'mrr';
-      return (localStorage.getItem('jove_value_display') as 'mrr' | 'arr') ?? 'mrr';
+      if (typeof window === 'undefined') return 'arr';
+      return (localStorage.getItem('jove_value_display') as 'mrr' | 'arr') ?? 'arr';
     });
 
   // ── FETCH DATA ────────────────────────────────────────────
@@ -194,20 +194,26 @@ export default function DealsPage() {
       .map(d => d.account_id)
   ).size;
 
+  function normalizeValue(d: DealWithAccountName): number {
+    const raw = d.value ?? 0;
+    if (raw === 0) return 0;
+    const type = d.value_type ?? 'arr';
+    if (type === 'one_time') return raw;
+    if (type === valueDisplay) return raw;
+    // Convert: MRR→ARR ×12, ARR→MRR ÷12
+    return valueDisplay === 'arr' ? raw * 12 : raw / 12;
+  }
+
   const pipelineValue = deals
     .filter(d =>
       d.stage !== 'Closed Won' &&
-      d.stage !== 'Closed Lost' &&
-      (d.value_type === valueDisplay || !d.value_type)
+      d.stage !== 'Closed Lost'
     )
-    .reduce((sum, d) => sum + (d.value ?? 0), 0);
+    .reduce((sum, d) => sum + normalizeValue(d), 0);
 
   const closedWonValue = deals
-    .filter(d =>
-      d.stage === 'Closed Won' &&
-      (d.value_type === valueDisplay || !d.value_type)
-    )
-    .reduce((sum, d) => sum + (d.value ?? 0), 0);
+    .filter(d => d.stage === 'Closed Won')
+    .reduce((sum, d) => sum + normalizeValue(d), 0);
 
   function formatPipelineValue(n: number): string {
     if (n === 0) return '—';

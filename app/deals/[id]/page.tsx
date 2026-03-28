@@ -790,17 +790,17 @@ export default function DealDetailPage() {
                       padding:       '6px 0',
                       borderRadius:  8,
                       border:        '0.5px solid',
-                      borderColor:   (deal?.value_type ?? 'mrr') === key
+                      borderColor:   (deal?.value_type ?? 'arr') === key
                         ? 'rgba(232,160,48,0.5)'
                         : 'rgba(26,20,16,0.1)',
-                      background:    (deal?.value_type ?? 'mrr') === key
+                      background:    (deal?.value_type ?? 'arr') === key
                         ? 'rgba(232,160,48,0.1)'
                         : 'transparent',
-                      color:         (deal?.value_type ?? 'mrr') === key
+                      color:         (deal?.value_type ?? 'arr') === key
                         ? '#E8A030'
                         : 'rgba(26,20,16,0.4)',
                       fontSize:      9,
-                      fontWeight:    (deal?.value_type ?? 'mrr') === key
+                      fontWeight:    (deal?.value_type ?? 'arr') === key
                         ? 700 : 300,
                       cursor:        'pointer',
                       fontFamily:    "'DM Sans', sans-serif",
@@ -845,7 +845,7 @@ export default function DealDetailPage() {
                   }}>
                     {deal.value_type === 'one_time'
                       ? 'One-time'
-                      : (deal.value_type ?? 'mrr').toUpperCase()}
+                      : (deal.value_type ?? 'arr').toUpperCase()}
                   </span>
                 )}
               </div>
