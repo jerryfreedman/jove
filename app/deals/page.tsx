@@ -926,7 +926,6 @@ function AddDealSheet({
 
         {/* Deal name */}
         <input
-          autoFocus
           type="text"
           value={dealName}
           onChange={e => setDealName(e.target.value)}
