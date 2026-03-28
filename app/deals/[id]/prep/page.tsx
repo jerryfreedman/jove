@@ -186,18 +186,22 @@ export default function PrepPage() {
     <div style={{
       height: '100vh',
       overflowY: 'auto',
-      background: COLORS.cream,
       fontFamily: FONTS.sans,
       paddingBottom: 80,
       animation: 'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
+      <div style={{
+        background: COLORS.cream,
+        minHeight: '100dvh',
+        paddingTop: 'env(safe-area-inset-top)',
+      }}>
 
       {/* Header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
+        paddingTop: '12px',
         paddingLeft: '20px',
         paddingRight: '20px',
         paddingBottom: '16px',
@@ -355,6 +359,7 @@ export default function PrepPage() {
           to   { transform: rotate(360deg); }
         }
       `}</style>
+      </div>
     </div>
     </>
   );

@@ -246,18 +246,22 @@ export default function DealsPage() {
       style={{
         height:     '100vh',
         overflowY:  'auto',
-        background: '#F7F3EC',
         fontFamily: "'DM Sans', sans-serif",
         animation:  'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
       }}
     >
+      <div style={{
+        background:  '#F7F3EC',
+        minHeight:   '100dvh',
+        paddingTop:  'env(safe-area-inset-top)',
+      }}>
 
       {/* ── HEADER ─────────────────────────────────────── */}
       <div style={{
         display:      'flex',
         alignItems:   'center',
         gap:          14,
-        paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
+        paddingTop: '12px', paddingLeft: '20px', paddingRight: '20px', paddingBottom: '16px',
         borderBottom: '0.5px solid rgba(200,160,80,0.16)',
         background:   '#F7F3EC',
         position:     'sticky',
@@ -974,6 +978,7 @@ export default function DealsPage() {
         />
       )}
 
+    </div>
     </div>
     </>
   );
