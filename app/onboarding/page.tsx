@@ -206,12 +206,27 @@ export default function OnboardingPage() {
 
       // 5. Write product to knowledge_base
       if (productDescription.trim()) {
-        // Extract a meaningful product name from the description
-        // Use text before first dash or comma, or first 4 words
         const raw = productDescription.trim();
-        const beforeDelimiter = raw.split(/[-,]/)[0].trim();
-        const words = beforeDelimiter.split(/\s+/);
-        const product_name = words.slice(0, 4).join(' ');
+        // Take first 3 words only
+        const STOPWORDS = new Set([
+          'including', 'and', 'or', 'for', 'with',
+          'the', 'a', 'an', 'to', 'of', 'in', 'as',
+          'at', 'by', 'from', 'into', 'via', 'our',
+          'my', 'your', 'their', 'its',
+        ]);
+        const words = raw.split(/\s+/);
+        const kept: string[] = [];
+        for (const word of words) {
+          if (kept.length >= 3) break;
+          // Stop if we hit a stopword after we have at least 1 word
+          if (kept.length >= 1 && STOPWORDS.has(word.toLowerCase())) break;
+          kept.push(word);
+        }
+        // Capitalize each word, remove trailing punctuation
+        const product_name = kept
+          .map(w => w.replace(/[^a-zA-Z0-9]/g, ''))
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ') || 'My Product';
 
         await supabase.from('knowledge_base').insert({
           user_id:          userId,
@@ -597,7 +612,7 @@ export default function OnboardingPage() {
 
           {/* Saving state */}
           {step === 'saving' && (
-            <div key="saving" style={{ textAlign: 'center', animation: 'fadeUp 0.4s ease both' }}>
+            <div key="saving" style={{ textAlign: 'center', animation: 'fadeUp 0.6s ease both', opacity: 0 }}>
               <div
                 style={{
                   width:        48,
