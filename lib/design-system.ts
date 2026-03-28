@@ -84,75 +84,173 @@ export type SceneConfig = {
 };
 
 export function getSceneForHour(h: number): SceneConfig {
+
+  // ── DEEP NIGHT (10pm – 5am) ──────────────────────────────
   if (h >= 22 || h < 5) return {
-    sky:   ['#060a12','#0a1020','#0e1830','#121e3e','#162248','#1a2650'],
-    water: ['#0a1620','#060e18','#040a12'],
-    sun:   { top: 82, opacity: 0 },
+    sky: [
+      '#03060e',
+      '#060a14',
+      '#080d1a',
+      '#0a1020',
+      '#0c1428',
+      '#0e1830',
+      '#101c38',
+      '#121e3e',
+    ],
+    water: ['#0a1620', '#07101a', '#050c14', '#040a12'],
+    sun:   { top: 110, opacity: 0 },
     moon:  true,
     stars: 1,
-    mf: '#1a2a3a', mn: '#10202e',
-    haze: 'rgba(40,70,160,0.08)',
+    mf: '#111e2e', mn: '#0b1520',
+    haze: 'rgba(30,60,140,0.07)',
     lightText: true,
   };
+
+  // ── PRE-DAWN (5am – 6am) ─────────────────────────────────
   if (h < 6) return {
-    sky:   ['#0c1428','#18243c','#3a2c30','#6a3c28','#b86038','#e0904c','#f4c06a'],
-    water: ['#6a9ab8','#4c7ea0','#2e6080'],
-    sun:   { top: 66, opacity: 0.9 },
+    sky: [
+      '#080e1e',
+      '#0f1a30',
+      '#1e2840',
+      '#3a2c34',
+      '#5a3428',
+      '#7a4428',
+      '#a05830',
+      '#c47038',
+      '#e08840',
+      '#f4a050',
+      '#f8b860',
+    ],
+    water: ['#7a9ab0', '#5a82a0', '#3e6888', '#2a5070'],
+    sun:   { top: 64, opacity: 0.85 },
     moon:  false,
-    stars: 0.5,
-    mf: '#a07858', mn: '#7a5838',
-    haze: 'rgba(240,160,70,0.22)',
+    stars: 0.45,
+    mf: '#8a6848', mn: '#6a4c30',
+    haze: 'rgba(240,150,60,0.2)',
     lightText: true,
   };
+
+  // ── SUNRISE (6am – 8am) ──────────────────────────────────
   if (h < 8) return {
-    sky:   ['#a0c0e0','#c8d8f0','#e8d0b0','#f8c870','#fce894','#fef4b0'],
-    water: ['#74b4cc','#50a0ba','#2e6478'],
-    sun:   { top: 61, opacity: 1 },
+    sky: [
+      '#7090b0',
+      '#90aac8',
+      '#b0c0d8',
+      '#ccd0d8',
+      '#ddc8a8',
+      '#ecc080',
+      '#f8c860',
+      '#fcd870',
+      '#feeA88',
+    ],
+    water: ['#7ab8cc', '#58a4bc', '#3a8aaa', '#226888'],
+    sun:   { top: 60, opacity: 1 },
     moon:  false,
-    stars: 0.12,
-    mf: '#b08c6a', mn: '#886244',
-    haze: 'rgba(248,192,80,0.2)',
+    stars: 0.1,
+    mf: '#a88c6a', mn: '#806244',
+    haze: 'rgba(248,188,72,0.22)',
     lightText: false,
   };
+
+  // ── MORNING (8am – 11am) ─────────────────────────────────
   if (h < 11) return {
-    sky:   ['#6ab2e8','#94c8f4','#b8d8f6','#d8ecfa','#eaf4fc'],
-    water: ['#50a8c4','#3e90b4','#205888'],
-    sun:   { top: 18, opacity: 0.58 },
+    sky: [
+      '#4898d8',
+      '#62aae0',
+      '#7cbce8',
+      '#96ccf0',
+      '#aed8f4',
+      '#c4e4f8',
+      '#d8eefa',
+      '#e8f4fc',
+    ],
+    water: ['#5ab0c8', '#44a0bc', '#2e88aa', '#186888'],
+    sun:   { top: 16, opacity: 0.55 },
     moon:  false,
     stars: 0,
-    mf: '#9c8e7a', mn: '#746860',
-    haze: 'rgba(180,220,255,0.1)',
+    mf: '#908070', mn: '#686050',
+    haze: 'rgba(170,215,250,0.1)',
     lightText: false,
   };
+
+  // ── MIDDAY (11am – 4pm) ──────────────────────────────────
   if (h < 16) return {
-    sky:   ['#54a2de','#7ab6ea','#9ec8f2','#c0d8f6','#e0eefa'],
-    water: ['#42a2c0','#3082ae','#185086'],
-    sun:   { top: 14, opacity: 0.45 },
+    sky: [
+      '#3888cc',
+      '#4e9ad6',
+      '#64ace0',
+      '#7abcea',
+      '#90caf0',
+      '#a8d6f4',
+      '#bce0f8',
+      '#d0eafc',
+    ],
+    water: ['#48a8c4', '#3494b4', '#2080a4', '#0c6088'],
+    sun:   { top: 12, opacity: 0.42 },
     moon:  false,
     stars: 0,
-    mf: '#948878', mn: '#6c6050',
-    haze: 'rgba(160,210,255,0.07)',
+    mf: '#887870', mn: '#605848',
+    haze: 'rgba(150,205,252,0.07)',
     lightText: false,
   };
+
+  // ── GOLDEN HOUR (4pm – 7pm) ──────────────────────────────
   if (h < 19) return {
-    sky:   ['#221428','#32192c','#4a2030','#5e2c2c','#7a3828','#963e28','#b45828','#c46830','#d47838','#e49448','#f4b858','#f8cc6c'],
-    water: ['#b07030','#8a5222','#4a280c'],
-    sun:   { top: 62, opacity: 1 },
+    sky: [
+      '#180a20',
+      '#2a1030',
+      '#481830',
+      '#6e2430',
+      '#942e2a',
+      '#b84028',
+      '#cc5820',
+      '#de7228',
+      '#eca030',
+      '#f8c040',
+      '#fcd050',
+    ],
+    water: ['#c07840', '#a05e28', '#784214', '#501e04'],
+    sun:   { top: 60, opacity: 1 },
     moon:  false,
     stars: 0,
-    mf: '#bc8a54', mn: '#8a6032',
-    haze: 'rgba(248,152,50,0.26)',
+    mf: '#a87840', mn: '#7a5220',
+    haze: 'rgba(248,148,44,0.28)',
     lightText: true,
   };
-  // dusk 19–22
-  return {
-    sky:   ['#140a20','#1e0c22','#2a0e22','#481828','#7e2430','#a03c34','#c25838','#d47444','#e09050'],
-    water: ['#7c4224','#5c2c14','#281006'],
-    sun:   { top: 71, opacity: 0.44 },
+
+  // ── DUSK (7pm – 10pm) ────────────────────────────────────
+  if (h < 22) return {
+    sky: [
+      '#0e0618',
+      '#180a20',
+      '#280c22',
+      '#401020',
+      '#601820',
+      '#881e22',
+      '#aa2e24',
+      '#c04420',
+      '#d0601e',
+      '#dc7a28',
+      '#e49030',
+    ],
+    water: ['#904030', '#6e2c1a', '#4c1808', '#2c0804'],
+    sun:   { top: 70, opacity: 0.5 },
     moon:  false,
-    stars: 0.18,
-    mf: '#824224', mn: '#5a2c10',
-    haze: 'rgba(190,72,32,0.18)',
+    stars: 0.2,
+    mf: '#6e3818', mn: '#4a2008',
+    haze: 'rgba(180,64,24,0.2)',
+    lightText: true,
+  };
+
+  // Fallback — should never hit but TypeScript requires it
+  return {
+    sky: ['#060a12', '#0a1020', '#121e3e'],
+    water: ['#0a1620', '#060e18', '#040a12'],
+    sun:   { top: 110, opacity: 0 },
+    moon:  true,
+    stars: 1,
+    mf: '#111e2e', mn: '#0b1520',
+    haze: 'rgba(30,60,140,0.07)',
     lightText: true,
   };
 }

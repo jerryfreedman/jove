@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
+import ThemeColor from '@/components/ui/ThemeColor';
 import type { IdeaRow, DealRow } from '@/lib/types';
 
 const STATUS_CONFIG = {
@@ -140,6 +141,8 @@ export default function IdeasPage() {
   });
 
   return (
+    <>
+    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -403,5 +406,6 @@ export default function IdeasPage() {
         }
       `}</style>
     </div>
+    </>
   );
 }

@@ -18,6 +18,9 @@ export default function SceneBackground() {
 
   const skyGradient   = `linear-gradient(to bottom, ${sc.sky.join(',')})`;
   const waterGradient = `linear-gradient(to bottom, ${sc.water.join(',')})`;
+  const skyBottom     = sc.sky[sc.sky.length - 1];
+  const isSetting     = sc.sun.top > 65;
+  const sunSize       = isSetting ? 26 : 44;
 
   return (
     <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -105,24 +108,28 @@ export default function SceneBackground() {
           {/* Outer glow */}
           <div style={{
             position: 'absolute',
-            inset: -22,
+            inset: isSetting ? -30 : -22,
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(248,200,80,0.12), rgba(240,158,48,0.04) 55%, transparent 70%)',
+            background: isSetting
+              ? 'radial-gradient(circle, rgba(248,200,80,0.18), rgba(240,158,48,0.06) 50%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(248,200,80,0.12), rgba(240,158,48,0.04) 55%, transparent 70%)',
           }} />
           {/* Mid glow */}
           <div style={{
             position: 'absolute',
-            inset: -9,
+            inset: isSetting ? -12 : -9,
             borderRadius: '50%',
             background: 'radial-gradient(circle, rgba(248,188,70,0.2), transparent 70%)',
           }} />
           {/* Sun body */}
           <div style={{
-            width: 44,
-            height: 44,
+            width: sunSize,
+            height: sunSize,
             borderRadius: '50%',
             background: 'radial-gradient(circle at 38% 36%, #FFFCE0, #F8C040)',
-            boxShadow: '0 0 28px 10px rgba(248,190,64,0.24)',
+            boxShadow: isSetting
+              ? '0 0 36px 14px rgba(248,190,64,0.30)'
+              : '0 0 28px 10px rgba(248,190,64,0.24)',
           }} />
         </div>
       )}
@@ -131,15 +138,25 @@ export default function SceneBackground() {
       <div
         className="absolute left-0 right-0 bottom-0"
         style={{
-          top: '62%',
+          top: '60%',
           background: waterGradient,
           zIndex: 2,
         }}
       >
-        {/* Horizon shimmer line */}
+        {/* Sky-to-water horizon blend */}
         <div style={{
           position: 'absolute',
           top: 0,
+          left: 0,
+          right: 0,
+          height: 40,
+          background: `linear-gradient(to bottom, ${skyBottom}, transparent)`,
+          pointerEvents: 'none',
+        }} />
+        {/* Horizon shimmer line */}
+        <div style={{
+          position: 'absolute',
+          top: 40,
           left: '5%',
           right: '5%',
           height: 1,

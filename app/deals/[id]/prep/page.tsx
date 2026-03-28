@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS } from '@/lib/design-system';
+import ThemeColor from '@/components/ui/ThemeColor';
 
 // Simple markdown renderer — bold headings, inline bold, and numbered lists
 function renderMarkdown(text: string): React.ReactNode[] {
@@ -178,6 +179,8 @@ export default function PrepPage() {
   };
 
   return (
+    <>
+    <ThemeColor color="#F7F3EC" />
     <div style={{
       height: '100vh',
       overflowY: 'auto',
@@ -347,5 +350,6 @@ export default function PrepPage() {
         }
       `}</style>
     </div>
+    </>
   );
 }

@@ -7,6 +7,7 @@ import { calculateStreak } from '@/lib/streak';
 import {
   COLORS,
 } from '@/lib/design-system';
+import ThemeColor from '@/components/ui/ThemeColor';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import type {
   DealRow,
@@ -407,6 +408,8 @@ export default function BriefingPage() {
 
   // ── RENDER ───────────────────────────────────────────
   return (
+    <>
+    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:       '100vh',
       overflowY:    'auto',
@@ -1018,5 +1021,6 @@ export default function BriefingPage() {
         }
       `}</style>
     </div>
+    </>
   );
 }

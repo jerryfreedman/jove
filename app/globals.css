@@ -18,7 +18,7 @@
 
 html, body {
   color: var(--foreground);
-  background: var(--background);
+  background-color: #060a12;
   font-family: Arial, Helvetica, sans-serif;
   overscroll-behavior: none;
   position: fixed;

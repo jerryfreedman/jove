@@ -8,6 +8,7 @@ import {
   STAGE_STYLES,
   getDaysColor,
 } from '@/lib/design-system';
+import ThemeColor from '@/components/ui/ThemeColor';
 import type {
   DealRow,
   AccountRow,
@@ -403,6 +404,8 @@ export default function DealDetailPage() {
   const showClosePlan = ['POC','Proposal','Negotiation'].includes(deal.stage);
 
   return (
+    <>
+    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -1350,5 +1353,6 @@ export default function DealDetailPage() {
         </>
       )}
     </div>
+    </>
   );
 }

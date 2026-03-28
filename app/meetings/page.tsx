@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
+import ThemeColor from '@/components/ui/ThemeColor';
 import type { MeetingRow, DealRow } from '@/lib/types';
 
 function formatScheduledAt(dateStr: string): string {
@@ -244,6 +245,8 @@ export default function MeetingsPage() {
   };
 
   return (
+    <>
+    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -603,5 +606,6 @@ export default function MeetingsPage() {
         </>
       )}
     </div>
+    </>
   );
 }

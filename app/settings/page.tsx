@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
+import ThemeColor from '@/components/ui/ThemeColor';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import type { UserRow, VoiceProfileRow, KnowledgeBaseRow } from '@/lib/types';
 
@@ -278,6 +279,8 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
+    <ThemeColor color="#F7F3EC" />
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -976,5 +979,6 @@ export default function SettingsPage() {
 
       </div>
     </div>
+    </>
   );
 }

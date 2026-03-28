@@ -6,13 +6,15 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  themeColor: "#060a12",
 };
 
 export const metadata: Metadata = {
   title: "Jove",
   description: "Personal AI sales intelligence",
   other: {
-    "theme-color": "#F7F3EC",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
   },
 };
 
