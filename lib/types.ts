@@ -62,6 +62,7 @@ export type DealRow = {
   name: string;
   stage: DealStage;
   value: number | null;
+  value_type?: 'mrr' | 'arr' | 'one_time';
   next_action: string | null;
   next_action_confirmed: boolean;
   snoozed_until: string | null;

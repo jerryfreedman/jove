@@ -643,6 +643,80 @@ export default function SettingsPage() {
               <Toggle enabled={pref.value} onToggle={pref.toggle} />
             </div>
           ))}
+
+          {/* Pipeline value display toggle */}
+          <div style={{
+            background:   '#FFFFFF',
+            border:       '0.5px solid rgba(200,160,80,0.14)',
+            borderRadius: 14,
+            padding:      '14px 16px',
+            marginBottom: 10,
+            boxShadow:    '0 1px 6px rgba(26,20,16,0.04)',
+          }}>
+            <div style={{
+              fontSize:     13,
+              fontWeight:   400,
+              color:        '#1A1410',
+              marginBottom: 3,
+            }}>
+              Pipeline value display
+            </div>
+            <div style={{
+              fontSize:     11,
+              fontWeight:   300,
+              color:        'rgba(26,20,16,0.4)',
+              marginBottom: 10,
+            }}>
+              Show deal values as monthly or annual recurring revenue
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['mrr', 'arr'] as const).map(v => {
+                const current =
+                  typeof window !== 'undefined'
+                    ? localStorage.getItem('jove_value_display') ?? 'mrr'
+                    : 'mrr';
+                const active = current === v;
+                return (
+                  <button
+                    key={v}
+                    onClick={() => {
+                      localStorage.setItem('jove_value_display', v);
+                      window.dispatchEvent(
+                        new StorageEvent('storage', {
+                          key:      'jove_value_display',
+                          newValue: v,
+                        })
+                      );
+                    }}
+                    style={{
+                      flex:          1,
+                      padding:       '9px 0',
+                      borderRadius:  9,
+                      border:        '0.5px solid',
+                      borderColor:   active
+                        ? 'rgba(232,160,48,0.5)'
+                        : 'rgba(26,20,16,0.1)',
+                      background:    active
+                        ? 'rgba(232,160,48,0.1)'
+                        : 'transparent',
+                      color:         active
+                        ? '#E8A030'
+                        : 'rgba(26,20,16,0.44)',
+                      fontSize:      11,
+                      fontWeight:    active ? 700 : 300,
+                      cursor:        'pointer',
+                      fontFamily:    "'DM Sans', sans-serif",
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '1.5px',
+                      transition:    'all 0.18s',
+                    }}
+                  >
+                    {v.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* ── SECTION 4: KNOWLEDGE BASE ────────────── */}

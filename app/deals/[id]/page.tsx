@@ -215,6 +215,20 @@ export default function DealDetailPage() {
     const num = parseFloat(valueInput);
     await saveDealField('value', isNaN(num) ? null : num);
     setEditingValue(false);
+    localStorage.setItem('jove_deals_refresh', String(Date.now()));
+  };
+
+  const handleSaveValueType = async (
+    type: 'mrr' | 'arr' | 'one_time'
+  ) => {
+    if (!userId) return;
+    await supabase
+      .from('deals')
+      .update({ value_type: type })
+      .eq('id', dealId)
+      .eq('user_id', userId);
+    setDeal(d => d ? { ...d, value_type: type } : d);
+    localStorage.setItem('jove_deals_refresh', String(Date.now()));
   };
 
   const handleNotesChange = (val: string) => {
@@ -743,36 +757,98 @@ export default function DealDetailPage() {
             Value
           </div>
           {editingValue ? (
-            <input
-              autoFocus
-              type="number"
-              value={valueInput}
-              onChange={e => setValueInput(e.target.value)}
-              onBlur={handleSaveValue}
-              onKeyDown={e => { if (e.key === 'Enter') handleSaveValue(); }}
-              placeholder="0"
-              style={{
-                ...inputStyle,
-                padding: '6px 8px',
-                fontSize:14,
-                width:   80,
-              }}
-            />
+            <div>
+              <input
+                autoFocus
+                type="number"
+                value={valueInput}
+                onChange={e => setValueInput(e.target.value)}
+                onBlur={handleSaveValue}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleSaveValue();
+                }}
+                placeholder="0"
+                style={{
+                  ...inputStyle,
+                  padding:      '6px 8px',
+                  fontSize:     14,
+                  width:        '100%',
+                  marginBottom: 8,
+                }}
+              />
+              <div style={{ display: 'flex', gap: 6 }}>
+                {([
+                  { key: 'mrr' as const,      label: 'MRR'      },
+                  { key: 'arr' as const,      label: 'ARR'      },
+                  { key: 'one_time' as const, label: 'One-time' },
+                ]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => handleSaveValueType(key)}
+                    style={{
+                      flex:          1,
+                      padding:       '6px 0',
+                      borderRadius:  8,
+                      border:        '0.5px solid',
+                      borderColor:   (deal?.value_type ?? 'mrr') === key
+                        ? 'rgba(232,160,48,0.5)'
+                        : 'rgba(26,20,16,0.1)',
+                      background:    (deal?.value_type ?? 'mrr') === key
+                        ? 'rgba(232,160,48,0.1)'
+                        : 'transparent',
+                      color:         (deal?.value_type ?? 'mrr') === key
+                        ? '#E8A030'
+                        : 'rgba(26,20,16,0.4)',
+                      fontSize:      9,
+                      fontWeight:    (deal?.value_type ?? 'mrr') === key
+                        ? 700 : 300,
+                      cursor:        'pointer',
+                      fontFamily:    "'DM Sans', sans-serif",
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '1px',
+                      transition:    'all 0.18s',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : (
             <div
               onClick={() => setEditingValue(true)}
-              style={{
-                fontSize:   15,
-                fontWeight: 300,
-                color:      deal.value
-                  ? '#1A1410'
-                  : 'rgba(26,20,16,0.28)',
-                cursor:     'text',
-              }}
+              style={{ cursor: 'text' }}
             >
-              {deal.value
-                ? `$${Number(deal.value).toLocaleString()}`
-                : '—'}
+              <div style={{
+                display:    'flex',
+                alignItems: 'baseline',
+                gap:        6,
+              }}>
+                <span style={{
+                  fontSize:   15,
+                  fontWeight: 300,
+                  color:      deal?.value
+                    ? '#1A1410'
+                    : 'rgba(26,20,16,0.28)',
+                }}>
+                  {deal?.value
+                    ? `$${Number(deal.value).toLocaleString()}`
+                    : '—'}
+                </span>
+                {deal?.value && (
+                  <span style={{
+                    fontSize:     9,
+                    fontWeight:   600,
+                    letterSpacing:'1px',
+                    textTransform:'uppercase',
+                    color:        'rgba(26,20,16,0.36)',
+                  }}>
+                    {deal.value_type === 'one_time'
+                      ? 'One-time'
+                      : (deal.value_type ?? 'mrr').toUpperCase()}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -56,6 +56,11 @@ export default function DealsPage() {
   const [showAddDeal, setShowAddDeal] = useState(false);
   const [userId, setUserId]         = useState<string | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  const [valueDisplay, setValueDisplay] =
+    useState<'mrr' | 'arr'>(() => {
+      if (typeof window === 'undefined') return 'mrr';
+      return (localStorage.getItem('jove_value_display') as 'mrr' | 'arr') ?? 'mrr';
+    });
 
   // ── FETCH DATA ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -68,7 +73,7 @@ export default function DealsPage() {
       const [dealsRes, accountsRes, contactsRes] = await Promise.all([
         supabase
           .from('deals')
-          .select('id, name, stage, last_activity_at, snoozed_until, next_action, account_id, user_id, intel_score')
+          .select('id, name, stage, last_activity_at, snoozed_until, next_action, account_id, user_id, intel_score, value, value_type')
           .eq('user_id', user.id)
           .order('last_activity_at', { ascending: false }),
         supabase
@@ -129,6 +134,20 @@ export default function DealsPage() {
     return () => { supabase.removeChannel(channel); };
   }, [userId, supabase, fetchData]);
 
+  // ── STORAGE EVENT LISTENER ──────────────────────────────────
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'jove_deals_refresh') {
+        fetchData();
+      }
+      if (e.key === 'jove_value_display' && e.newValue) {
+        setValueDisplay(e.newValue as 'mrr' | 'arr');
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [fetchData]);
+
   // ── FILTERED DEALS ────────────────────────────────────────
   const filteredDeals = deals.filter(deal => {
     if (filterMode === 'attention' && !isNeedsAttention(deal)) return false;
@@ -174,6 +193,28 @@ export default function DealsPage() {
       .filter(d => d.stage !== 'Closed Won' && d.stage !== 'Closed Lost')
       .map(d => d.account_id)
   ).size;
+
+  const pipelineValue = deals
+    .filter(d =>
+      d.stage !== 'Closed Won' &&
+      d.stage !== 'Closed Lost' &&
+      (d.value_type === valueDisplay || !d.value_type)
+    )
+    .reduce((sum, d) => sum + (d.value ?? 0), 0);
+
+  const closedWonValue = deals
+    .filter(d =>
+      d.stage === 'Closed Won' &&
+      (d.value_type === valueDisplay || !d.value_type)
+    )
+    .reduce((sum, d) => sum + (d.value ?? 0), 0);
+
+  function formatPipelineValue(n: number): string {
+    if (n === 0) return '—';
+    if (n >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000)    return `$${(n / 1000).toFixed(0)}K`;
+    return `$${n.toLocaleString()}`;
+  }
 
   // ── RENDER ─────────────────────────────────────────────────
   return (
@@ -327,77 +368,150 @@ export default function DealsPage() {
 
       {/* ── SUMMARY STRIP ────────────────────────────────── */}
       <div style={{
-        display:    'flex',
-        gap:        0,
-        margin:     '14px 18px 0',
-        border:     '0.5px solid rgba(200,160,80,0.2)',
-        borderRadius:14,
-        overflow:   'hidden',
-        background: '#FFFFFF',
+        display:             'grid',
+        gridTemplateColumns: '1fr 1fr',
+        margin:              '14px 18px 0',
+        border:              '0.5px solid rgba(200,160,80,0.2)',
+        borderRadius:        14,
+        overflow:            'hidden',
+        background:          '#FFFFFF',
       }}>
-        {([
-          {
-            n:     activeCount,
-            label: 'Active',
-            mode:  'all' as FilterMode,
-            alert: false,
-          },
-          {
-            n:     attentionCount,
-            label: 'Attention',
-            mode:  'attention' as FilterMode,
-            alert: attentionCount > 0,
-          },
-          {
-            n:     accountCount,
-            label: 'Accounts',
-            mode:  null as FilterMode,
-            alert: false,
-          },
-        ] as const).map((stat, i) => (
-          <div
-            key={stat.label}
-            onClick={() => setFilterMode(
-              filterMode === stat.mode ? null : stat.mode
-            )}
-            style={{
-              flex:          1,
-              padding:       '13px 0',
-              textAlign:     'center',
-              borderRight:   i < 2
-                ? '0.5px solid rgba(200,160,80,0.15)'
-                : 'none',
-              cursor:        'pointer',
-              background:    filterMode === stat.mode
-                ? 'rgba(232,160,48,0.06)'
-                : 'transparent',
-              transition:    'background 0.18s',
-            }}
-          >
-            <div style={{
-              fontSize:   22,
-              fontWeight: 300,
-              color:      stat.alert
-                ? COLORS.red
-                : filterMode === stat.mode
-                ? COLORS.amber
-                : '#1A1410',
-              lineHeight: 1,
-            }}>
-              {stat.n}
-            </div>
-            <div style={{
-              fontSize:     9,
-              fontWeight:   600,
-              letterSpacing:'1px',
-              textTransform:'uppercase',
-              color:        'rgba(26,20,16,0.3)',
-              marginTop:    4,
-            }}>
-              {stat.label}
-            </div>
+
+        {/* Active */}
+        <div
+          onClick={() => setFilterMode(
+            filterMode === 'all' ? null : 'all'
+          )}
+          style={{
+            padding:      '13px 0',
+            textAlign:    'center',
+            borderRight:  '0.5px solid rgba(200,160,80,0.15)',
+            borderBottom: '0.5px solid rgba(200,160,80,0.15)',
+            cursor:       'pointer',
+            background:   filterMode === 'all'
+              ? 'rgba(232,160,48,0.06)'
+              : 'transparent',
+            transition:   'background 0.18s',
+          }}
+        >
+          <div style={{
+            fontSize:   22,
+            fontWeight: 300,
+            color:      filterMode === 'all'
+              ? '#E8A030' : '#1A1410',
+            lineHeight: 1,
+          }}>
+            {activeCount}
           </div>
-        ))}
+          <div style={{
+            fontSize:     9,
+            fontWeight:   600,
+            letterSpacing:'1px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.3)',
+            marginTop:    4,
+          }}>
+            Active
+          </div>
+        </div>
+
+        {/* Attention */}
+        <div
+          onClick={() => setFilterMode(
+            filterMode === 'attention' ? null : 'attention'
+          )}
+          style={{
+            padding:      '13px 0',
+            textAlign:    'center',
+            borderBottom: '0.5px solid rgba(200,160,80,0.15)',
+            cursor:       'pointer',
+            background:   filterMode === 'attention'
+              ? 'rgba(232,160,48,0.06)'
+              : 'transparent',
+            transition:   'background 0.18s',
+          }}
+        >
+          <div style={{
+            fontSize:   22,
+            fontWeight: 300,
+            color:      attentionCount > 0
+              ? '#E05840'
+              : filterMode === 'attention'
+              ? '#E8A030'
+              : '#1A1410',
+            lineHeight: 1,
+          }}>
+            {attentionCount}
+          </div>
+          <div style={{
+            fontSize:     9,
+            fontWeight:   600,
+            letterSpacing:'1px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.3)',
+            marginTop:    4,
+          }}>
+            Attention
+          </div>
+        </div>
+
+        {/* Pipeline value */}
+        <div style={{
+          padding:     '13px 0',
+          textAlign:   'center',
+          borderRight: '0.5px solid rgba(200,160,80,0.15)',
+          cursor:      'default',
+        }}>
+          <div style={{
+            fontSize:   20,
+            fontWeight: 300,
+            color:      pipelineValue > 0
+              ? '#E8A030'
+              : 'rgba(26,20,16,0.28)',
+            lineHeight: 1,
+          }}>
+            {formatPipelineValue(pipelineValue)}
+          </div>
+          <div style={{
+            fontSize:     9,
+            fontWeight:   600,
+            letterSpacing:'1px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.3)',
+            marginTop:    4,
+          }}>
+            Pipeline {valueDisplay.toUpperCase()}
+          </div>
+        </div>
+
+        {/* Closed Won value */}
+        <div style={{
+          padding:  '13px 0',
+          textAlign:'center',
+          cursor:   'default',
+        }}>
+          <div style={{
+            fontSize:   20,
+            fontWeight: 300,
+            color:      closedWonValue > 0
+              ? '#48C878'
+              : 'rgba(26,20,16,0.28)',
+            lineHeight: 1,
+          }}>
+            {formatPipelineValue(closedWonValue)}
+          </div>
+          <div style={{
+            fontSize:     9,
+            fontWeight:   600,
+            letterSpacing:'1px',
+            textTransform:'uppercase',
+            color:        'rgba(26,20,16,0.3)',
+            marginTop:    4,
+          }}>
+            Won {valueDisplay.toUpperCase()}
+          </div>
+        </div>
+
       </div>
 
       {/* ── FILTER LABEL ─────────────────────────────────── */}
