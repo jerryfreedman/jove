@@ -29,6 +29,9 @@ export default function RootLayout({
         <meta name="theme-color" content="#060a12" />
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+        <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+        <link rel="shortcut icon" href="/favicon.ico" />
       </head>
       <body className="font-sans antialiased bg-jove-bg text-jove-cream">
         {children}
