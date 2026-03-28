@@ -14,9 +14,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    // Check context cache first
+    // Check context cache first (skip if x-no-cache header set)
+    const noCache = request.headers.get('x-no-cache') === 'true';
     const cacheKey = `prep_${dealId}_${userId}`;
-    const cachedPrompt = getCached(cacheKey);
+    const cachedPrompt = !noCache ? getCached(cacheKey) : null;
 
     let userPrompt: string;
 

@@ -499,7 +499,6 @@ export default function DealDetailPage() {
   const daysColor = getDaysColor(days, true);
   const stage     = STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'];
   const intelColor = getIntelColor(deal.intel_score ?? 0);
-  const showClosePlan = true;
 
   return (
     <>
@@ -1728,28 +1727,6 @@ export default function DealDetailPage() {
           </button>
         </div>
 
-        {/* Close Plan */}
-        {showClosePlan && (
-          <button
-            onClick={() => router.push(`/deals/${dealId}/close-plan`)}
-            style={{
-              flex:          1,
-              padding:       '13px 0',
-              borderRadius:  12,
-              border:        '0.5px solid rgba(200,160,80,0.3)',
-              background:    'transparent',
-              color:         'rgba(26,20,16,0.6)',
-              fontSize:      11,
-              fontWeight:    700,
-              letterSpacing: '1.5px',
-              textTransform: 'uppercase',
-              cursor:        'pointer',
-              fontFamily:    "'DM Sans', sans-serif",
-            }}
-          >
-            Close Plan
-          </button>
-        )}
       </div>
 
     </div>

@@ -33,7 +33,10 @@ export default function PrepPage() {
     try {
       const response = await fetch('/api/prep', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-no-cache': 'true',
+        },
         body: JSON.stringify({ dealId, userId: uid }),
         signal: controller.signal,
       });
