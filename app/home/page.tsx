@@ -196,6 +196,19 @@ export default function HomePage() {
     ? 'rgba(240,235,224,0.44)'
     : 'rgba(26,20,16,0.44)';
 
+  // ── DYNAMIC THEME-COLOR (iOS status bar) ────────────────
+  useEffect(() => {
+    const skyTop = scene.sky[0];
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.appendChild(meta);
+    }
+    meta.content = skyTop;
+    return () => { meta!.content = '#F7F3EC'; };
+  }, [scene.sky]);
+
   // ── OFFLINE DETECTION ──────────────────────────────────
   useEffect(() => {
     const handleOnline  = () => setIsOffline(false);

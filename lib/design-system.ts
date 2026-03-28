@@ -135,7 +135,7 @@ export function getSceneForHour(h: number): SceneConfig {
     lightText: false,
   };
   if (h < 19) return {
-    sky:   ['#221428','#4a2030','#7a3828','#b45828','#d47838','#f4b858','#f8cc6c'],
+    sky:   ['#221428','#32192c','#4a2030','#5e2c2c','#7a3828','#963e28','#b45828','#c46830','#d47838','#e49448','#f4b858','#f8cc6c'],
     water: ['#b07030','#8a5222','#4a280c'],
     sun:   { top: 62, opacity: 1 },
     moon:  false,
@@ -146,7 +146,7 @@ export function getSceneForHour(h: number): SceneConfig {
   };
   // dusk 19–22
   return {
-    sky:   ['#140a20','#2a0e22','#7e2430','#c25838','#e09050'],
+    sky:   ['#140a20','#1e0c22','#2a0e22','#481828','#7e2430','#a03c34','#c25838','#d47444','#e09050'],
     water: ['#7c4224','#5c2c14','#281006'],
     sun:   { top: 71, opacity: 0.44 },
     moon:  false,

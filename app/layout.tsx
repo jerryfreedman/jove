@@ -11,6 +11,9 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Jove",
   description: "Personal AI sales intelligence",
+  other: {
+    "theme-color": "#F7F3EC",
+  },
 };
 
 export default function RootLayout({
