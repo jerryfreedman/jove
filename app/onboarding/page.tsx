@@ -48,6 +48,7 @@ export default function OnboardingPage() {
   const [subInput, setSubInput]   = useState(''); // for industry on q1
   const [visible, setVisible]     = useState(false);
   const [error, setError]         = useState('');
+  const [readyFadingOut, setReadyFadingOut] = useState(false);
   const [user, setUser]           = useState<any>(null);
 
   const h        = new Date().getHours();
@@ -64,6 +65,11 @@ export default function OnboardingPage() {
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 340);
     return () => clearTimeout(t);
+  }, [step]);
+
+  // Reset readyFadingOut when step changes away from ready
+  useEffect(() => {
+    if (step !== 'ready') setReadyFadingOut(false);
   }, [step]);
 
   // Text color adapts to sky brightness — same logic as home screen
@@ -246,9 +252,8 @@ export default function OnboardingPage() {
       // 6. Play "You're ready." moment
       setStep('ready');
 
-      setTimeout(() => {
-        router.push('/home');
-      }, 2200);
+      setTimeout(() => setReadyFadingOut(true), 2200);
+      setTimeout(() => router.push('/home'), 2800);
 
     } catch (err) {
       console.error('Onboarding save error:', err);
@@ -272,7 +277,8 @@ export default function OnboardingPage() {
           style={{
             zIndex:     100,
             background: 'rgba(13,15,18,0.92)',
-            opacity:    1,
+            opacity:    readyFadingOut ? 0 : 1,
+            transition: 'opacity 0.6s ease',
           }}
         >
           <div style={{ animation: 'breath 5s ease-in-out infinite', marginBottom: 28 }}>
@@ -365,25 +371,27 @@ export default function OnboardingPage() {
             </p>
           )}
 
-          {/* Question */}
-          <h2
-            key={step}
-            style={{
-              fontFamily:    "'Cormorant Garamond', serif",
-              fontSize:      step === 'q1_company' ? 44 : 36,
-              fontWeight:    300,
-              color:         textPrimary,
-              lineHeight:    1.1,
-              letterSpacing: '-0.5px',
-              marginBottom:  32,
-              textShadow:    scene.lightText
-                ? '0 2px 20px rgba(0,0,0,0.18)'
-                : 'none',
-              animation:     'fadeUp 0.4s ease both',
-            }}
-          >
-            {QUESTIONS[step] ?? 'Almost done...'}
-          </h2>
+          {/* Question — hidden during saving step to prevent double-text flicker */}
+          {step !== 'saving' && (
+            <h2
+              key={step}
+              style={{
+                fontFamily:    "'Cormorant Garamond', serif",
+                fontSize:      step === 'q1_company' ? 44 : 36,
+                fontWeight:    300,
+                color:         textPrimary,
+                lineHeight:    1.1,
+                letterSpacing: '-0.5px',
+                marginBottom:  32,
+                textShadow:    scene.lightText
+                  ? '0 2px 20px rgba(0,0,0,0.18)'
+                  : 'none',
+                animation:     'fadeUp 0.4s ease both',
+              }}
+            >
+              {QUESTIONS[step] ?? 'Almost done...'}
+            </h2>
+          )}
 
           {/* Main input */}
           {step !== 'saving' && step !== 'q4_product' && (
