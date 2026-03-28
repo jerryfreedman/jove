@@ -290,6 +290,8 @@ export default function SettingsPage() {
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
+      overflowX:   'hidden',
+      maxWidth:    '100vw',
       background:  '#F7F3EC',
       fontFamily:  "'DM Sans', sans-serif",
       paddingBottom:60,
@@ -862,6 +864,8 @@ export default function SettingsPage() {
                 marginBottom: 8,
                 boxShadow:    '0 1px 6px rgba(26,20,16,0.04)',
                 cursor:       'pointer',
+                overflow:     'hidden',
+                maxWidth:     '100%',
               }}
               onClick={() => setExpandedKb(
                 expandedKb === item.id ? null : item.id
@@ -874,6 +878,10 @@ export default function SettingsPage() {
                   <div style={{
                     fontSize: 14, fontWeight: 500, color: '#1A1410',
                     marginBottom: 2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '100%',
                   }}>
                     {item.product_name}
                   </div>
@@ -883,6 +891,7 @@ export default function SettingsPage() {
                       color:    'rgba(26,20,16,0.44)',
                       overflow: 'hidden', whiteSpace: 'nowrap',
                       textOverflow: 'ellipsis',
+                      maxWidth: '100%',
                     }}>
                       {item.description}
                     </div>
