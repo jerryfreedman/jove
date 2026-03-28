@@ -228,7 +228,7 @@ export default function PrepPage() {
         )}
 
         {brief && (
-          <div>
+          <div style={{ color: '#1A1410' }}>
             {renderMarkdown(brief)}
             {brief === 'Could not generate brief. Please try again.' && !streaming && (
               <div style={{ textAlign: 'center', marginTop: 16 }}>
