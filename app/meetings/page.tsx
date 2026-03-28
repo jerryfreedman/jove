@@ -506,7 +506,9 @@ export default function MeetingsPage() {
         )}
       </div>
 
-      {/* Floating + button */}
+    </div>
+
+      {/* Floating + button — outside scroll container for proper fixed positioning */}
       <div style={{
         position: 'fixed', bottom: 32,
         right: 20,
@@ -632,7 +634,6 @@ export default function MeetingsPage() {
           </div>
         </>
       )}
-    </div>
 
     {/* Meeting Edit Sheet */}
     {editingMeeting && (
