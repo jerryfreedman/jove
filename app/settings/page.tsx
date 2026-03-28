@@ -42,6 +42,11 @@ export default function SettingsPage() {
   const [savingKb, setSavingKb]       = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toursReset, setToursReset] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+  const [valueDisplay, setValueDisplay] = useState<'mrr' | 'arr'>(() => {
+    if (typeof window === 'undefined') return 'arr';
+    return (localStorage.getItem('jove_value_display') as 'mrr' | 'arr') ?? 'arr';
+  });
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -58,6 +63,7 @@ export default function SettingsPage() {
 
     const userData = userRes.data as UserRow | null;
     setUser(userData);
+    setAvatarError(false);
     setVoice(voiceRes.data as VoiceProfileRow | null);
     setKb((kbRes.data ?? []) as KnowledgeBaseRow[]);
 
@@ -353,12 +359,13 @@ export default function SettingsPage() {
             padding:      '14px 16px',
             boxShadow:    '0 1px 6px rgba(26,20,16,0.04)',
           }}>
-            {user?.avatar_url ? (
+            {user?.avatar_url && !avatarError ? (
               <Image
                 src={user.avatar_url}
                 alt=""
                 width={44}
                 height={44}
+                onError={() => setAvatarError(true)}
                 style={{
                   borderRadius: '50%',
                   flexShrink:   0,
@@ -367,12 +374,12 @@ export default function SettingsPage() {
               />
             ) : (
               <div style={{
-                width:          44, height: 44, borderRadius: '50%',
-                background:     'linear-gradient(135deg, #C87820, #E09838)',
-                display:        'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink:     0,
-                color:          'white', fontSize: 18, fontWeight: 300,
-                fontFamily:     "'Cormorant Garamond', serif",
+                width: 44, height: 44, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #C87820, #E09838)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+                color: 'white', fontSize: 18, fontWeight: 300,
+                fontFamily: "'Cormorant Garamond', serif",
               }}>
                 {(user?.full_name ?? user?.email ?? 'J')[0].toUpperCase()}
               </div>
@@ -678,16 +685,13 @@ export default function SettingsPage() {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               {(['mrr', 'arr'] as const).map(v => {
-                const current =
-                  typeof window !== 'undefined'
-                    ? localStorage.getItem('jove_value_display') ?? 'arr'
-                    : 'arr';
-                const active = current === v;
+                const active = valueDisplay === v;
                 return (
                   <button
                     key={v}
                     onClick={() => {
                       localStorage.setItem('jove_value_display', v);
+                      setValueDisplay(v);
                       window.dispatchEvent(
                         new StorageEvent('storage', {
                           key:      'jove_value_display',

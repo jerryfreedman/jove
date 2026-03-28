@@ -499,10 +499,11 @@ export default function DealDetailPage() {
   const daysColor = getDaysColor(days, true);
   const stage     = STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'];
   const intelColor = getIntelColor(deal.intel_score ?? 0);
-  const showClosePlan = ['POC','Proposal','Negotiation'].includes(deal.stage);
+  const showClosePlan = true;
 
   return (
     <>
+    <div style={{ position: 'relative', height: '100vh' }}>
     <div style={{
       height:      '100vh',
       overflowY:   'auto',
@@ -907,7 +908,7 @@ export default function DealDetailPage() {
           <textarea
             value={notesInput}
             onChange={e => handleNotesChange(e.target.value)}
-            placeholder="Add notes..."
+            placeholder="Standing context — budget, timeline, key constraints. For activity, use Capture."
             rows={2}
             style={{
               width:      '100%',
@@ -1520,88 +1521,6 @@ export default function DealDetailPage() {
         )}
       </div>
 
-      {/* ── BOTTOM ACTION BAR ─────────────────────────── */}
-      <div style={{
-        position:   'fixed',
-        bottom:     0,
-        left:       0,
-        right:      0,
-        background: '#F7F3EC',
-        borderTop:  '0.5px solid rgba(200,160,80,0.2)',
-        padding:    '12px 18px 32px',
-        zIndex:     30,
-        display:    'flex',
-        gap:        10,
-      }}>
-        {/* Prep Me */}
-        <button
-          onClick={() => router.push(`/deals/${dealId}/prep`)}
-          style={{
-            flex:          1,
-            padding:       '13px 0',
-            borderRadius:  12,
-            border:        'none',
-            background:    'linear-gradient(135deg, #C87820, #E09838)',
-            color:         'white',
-            fontSize:      11,
-            fontWeight:    700,
-            letterSpacing: '1.5px',
-            textTransform: 'uppercase',
-            cursor:        'pointer',
-            fontFamily:    "'DM Sans', sans-serif",
-            boxShadow:     '0 4px 16px rgba(200,120,32,0.28)',
-          }}
-        >
-          Prep Me
-        </button>
-
-        {/* Chat */}
-        <div ref={chatRef}>
-          <button
-            onClick={() => router.push(`/deals/${dealId}/chat`)}
-            style={{
-              flex:          1,
-              padding:       '13px 0',
-              borderRadius:  12,
-              border:        '0.5px solid rgba(200,160,80,0.3)',
-              background:    'transparent',
-              color:         'rgba(26,20,16,0.6)',
-              fontSize:      11,
-              fontWeight:    700,
-              letterSpacing: '1.5px',
-              textTransform: 'uppercase',
-              cursor:        'pointer',
-              fontFamily:    "'DM Sans', sans-serif",
-            }}
-          >
-            Chat
-          </button>
-        </div>
-
-        {/* Close Plan */}
-        {showClosePlan && (
-          <button
-            onClick={() => router.push(`/deals/${dealId}/close-plan`)}
-            style={{
-              flex:          1,
-              padding:       '13px 0',
-              borderRadius:  12,
-              border:        '0.5px solid rgba(200,160,80,0.3)',
-              background:    'transparent',
-              color:         'rgba(26,20,16,0.6)',
-              fontSize:      11,
-              fontWeight:    700,
-              letterSpacing: '1.5px',
-              textTransform: 'uppercase',
-              cursor:        'pointer',
-              fontFamily:    "'DM Sans', sans-serif",
-            }}
-          >
-            Close Plan
-          </button>
-        )}
-      </div>
-
       {/* ── LOG INTERACTION SHEET ─────────────────────── */}
       {showLogSheet && (
         <>
@@ -1749,6 +1668,90 @@ export default function DealDetailPage() {
         />
       )}
       </div>
+    </div>
+
+      {/* ── BOTTOM ACTION BAR ─────────────────────────── */}
+      <div style={{
+        position:   'fixed',
+        bottom:     0,
+        left:       0,
+        right:      0,
+        background: '#F7F3EC',
+        borderTop:  '0.5px solid rgba(200,160,80,0.2)',
+        padding:    '12px 18px 32px',
+        zIndex:     30,
+        display:    'flex',
+        gap:        10,
+      }}>
+        {/* Prep Me */}
+        <button
+          onClick={() => router.push(`/deals/${dealId}/prep`)}
+          style={{
+            flex:          1,
+            padding:       '13px 0',
+            borderRadius:  12,
+            border:        'none',
+            background:    'linear-gradient(135deg, #C87820, #E09838)',
+            color:         'white',
+            fontSize:      11,
+            fontWeight:    700,
+            letterSpacing: '1.5px',
+            textTransform: 'uppercase',
+            cursor:        'pointer',
+            fontFamily:    "'DM Sans', sans-serif",
+            boxShadow:     '0 4px 16px rgba(200,120,32,0.28)',
+          }}
+        >
+          Prep Me
+        </button>
+
+        {/* Chat */}
+        <div ref={chatRef}>
+          <button
+            onClick={() => router.push(`/deals/${dealId}/chat`)}
+            style={{
+              flex:          1,
+              padding:       '13px 0',
+              borderRadius:  12,
+              border:        '0.5px solid rgba(200,160,80,0.3)',
+              background:    'transparent',
+              color:         'rgba(26,20,16,0.6)',
+              fontSize:      11,
+              fontWeight:    700,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor:        'pointer',
+              fontFamily:    "'DM Sans', sans-serif",
+            }}
+          >
+            Chat
+          </button>
+        </div>
+
+        {/* Close Plan */}
+        {showClosePlan && (
+          <button
+            onClick={() => router.push(`/deals/${dealId}/close-plan`)}
+            style={{
+              flex:          1,
+              padding:       '13px 0',
+              borderRadius:  12,
+              border:        '0.5px solid rgba(200,160,80,0.3)',
+              background:    'transparent',
+              color:         'rgba(26,20,16,0.6)',
+              fontSize:      11,
+              fontWeight:    700,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor:        'pointer',
+              fontFamily:    "'DM Sans', sans-serif",
+            }}
+          >
+            Close Plan
+          </button>
+        )}
+      </div>
+
     </div>
     </>
   );
