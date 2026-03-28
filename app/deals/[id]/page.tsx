@@ -93,7 +93,9 @@ export default function DealDetailPage() {
   const [savingLog, setSavingLog] = useState(false);
 
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const archiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── FETCH DATA ─────────────────────────────────────────
@@ -1152,33 +1154,51 @@ export default function DealDetailPage() {
         }}>
           <button
             onClick={async () => {
-              if (!userId) return;
-              await supabase
-                .from('deals')
-                .update({ stage: 'Closed Lost' })
-                .eq('id', dealId)
-                .eq('user_id', userId);
-              router.push('/deals');
+              if (confirmArchive) {
+                if (!userId) return;
+                if (archiveTimer.current) clearTimeout(archiveTimer.current);
+                await supabase
+                  .from('deals')
+                  .update({ stage: 'Closed Lost' })
+                  .eq('id', dealId)
+                  .eq('user_id', userId);
+                router.push('/deals');
+              } else {
+                setConfirmArchive(true);
+                archiveTimer.current = setTimeout(() => {
+                  setConfirmArchive(false);
+                }, 3000);
+              }
             }}
             style={{
               flex: 1,
               padding: '10px 0',
               borderRadius: 10,
-              border: '0.5px solid rgba(26,20,16,0.12)',
-              background: 'transparent',
-              color: 'rgba(26,20,16,0.36)',
+              border: confirmArchive
+                ? '0.5px solid rgba(232,160,48,0.5)'
+                : '0.5px solid rgba(26,20,16,0.12)',
+              background: confirmArchive
+                ? 'rgba(232,160,48,0.06)'
+                : 'transparent',
+              color: confirmArchive
+                ? COLORS.amber
+                : 'rgba(26,20,16,0.36)',
               fontSize: 10,
               fontWeight: 600,
               letterSpacing: '1.5px',
               textTransform: 'uppercase',
               cursor: 'pointer',
               fontFamily: "'DM Sans', sans-serif",
+              transition: 'all 0.18s',
             }}
           >
-            Archive Deal
+            {confirmArchive ? 'Archive — tap to confirm' : 'Archive Deal'}
           </button>
           <button
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => {
+              setConfirmDelete(true);
+              setTimeout(() => setConfirmDelete(false), 3000);
+            }}
             style={{
               flex: 1,
               padding: '10px 0',

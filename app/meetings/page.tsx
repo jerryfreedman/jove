@@ -708,6 +708,7 @@ function MeetingEditSheet({
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -861,7 +862,11 @@ function MeetingEditSheet({
         {/* Delete */}
         {!confirmDelete ? (
           <button
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => {
+              setConfirmDelete(true);
+              if (deleteTimer.current) clearTimeout(deleteTimer.current);
+              deleteTimer.current = setTimeout(() => setConfirmDelete(false), 3000);
+            }}
             style={{
               display: 'block',
               margin: '14px auto 0',

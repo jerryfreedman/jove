@@ -43,6 +43,7 @@ export default function IdeasPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState<string>('all');
   const [converting, setConverting] = useState<string | null>(null);
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -380,19 +381,36 @@ export default function IdeasPage() {
                     {converting === idea.id ? 'Creating...' : 'Create Deal →'}
                   </button>
                   <button
-                    onClick={() => handleArchive(idea)}
+                    onClick={() => {
+                      if (confirmArchiveId === idea.id) {
+                        handleArchive(idea);
+                        setConfirmArchiveId(null);
+                      } else {
+                        setConfirmArchiveId(idea.id);
+                        setTimeout(() => setConfirmArchiveId(prev =>
+                          prev === idea.id ? null : prev
+                        ), 3000);
+                      }
+                    }}
                     style={{
                       padding:      '6px 12px', borderRadius: 9,
-                      border:       '0.5px solid rgba(26,20,16,0.1)',
-                      background:   'transparent',
-                      color:        'rgba(26,20,16,0.3)',
+                      border:       confirmArchiveId === idea.id
+                        ? '0.5px solid rgba(232,160,48,0.5)'
+                        : '0.5px solid rgba(26,20,16,0.1)',
+                      background:   confirmArchiveId === idea.id
+                        ? 'rgba(232,160,48,0.06)'
+                        : 'transparent',
+                      color:        confirmArchiveId === idea.id
+                        ? '#C87820'
+                        : 'rgba(26,20,16,0.3)',
                       fontSize:     9, fontWeight: 500,
                       letterSpacing:'1px', textTransform: 'uppercase',
                       cursor:       'pointer',
                       fontFamily:   "'DM Sans', sans-serif",
+                      transition:   'all 0.18s',
                     }}
                   >
-                    Archive
+                    {confirmArchiveId === idea.id ? 'Archive — tap to confirm' : 'Archive'}
                   </button>
                 </div>
               )}
