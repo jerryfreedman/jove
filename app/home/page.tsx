@@ -188,6 +188,16 @@ export default function HomePage() {
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
 
+  // Sync body background with sky top color so the area behind
+  // the iOS status bar shows the correct color.
+  useEffect(() => {
+    const topColor = scene.sky[0].split(' ')[0];
+    document.body.style.backgroundColor = topColor;
+    return () => {
+      document.body.style.backgroundColor = '#060a12';
+    };
+  }, [scene]);
+
   // Sun tap target must match the visual sun in SceneBackground exactly.
   //
   // SceneBackground renders two modes:
@@ -456,12 +466,13 @@ export default function HomePage() {
   // ── RENDER ─────────────────────────────────────────────
   return (
     <div
-      className="relative overflow-hidden"
+      className="relative"
       style={{
         width:     '100%',
         minHeight: '100dvh',
         height:    '100dvh',
         fontFamily:"'DM Sans', sans-serif",
+        overflow:  'hidden',
       }}
     >
       <SceneBackground />

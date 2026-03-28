@@ -16,10 +16,19 @@
   }
 }
 
-html, body {
+html {
   background-color: #060a12;
   overscroll-behavior: none;
-  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background-color: #060a12;
+  overscroll-behavior: none;
   width: 100%;
   height: 100%;
   overflow: hidden;

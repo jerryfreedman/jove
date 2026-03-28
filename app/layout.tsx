@@ -33,7 +33,7 @@ export default function RootLayout({
         <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
       </head>
-      <body className="font-sans antialiased bg-jove-bg text-jove-cream">
+      <body className="font-sans antialiased text-jove-cream">
         {children}
       </body>
     </html>
