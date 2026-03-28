@@ -4,34 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
-
-function renderMarkdown(text: string): React.ReactNode[] {
-  return text.split('\n').map((line, i) => {
-    const isBold   = line.startsWith('**') && line.includes('**', 2);
-    const cleaned  = line.replace(/\*\*(.*?)\*\*/g, '$1');
-    if (isBold && cleaned.trim()) {
-      return (
-        <div key={i} style={{
-          fontSize:     11, fontWeight: 700, letterSpacing: '1.5px',
-          textTransform:'uppercase', color: COLORS.amber,
-          marginTop: 18, marginBottom: 6,
-        }}>
-          {cleaned}
-        </div>
-      );
-    }
-    if (!line.trim()) return <div key={i} style={{ height: 6 }} />;
-    return (
-      <div key={i} style={{
-        fontSize:   14, fontWeight: 300,
-        color:      'rgba(26,20,16,0.7)',
-        lineHeight: 1.65, marginBottom: 3,
-      }}>
-        {cleaned}
-      </div>
-    );
-  });
-}
+import { renderMarkdown } from '@/lib/renderMarkdown';
 
 export default function ClosePlanPage() {
   const router   = useRouter();

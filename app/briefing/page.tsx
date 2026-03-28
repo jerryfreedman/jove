@@ -15,6 +15,7 @@ import type {
   StreakLogRow,
 } from '@/lib/types';
 import CaptureSheet from '@/components/capture/CaptureSheet';
+import { renderMarkdown } from '@/lib/renderMarkdown';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 // ── HELPERS ────────────────────────────────────────────────
@@ -875,15 +876,15 @@ export default function BriefingPage() {
                 width:        '85%',
               }} />
             ) : doThisFirst ? (
-              <p style={{
+              <div style={{
                 fontSize:   14,
                 fontWeight: 300,
                 color:      'rgba(26,20,16,0.52)',
                 lineHeight: 1.72,
                 margin:     0,
               }}>
-                {doThisFirst}
-              </p>
+                {renderMarkdown(doThisFirst)}
+              </div>
             ) : (
               <p style={{
                 fontSize:   14,

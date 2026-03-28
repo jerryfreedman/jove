@@ -666,7 +666,7 @@ export default function CaptureSheet({
               )}
 
               <SubmitButton
-                label="Send to Jove \u2192"
+                label="Send to Jove →"
                 disabled={!text.trim()}
                 onPress={() => {
                   const type: InteractionType =
@@ -751,7 +751,7 @@ export default function CaptureSheet({
             />
 
             <SubmitButton
-              label="Next \u2192"
+              label="Next →"
               disabled={!draftContext.trim()}
               onPress={() => setMode('draft_intent')}
             />
@@ -821,7 +821,7 @@ export default function CaptureSheet({
             />
 
             <SubmitButton
-              label="Draft this \u2192"
+              label="Draft this →"
               disabled={!draftIntent.trim()}
               onPress={generateDraft}
             />

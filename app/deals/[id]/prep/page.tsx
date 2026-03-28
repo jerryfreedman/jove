@@ -4,67 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS } from '@/lib/design-system';
-
-// Simple markdown renderer — bold headings, inline bold, and numbered lists
-function renderMarkdown(text: string): React.ReactNode[] {
-  return text.split('\n').map((line, i) => {
-    const trimmed = line.replace(/\*\*/g, '').trim();
-    const isBoldHeading = line.startsWith('**') && line.endsWith('**') && trimmed.length > 0;
-    const isNumber = /^\d+\./.test(line);
-
-    if (isBoldHeading) {
-      return (
-        <div key={i} style={{
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '1.5px',
-          textTransform: 'uppercase',
-          color: COLORS.amber,
-          marginTop: 18,
-          marginBottom: 6,
-          fontFamily: FONTS.sans,
-        }}>
-          {trimmed}
-        </div>
-      );
-    }
-    if (isNumber) {
-      return (
-        <div key={i} style={{
-          fontSize: 14,
-          fontWeight: 300,
-          color: 'rgba(26,20,16,0.7)',
-          lineHeight: 1.65,
-          paddingLeft: 16,
-          marginBottom: 4,
-          fontFamily: FONTS.sans,
-        }}>
-          {line}
-        </div>
-      );
-    }
-    if (!line.trim()) return <div key={i} style={{ height: 6 }} />;
-
-    // Inline bold within regular text
-    const parts = line.split(/\*\*(.*?)\*\*/g);
-    return (
-      <div key={i} style={{
-        fontSize: 14,
-        fontWeight: 300,
-        color: 'rgba(26,20,16,0.7)',
-        lineHeight: 1.65,
-        marginBottom: 3,
-        fontFamily: FONTS.sans,
-      }}>
-        {parts.map((part, j) =>
-          j % 2 === 1
-            ? <strong key={j} style={{ fontWeight: 600, color: 'rgba(26,20,16,0.85)' }}>{part}</strong>
-            : <span key={j}>{part}</span>
-        )}
-      </div>
-    );
-  });
-}
+import { renderMarkdown } from '@/lib/renderMarkdown';
 
 export default function PrepPage() {
   const router = useRouter();
@@ -348,7 +288,7 @@ export default function PrepPage() {
               boxShadow: '0 4px 16px rgba(200,120,32,0.28)',
             }}
           >
-            {'Open Chat \u2192'}
+            {'Open Chat →'}
           </button>
         </div>
       )}

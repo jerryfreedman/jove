@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS, STAGE_STYLES } from '@/lib/design-system';
 import type { DealRow, AccountRow } from '@/lib/types';
+import { renderMarkdown } from '@/lib/renderMarkdown';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 type Message = {
@@ -512,7 +513,7 @@ export default function DealChatPage() {
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                   }}>
-                    {msg.content || (isStreaming ? '' : '')}
+                    {isUser ? msg.content : (renderMarkdown(msg.content) || (isStreaming ? '' : ''))}
                     {isStreaming && msg.content === '' && (
                       <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                         {[0, 1, 2].map(dotIdx => (

@@ -813,7 +813,7 @@ export default function SettingsPage() {
                     fontFamily:    "'DM Sans', sans-serif",
                   }}
                 >
-                  {savingKb ? 'Saving...' : 'Add Product \u2192'}
+                  {savingKb ? 'Saving...' : 'Add Product →'}
                 </button>
                 <button
                   onClick={() => setShowAddKb(false)}
