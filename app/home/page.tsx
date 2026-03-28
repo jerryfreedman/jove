@@ -541,7 +541,7 @@ export default function HomePage() {
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {scene.sun.opacity > 0 ? (
         <>
-          {/* Breathing glow behind sun */}
+          {/* Breathing glow behind sun — orbGlow only animates opacity, so translate is safe */}
           <div
             style={{
               position:     'absolute',
@@ -558,15 +558,15 @@ export default function HomePage() {
             }}
           />
 
-          {/* Clickable sun overlay */}
+          {/* Clickable sun overlay — uses calc() for centering because the
+              breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div
             ref={sunRef}
             onClick={() => router.push('/briefing')}
             style={{
               position:     'absolute',
-              left:         sunCenterLeft,
-              top:          sunCenterTop,
-              transform:    'translate(-50%, -50%)',
+              left:         `calc(${sunCenterLeft} - 50px)`,
+              top:          `calc(${sunCenterTop} - 50px)`,
               width:        100,
               height:       100,
               borderRadius: '50%',
@@ -584,7 +584,7 @@ export default function HomePage() {
           >
           </div>
 
-          {/* In-progress pulse ring */}
+          {/* In-progress pulse ring — sunPing keyframes include translate(-50%,-50%), so safe */}
           {isInProgress && (
             <div
               style={{
@@ -604,15 +604,15 @@ export default function HomePage() {
           )}
         </>
       ) : (
-        /* ── NIGHT FALLBACK TAP TARGET (matches moon at 68%/12%) ── */
+        /* ── NIGHT FALLBACK TAP TARGET (matches moon at 68%/12%) ──
+           No breath animation here, so translate(-50%,-50%) is safe. */
         <div
           ref={sunRef}
           onClick={() => router.push('/briefing')}
           style={{
             position:     'absolute',
-            left:         sunCenterLeft,
-            top:          sunCenterTop,
-            transform:    'translate(-50%, -50%)',
+            left:         `calc(${sunCenterLeft} - 40px)`,
+            top:          `calc(${sunCenterTop} - 40px)`,
             width:        80,
             height:       80,
             borderRadius: '50%',
