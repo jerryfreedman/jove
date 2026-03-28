@@ -41,6 +41,7 @@ export default function SettingsPage() {
   const [newKbUseCases, setNewKbUseCases] = useState('');
   const [savingKb, setSavingKb]       = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [toursReset, setToursReset] = useState(false);
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -1027,6 +1028,73 @@ export default function SettingsPage() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* ── SECTION 6: ADVANCED ──────────────────── */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={sectionLabel}>Advanced</div>
+
+          <div style={{
+            background:   '#FFFFFF',
+            border:       '0.5px solid rgba(200,160,80,0.14)',
+            borderRadius: 14,
+            padding:      '14px 16px',
+            marginBottom: 10,
+            boxShadow:    '0 1px 6px rgba(26,20,16,0.04)',
+          }}>
+            <div style={{
+              fontSize:     13,
+              fontWeight:   400,
+              color:        '#1A1410',
+              marginBottom: 3,
+            }}>
+              Reset onboarding tours
+            </div>
+            <div style={{
+              fontSize:     11,
+              fontWeight:   300,
+              color:        'rgba(26,20,16,0.4)',
+              marginBottom: 12,
+            }}>
+              Show the feature walkthrough again on each page
+            </div>
+            <button
+              onClick={() => {
+                const keys = [
+                  'jove_tour_complete',
+                  'jove_tour_deals',
+                  'jove_tour_deal_drawer',
+                  'jove_tour_meetings',
+                  'jove_tour_ideas',
+                  'jove_tour_briefing',
+                  'jove_tour_chat',
+                  'jove_calendar_prompted',
+                  'jove_first_visit_shown',
+                ];
+                keys.forEach(k => localStorage.removeItem(k));
+                setToursReset(true);
+                setTimeout(() => setToursReset(false), 2000);
+              }}
+              style={{
+                padding:       '9px 18px',
+                borderRadius:  10,
+                border:        '0.5px solid rgba(26,20,16,0.12)',
+                background:    'transparent',
+                color:         toursReset
+                  ? '#48C878'
+                  : 'rgba(26,20,16,0.5)',
+                fontSize:      10,
+                fontWeight:    600,
+                letterSpacing: '1px',
+                textTransform: 'uppercase' as const,
+                cursor:        'pointer',
+                fontFamily:    "'DM Sans', sans-serif",
+                transition:    'color 0.2s ease',
+              }}
+            >
+              {toursReset ? 'Tours reset ✓' : 'Reset tours'}
+            </button>
+          </div>
         </div>
 
         {/* ── SECTION 5: ACCOUNT ───────────────────── */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import {
@@ -14,6 +14,7 @@ import type {
   AccountRow,
   ContactRow,
 } from '@/lib/types';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 // ── TYPES ──────────────────────────────────────────────────
 interface DealWithAccountName extends DealRow {
@@ -61,6 +62,13 @@ export default function DealsPage() {
       if (typeof window === 'undefined') return 'arr';
       return (localStorage.getItem('jove_value_display') as 'mrr' | 'arr') ?? 'arr';
     });
+
+  // Tour refs
+  const summaryRef   = useRef<HTMLDivElement>(null);
+  const searchRef    = useRef<HTMLDivElement>(null);
+  const firstDealRef = useRef<HTMLDivElement>(null);
+  const addDealRef   = useRef<HTMLDivElement>(null);
+  const [showDealsTour, setShowDealsTour] = useState(false);
 
   // ── FETCH DATA ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -111,6 +119,13 @@ export default function DealsPage() {
 
   useEffect(() => {
     document.body.style.backgroundColor = '#F7F3EC';
+  }, []);
+
+  // Tour trigger
+  useEffect(() => {
+    if (localStorage.getItem('jove_tour_deals') === 'true') return;
+    const timer = setTimeout(() => setShowDealsTour(true), 800);
+    return () => clearTimeout(timer);
   }, []);
 
   // ── REALTIME SUBSCRIPTION ─────────────────────────────────
@@ -222,6 +237,8 @@ export default function DealsPage() {
     return `$${n.toLocaleString()}`;
   }
 
+  let firstDealRefAttached = false;
+
   // ── RENDER ─────────────────────────────────────────────────
   return (
     <>
@@ -312,7 +329,9 @@ export default function DealsPage() {
       </div>
 
       {/* ── SEARCH ───────────────────────────────────────── */}
-      <div style={{ padding: '14px 18px 0' }}>
+      <div
+        ref={searchRef}
+        style={{ padding: '14px 18px 0' }}>
         <div style={{
           position:   'relative',
           display:    'flex',
@@ -373,7 +392,9 @@ export default function DealsPage() {
       </div>
 
       {/* ── SUMMARY STRIP ────────────────────────────────── */}
-      <div style={{
+      <div
+        ref={summaryRef}
+        style={{
         display:             'grid',
         gridTemplateColumns: '1fr 1fr',
         margin:              '14px 18px 0',
@@ -701,6 +722,7 @@ export default function DealsPage() {
               return (
                 <div
                   key={deal.id}
+                  ref={(() => { if (!firstDealRefAttached) { firstDealRefAttached = true; return firstDealRef; } return undefined; })()}
                   onClick={() => router.push(`/deals/${deal.id}`)}
                   style={{
                     position:   'relative',
@@ -892,7 +914,9 @@ export default function DealsPage() {
       </div>
 
       {/* ── FLOATING + BUTTON ────────────────────────────── */}
-      <div style={{
+      <div
+        ref={addDealRef}
+        style={{
         position:   'fixed',
         bottom:     32,
         right:      'max(calc(50% - 195px + 20px), 20px)',
@@ -922,6 +946,20 @@ export default function DealsPage() {
           </svg>
         </button>
       </div>
+
+      {/* Deals Tour */}
+      {showDealsTour && (
+        <SpotlightTour
+          stops={[
+            { ref: summaryRef, copy: 'Your pipeline at a glance.', position: 'below' as const },
+            { ref: searchRef, copy: 'Search deals, accounts, and contacts.', position: 'below' as const },
+            { ref: firstDealRef, copy: 'Tap to open, edit, or close a deal.', position: 'below' as const },
+            { ref: addDealRef, copy: 'Add a new deal here.', position: 'above' as const },
+          ]}
+          storageKey="jove_tour_deals"
+          onComplete={() => setShowDealsTour(false)}
+        />
+      )}
 
       {/* ── ADD DEAL SHEET ────────────────────────────────── */}
       {showAddDeal && userId && (

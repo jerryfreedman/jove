@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 import type { MeetingRow, DealRow } from '@/lib/types';
 
 function formatScheduledAt(dateStr: string): string {
@@ -25,9 +26,10 @@ function formatScheduledAt(dateStr: string): string {
 }
 
 export default function MeetingsPage() {
-  const router   = useRouter();
-  const supabase = createClient();
-  const fileRef  = useRef<HTMLInputElement>(null);
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const supabase     = createClient();
+  const fileRef      = useRef<HTMLInputElement>(null);
 
   const [userId, setUserId]       = useState<string | null>(null);
   const [meetings, setMeetings]   = useState<MeetingRow[]>([]);
@@ -54,6 +56,11 @@ export default function MeetingsPage() {
   }>>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [bulkSaving, setBulkSaving]   = useState(false);
+
+  // Tour refs
+  const addMeetingRef  = useRef<HTMLDivElement>(null);
+  const meetingCardRef = useRef<HTMLDivElement>(null);
+  const [showMeetingsTour, setShowMeetingsTour] = useState(false);
 
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -83,6 +90,21 @@ export default function MeetingsPage() {
 
   useEffect(() => {
     document.body.style.backgroundColor = '#F7F3EC';
+  }, []);
+
+  // Handle ?import=true param from calendar import prompt
+  useEffect(() => {
+    if (searchParams.get('import') === 'true') {
+      setShowAdd(true);
+      window.history.replaceState({}, '', '/meetings');
+    }
+  }, [searchParams]);
+
+  // Tour trigger
+  useEffect(() => {
+    if (localStorage.getItem('jove_tour_meetings') === 'true') return;
+    const timer = setTimeout(() => setShowMeetingsTour(true), 800);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleAddMeeting = async () => {
@@ -446,7 +468,11 @@ export default function MeetingsPage() {
             }}>
               Upcoming
             </div>
-            {upcoming.map(m => <MeetingCard key={m.id} meeting={m} onTap={() => setEditingMeeting(m)} />)}
+            {upcoming.map((m, i) => (
+              <div key={m.id} ref={i === 0 ? meetingCardRef : undefined}>
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
+              </div>
+            ))}
           </div>
         )}
 
@@ -509,7 +535,7 @@ export default function MeetingsPage() {
     </div>
 
       {/* Floating + button — outside scroll container for proper fixed positioning */}
-      <div style={{
+      <div ref={addMeetingRef} style={{
         position: 'fixed', bottom: 32,
         right: 20,
         zIndex: 30,
@@ -634,6 +660,26 @@ export default function MeetingsPage() {
           </div>
         </>
       )}
+
+    {/* Meetings Tour */}
+    {showMeetingsTour && (
+      <SpotlightTour
+        stops={[
+          {
+            ref:      addMeetingRef,
+            copy:     'Import meetings from a calendar screenshot.',
+            position: 'above' as const,
+          },
+          {
+            ref:      meetingCardRef,
+            copy:     'Tap to edit, link to a deal, or prep.',
+            position: 'below' as const,
+          },
+        ]}
+        storageKey="jove_tour_meetings"
+        onComplete={() => setShowMeetingsTour(false)}
+      />
+    )}
 
     {/* Meeting Edit Sheet */}
     {editingMeeting && (

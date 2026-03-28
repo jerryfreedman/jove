@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
 import type { IdeaRow, DealRow } from '@/lib/types';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 const STATUS_CONFIG = {
   raw: {
@@ -45,6 +46,10 @@ export default function IdeasPage() {
   const [converting, setConverting] = useState<string | null>(null);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
 
+  // Tour refs
+  const ideasContentRef = useRef<HTMLDivElement>(null);
+  const [showIdeasTour, setShowIdeasTour] = useState(false);
+
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/'); return; }
@@ -73,6 +78,13 @@ export default function IdeasPage() {
 
   useEffect(() => {
     document.body.style.backgroundColor = '#F7F3EC';
+  }, []);
+
+  // Tour trigger
+  useEffect(() => {
+    if (localStorage.getItem('jove_tour_ideas') === 'true') return;
+    const timer = setTimeout(() => setShowIdeasTour(true), 800);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleStatusChange = async (idea: IdeaRow, newStatus: string) => {
@@ -232,7 +244,7 @@ export default function IdeasPage() {
       </div>
 
       {/* Ideas list */}
-      <div style={{ padding: '14px 18px 0' }}>
+      <div ref={ideasContentRef} style={{ padding: '14px 18px 0' }}>
         {loading && (
           <div style={{ padding: '40px 0', textAlign: 'center' }}>
             <div style={{
@@ -425,6 +437,17 @@ export default function IdeasPage() {
           to   { transform: rotate(360deg); }
         }
       `}</style>
+
+      {/* Ideas Tour */}
+      {showIdeasTour && (
+        <SpotlightTour
+          stops={[
+            { ref: ideasContentRef, copy: 'Early signals before they become deals.', position: 'below' as const },
+          ]}
+          storageKey="jove_tour_ideas"
+          onComplete={() => setShowIdeasTour(false)}
+        />
+      )}
     </div>
     </>
   );

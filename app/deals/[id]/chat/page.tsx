@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS, STAGE_STYLES } from '@/lib/design-system';
 import type { DealRow, AccountRow } from '@/lib/types';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 type Message = {
   id: string;
@@ -56,6 +57,11 @@ export default function DealChatPage() {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [loggedMsgId, setLoggedMsgId] = useState<string | null>(null);
 
+  // Tour state
+  const [hasInteractions, setHasInteractions] = useState(false);
+  const [showChatTour, setShowChatTour]       = useState(false);
+  const chatInputRef = useRef<HTMLDivElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -68,6 +74,14 @@ export default function DealChatPage() {
       document.body.style.backgroundColor = '#060a12';
     };
   }, []);
+
+  // Tour trigger — only if user has interactions
+  useEffect(() => {
+    if (!hasInteractions) return;
+    if (localStorage.getItem('jove_tour_chat') === 'true') return;
+    const timer = setTimeout(() => setShowChatTour(true), 600);
+    return () => clearTimeout(timer);
+  }, [hasInteractions]);
 
   // Keep refs in sync for cleanup
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -95,6 +109,13 @@ export default function DealChatPage() {
       if (!data) { router.push('/deals'); return; }
       setDeal(data as unknown as DealRow);
       setAccount(data.accounts as unknown as AccountRow);
+
+      // Check for interactions
+      const { count } = await supabase
+        .from('interactions')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+      setHasInteractions((count ?? 0) > 0);
     };
     init();
     return () => { abortRef.current?.abort(); };
@@ -624,7 +645,7 @@ export default function DealChatPage() {
       </div>
 
       {/* Input bar */}
-      <div style={{
+      <div ref={chatInputRef} style={{
         flexShrink: 0,
         padding: '12px 16px 32px',
         borderTop: `0.5px solid ${COLORS.cardBorder}`,
@@ -697,6 +718,17 @@ export default function DealChatPage() {
           40% { opacity: 1; transform: scale(1); }
         }
       `}</style>
+
+      {/* Chat Tour */}
+      {showChatTour && (
+        <SpotlightTour
+          stops={[
+            { ref: chatInputRef, copy: 'Ask anything — prep, drafts, strategy.', position: 'above' as const },
+          ]}
+          storageKey="jove_tour_chat"
+          onComplete={() => setShowChatTour(false)}
+        />
+      )}
     </div>
     </>
   );

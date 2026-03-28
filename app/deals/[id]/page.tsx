@@ -15,6 +15,7 @@ import type {
   InteractionRow,
   InteractionType,
 } from '@/lib/types';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 // ── HELPERS ────────────────────────────────────────────────
 function getDaysSince(dateStr: string): number {
@@ -101,6 +102,12 @@ export default function DealDetailPage() {
   const [closeType, setCloseType]           = useState<'Closed Won' | 'Closed Lost' | null>(null);
   const [closeReason, setCloseReason]       = useState('');
 
+  // Tour state
+  const [isNewUser, setIsNewUser]           = useState(false);
+  const [showDrawerTour, setShowDrawerTour] = useState(false);
+  const chatRef  = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLDivElement>(null);
+
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -151,6 +158,19 @@ export default function DealDetailPage() {
     setValueInput(dealData.value ? String(dealData.value) : '');
     setNotesInput(dealData.notes ?? '');
 
+    // Check if new user (< 7 days)
+    const { data: userData } = await supabase
+      .from('users')
+      .select('created_at')
+      .eq('id', user.id)
+      .single();
+    const createdAt = userData?.created_at
+      ? new Date(userData.created_at)
+      : new Date();
+    const daysSinceCreation =
+      (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+    setIsNewUser(daysSinceCreation <= 7);
+
     setLoading(false);
   }, [supabase, dealId, router]);
 
@@ -159,6 +179,14 @@ export default function DealDetailPage() {
   useEffect(() => {
     document.body.style.backgroundColor = '#F7F3EC';
   }, []);
+
+  // Tour trigger — only for new users
+  useEffect(() => {
+    if (!isNewUser) return;
+    if (localStorage.getItem('jove_tour_deal_drawer') === 'true') return;
+    const timer = setTimeout(() => setShowDrawerTour(true), 600);
+    return () => clearTimeout(timer);
+  }, [isNewUser]);
 
   // ── REALTIME — interactions update when extraction completes ──
   useEffect(() => {
@@ -1270,7 +1298,7 @@ export default function DealDetailPage() {
       </div>
 
       {/* ── CLOSE DEAL ─────────────────────────────── */}
-      <div style={{
+      <div ref={closeRef} style={{
         margin: '24px 18px 0',
         paddingTop: 16,
         borderTop: '0.5px solid rgba(26,20,16,0.08)',
@@ -1524,25 +1552,27 @@ export default function DealDetailPage() {
         </button>
 
         {/* Chat */}
-        <button
-          onClick={() => router.push(`/deals/${dealId}/chat`)}
-          style={{
-            flex:          1,
-            padding:       '13px 0',
-            borderRadius:  12,
-            border:        '0.5px solid rgba(200,160,80,0.3)',
-            background:    'transparent',
-            color:         'rgba(26,20,16,0.6)',
-            fontSize:      11,
-            fontWeight:    700,
-            letterSpacing: '1.5px',
-            textTransform: 'uppercase',
-            cursor:        'pointer',
-            fontFamily:    "'DM Sans', sans-serif",
-          }}
-        >
-          Chat
-        </button>
+        <div ref={chatRef}>
+          <button
+            onClick={() => router.push(`/deals/${dealId}/chat`)}
+            style={{
+              flex:          1,
+              padding:       '13px 0',
+              borderRadius:  12,
+              border:        '0.5px solid rgba(200,160,80,0.3)',
+              background:    'transparent',
+              color:         'rgba(26,20,16,0.6)',
+              fontSize:      11,
+              fontWeight:    700,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              cursor:        'pointer',
+              fontFamily:    "'DM Sans', sans-serif",
+            }}
+          >
+            Chat
+          </button>
+        </div>
 
         {/* Close Plan */}
         {showClosePlan && (
@@ -1701,6 +1731,18 @@ export default function DealDetailPage() {
             </button>
           </div>
         </>
+      )}
+
+      {/* Deal Drawer Tour */}
+      {showDrawerTour && (
+        <SpotlightTour
+          stops={[
+            { ref: chatRef, copy: 'Ask Jove anything about this deal.', position: 'above' as const },
+            { ref: closeRef, copy: 'Mark won or lost when it closes.', position: 'above' as const },
+          ]}
+          storageKey="jove_tour_deal_drawer"
+          onComplete={() => setShowDrawerTour(false)}
+        />
       )}
     </div>
     </>

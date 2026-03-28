@@ -15,6 +15,7 @@ import type {
   StreakLogRow,
 } from '@/lib/types';
 import CaptureSheet from '@/components/capture/CaptureSheet';
+import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 // ── HELPERS ────────────────────────────────────────────────
 function getDaysSince(dateStr: string): number {
@@ -105,6 +106,11 @@ export default function BriefingPage() {
   const [allClear, setAllClear]         = useState(false);
   const allClearTriggered = useRef(false);
   const briefingInteracted = useRef(false);
+
+  // Tour refs
+  const doThisFirstRef    = useRef<HTMLDivElement>(null);
+  const needsAttentionRef = useRef<HTMLDivElement>(null);
+  const [showBriefingTour, setShowBriefingTour] = useState(false);
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -216,6 +222,13 @@ export default function BriefingPage() {
 
   useEffect(() => {
     document.body.style.backgroundColor = '#F7F3EC';
+  }, []);
+
+  // Tour trigger
+  useEffect(() => {
+    if (localStorage.getItem('jove_tour_briefing') === 'true') return;
+    const timer = setTimeout(() => setShowBriefingTour(true), 800);
+    return () => clearTimeout(timer);
   }, []);
 
   // ── CLOCK — update meeting times every 60s ────────────
@@ -658,7 +671,7 @@ export default function BriefingPage() {
 
         {/* ── NEEDS ATTENTION ──────────────────────── */}
         {!loading && (
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 24 }} ref={needsAttentionRef}>
             <div style={sectionLabel}>Needs Attention</div>
 
             {/* All clear state */}
@@ -829,7 +842,7 @@ export default function BriefingPage() {
         )}
 
         {/* ── DO THIS FIRST ─────────────────────────── */}
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 24 }} ref={doThisFirstRef}>
           <div style={sectionLabel}>Do This First</div>
           <div style={{
             background:   '#FFFFFF',
@@ -875,7 +888,7 @@ export default function BriefingPage() {
                 lineHeight: 1.72,
                 margin:     0,
               }}>
-                Capture something to generate your first priority.
+                Your intelligence is warming up — capture a call or email to get started.
               </p>
             )}
           </div>
@@ -1005,6 +1018,18 @@ export default function BriefingPage() {
             setShowCapture(false);
             fetchData();
           }}
+        />
+      )}
+
+      {/* Briefing Tour */}
+      {showBriefingTour && (
+        <SpotlightTour
+          stops={[
+            { ref: doThisFirstRef, copy: 'Your one priority for today.', position: 'below' as const },
+            { ref: needsAttentionRef, copy: 'Deals that need your attention.', position: 'below' as const },
+          ]}
+          storageKey="jove_tour_briefing"
+          onComplete={() => setShowBriefingTour(false)}
         />
       )}
 
