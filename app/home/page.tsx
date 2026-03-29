@@ -11,6 +11,11 @@ import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 import CalendarImportPrompt from '@/components/onboarding/CalendarImportPrompt';
 import { calculateStreak } from '@/lib/streak';
 import {
+  saveInteraction,
+  triggerExtraction,
+  updateStreak,
+} from '@/lib/capture-utils';
+import {
   getGreeting,
   getSceneForHour,
   formatTime,
@@ -216,6 +221,17 @@ export default function HomePage() {
     dealLabel: string | null;
     dealId: string | null;
   }>({ loaded: false, suggestion: null, dealLabel: null, dealId: null });
+
+  // ── ACTION OVERLAY STATE ────────────────────────────────
+  const [actionOverlayOpen, setActionOverlayOpen] = useState(false);
+  const [actionInput, setActionInput] = useState('');
+  const [actionSubmitting, setActionSubmitting] = useState(false);
+  const [actionAcknowledged, setActionAcknowledged] = useState(false);
+  const actionInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── FEEDBACK BANNER STATE ──────────────────────────────
+  const [feedbackText, setFeedbackText] = useState<string | null>(null);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
 
   // ── FIRST VISIT OVERLAY STATE ────────────────────────────
   const [firstVisitVisible, setFirstVisitVisible] = useState(
@@ -511,6 +527,16 @@ export default function HomePage() {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
 
+  // ── SESSION ACKNOWLEDGMENT CHECK ──────────────────────────
+  useEffect(() => {
+    if (!doThisFirst.loaded || !doThisFirst.suggestion) return;
+    const stored = sessionStorage.getItem('jove_action_acknowledged');
+    const key = doThisFirst.suggestion.trim().toLowerCase();
+    if (stored === key) {
+      setActionAcknowledged(true);
+    }
+  }, [doThisFirst.loaded, doThisFirst.suggestion]);
+
   // ── LOGO BLOOM + MILESTONE LISTENER ──────────────────────
   const [logoMilestone, setLogoMilestone] = useState(false);
 
@@ -584,6 +610,78 @@ export default function HomePage() {
       .eq('id', meeting.id);
     setDebriefDismissed(true);
     setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
+  };
+
+  // ── ACTION OVERLAY HELPERS ──────────────────────────────
+  const matchedDeal = doThisFirst.dealId
+    ? data?.allDeals.find(d => d.id === doThisFirst.dealId) ?? null
+    : null;
+
+  const handleActionOverlayOpen = () => {
+    if (!doThisFirst.suggestion || actionOverlayOpen) return;
+    setActionInput('');
+    setActionSubmitting(false);
+    setActionOverlayOpen(true);
+    setTimeout(() => actionInputRef.current?.focus(), 250);
+  };
+
+  const acknowledgeAction = () => {
+    if (!doThisFirst.suggestion) return;
+    const key = doThisFirst.suggestion.trim().toLowerCase();
+    sessionStorage.setItem('jove_action_acknowledged', key);
+    setActionAcknowledged(true);
+  };
+
+  const handleActionSubmit = async () => {
+    if (!actionInput.trim() || actionSubmitting || !data?.user) return;
+    setActionSubmitting(true);
+
+    // Capture pre-submission staleness for feedback
+    const dealWasStale = matchedDeal
+      ? getDaysSinceActivity(matchedDeal) >= pulseThreshold
+      : false;
+    const dealName = matchedDeal
+      ? (matchedDeal.accounts?.name || matchedDeal.name)
+      : null;
+
+    try {
+      const result = await saveInteraction(supabase, {
+        userId: data.user.id,
+        dealId: doThisFirst.dealId,
+        type: 'debrief',
+        rawContent: actionInput,
+      });
+
+      if (result?.id) {
+        triggerExtraction(result.id, data.user.id);
+      }
+
+      await updateStreak(supabase, data.user.id);
+    } catch (err) {
+      console.error('Action capture error:', err);
+    }
+
+    // Always close overlay + acknowledge regardless of extraction outcome
+    setActionOverlayOpen(false);
+    acknowledgeAction();
+
+    // Show feedback banner
+    const fb = dealWasStale
+      ? dealName
+        ? `Touchpoint logged — ${dealName} risk reduced`
+        : 'Touchpoint logged — risk reduced'
+      : dealName
+        ? `Signal captured — ${dealName} updated`
+        : 'Signal captured — intelligence updated';
+    setFeedbackText(fb);
+    setFeedbackVisible(true);
+    setTimeout(() => setFeedbackVisible(false), 2500);
+    setTimeout(() => setFeedbackText(null), 3100);
+  };
+
+  const handleActionSkip = () => {
+    setActionOverlayOpen(false);
+    acknowledgeAction();
   };
 
   // Entrance animation values
@@ -887,7 +985,7 @@ export default function HomePage() {
         )}
 
         {/* ── DO THIS FIRST HERO CARD ────────────────── */}
-        {!loading && doThisFirst.loaded && doThisFirst.suggestion && (
+        {!loading && doThisFirst.loaded && doThisFirst.suggestion && !actionAcknowledged && (
           <div
             style={{
               padding:   '0 22px',
@@ -896,13 +994,7 @@ export default function HomePage() {
             }}
           >
             <div
-              onClick={() => {
-                if (doThisFirst.dealId) {
-                  router.push(`/deals/${doThisFirst.dealId}`);
-                } else {
-                  router.push('/briefing');
-                }
-              }}
+              onClick={handleActionOverlayOpen}
               style={{
                 background:     'rgba(232,160,48,0.08)',
                 backdropFilter: 'blur(16px)',
@@ -960,7 +1052,7 @@ export default function HomePage() {
         )}
 
         {/* ── DO THIS FIRST EMPTY STATE ─────────────────── */}
-        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && data && (
+        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && !actionAcknowledged && data && (
           <div
             style={{
               padding:      '0 22px',
@@ -994,6 +1086,37 @@ export default function HomePage() {
                 color:      'rgba(240,235,224,0.44)',
               }}>
                 Capture something to generate your first priority.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── FEEDBACK BANNER ────────────────────────── */}
+        {feedbackText && (
+          <div
+            style={{
+              padding:    '0 22px',
+              marginBottom: 10,
+              opacity:    feedbackVisible ? 1 : 0,
+              transform:  feedbackVisible ? 'translateY(0)' : 'translateY(8px)',
+              transition: 'opacity 0.5s ease, transform 0.5s ease',
+            }}
+          >
+            <div style={{
+              background:     'rgba(72,200,120,0.1)',
+              backdropFilter: 'blur(16px)',
+              borderRadius:   12,
+              padding:        '12px 16px',
+              border:         '0.5px solid rgba(72,200,120,0.25)',
+              textAlign:      'center',
+            }}>
+              <div style={{
+                fontSize:   13,
+                fontWeight: 400,
+                color:      'rgba(72,200,120,0.9)',
+                lineHeight: 1.4,
+              }}>
+                {feedbackText}
               </div>
             </div>
           </div>
@@ -1326,6 +1449,173 @@ export default function HomePage() {
           initialMode={captureInitialMode ?? undefined}
           initialText={captureInitialText || undefined}
         />
+      )}
+
+      {/* ── ACTION CAPTURE OVERLAY ────────────────── */}
+      {actionOverlayOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={handleActionSkip}
+            style={{
+              position:     'fixed',
+              inset:        0,
+              zIndex:       290,
+              background:   'rgba(4,8,14,0.72)',
+              backdropFilter: 'blur(10px)',
+              transition:   'opacity 0.2s ease',
+            }}
+          />
+
+          {/* Sheet */}
+          <div
+            style={{
+              position:     'fixed',
+              bottom:       0,
+              left:         '50%',
+              transform:    'translateX(-50%) translateY(0)',
+              transition:   'transform 0.32s cubic-bezier(.32,.72,0,1)',
+              zIndex:       300,
+              width:        '100%',
+              maxWidth:     '100%',
+              background:   '#0f1420',
+              borderTop:    '0.5px solid rgba(232,160,48,0.2)',
+              borderRadius: '22px 22px 0 0',
+              paddingBottom: 44,
+              fontFamily:   "'DM Sans', sans-serif",
+            }}
+          >
+            {/* Handle */}
+            <div style={{
+              width:        36,
+              height:       4,
+              borderRadius: 2,
+              background:   'rgba(240,235,224,0.15)',
+              margin:       '14px auto 0',
+            }} />
+
+            <div style={{ padding: '16px 18px 0' }}>
+              {/* Action context — read-only */}
+              <div style={{
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                color:         COLORS.amber,
+                marginBottom:  8,
+              }}>
+                Do this first
+              </div>
+              <div style={{
+                fontFamily:   "'Cormorant Garamond', serif",
+                fontSize:     18,
+                fontWeight:   400,
+                color:        'rgba(252,246,234,0.92)',
+                lineHeight:   1.4,
+                marginBottom: 10,
+              }}>
+                {doThisFirst.suggestion}
+              </div>
+
+              {/* Deal context if matched */}
+              {matchedDeal && (
+                <div style={{
+                  display:      'inline-block',
+                  fontSize:     10,
+                  fontWeight:   500,
+                  color:        COLORS.amber,
+                  background:   'rgba(232,160,48,0.12)',
+                  borderRadius: 6,
+                  padding:      '3px 8px',
+                  marginBottom: 14,
+                }}>
+                  {matchedDeal.accounts?.name || matchedDeal.name} · {matchedDeal.stage}
+                </div>
+              )}
+
+              {/* Input */}
+              <textarea
+                ref={actionInputRef}
+                value={actionInput}
+                onChange={(e) => setActionInput(e.target.value)}
+                placeholder="What happened or what did you do?"
+                style={{
+                  width:        '100%',
+                  background:   'rgba(16,20,30,0.6)',
+                  border:       '0.5px solid rgba(232,160,48,0.22)',
+                  borderRadius: 14,
+                  padding:      '14px 16px',
+                  fontFamily:   "'DM Sans', sans-serif",
+                  fontSize:     14,
+                  fontWeight:   300,
+                  color:        'rgba(252,246,234,0.92)',
+                  outline:      'none',
+                  resize:       'none',
+                  minHeight:    100,
+                  lineHeight:   1.65,
+                  marginBottom: 12,
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = 'rgba(232,160,48,0.44)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = 'rgba(232,160,48,0.22)';
+                }}
+              />
+
+              {/* Submit button */}
+              <button
+                onClick={handleActionSubmit}
+                disabled={!actionInput.trim() || actionSubmitting}
+                style={{
+                  width:           '100%',
+                  padding:         '14px 0',
+                  borderRadius:    12,
+                  border:          'none',
+                  background:      actionInput.trim() && !actionSubmitting
+                    ? 'linear-gradient(135deg, #C87820, #E09838)'
+                    : 'rgba(255,255,255,0.06)',
+                  color:           actionInput.trim() && !actionSubmitting
+                    ? 'white'
+                    : 'rgba(240,235,224,0.36)',
+                  fontSize:        11,
+                  fontWeight:      700,
+                  letterSpacing:   '2px',
+                  textTransform:   'uppercase',
+                  cursor:          actionInput.trim() && !actionSubmitting
+                    ? 'pointer'
+                    : 'default',
+                  fontFamily:      "'DM Sans', sans-serif",
+                  transition:      'all 0.2s ease',
+                  boxShadow:       actionInput.trim() && !actionSubmitting
+                    ? '0 4px 18px rgba(200,120,32,0.3)'
+                    : 'none',
+                  marginBottom:    10,
+                }}
+              >
+                {actionSubmitting ? 'Saving...' : 'Log it →'}
+              </button>
+
+              {/* Skip */}
+              <button
+                onClick={handleActionSkip}
+                style={{
+                  width:      '100%',
+                  padding:    '10px 0',
+                  background: 'none',
+                  border:     'none',
+                  color:      'rgba(240,235,224,0.36)',
+                  fontSize:   12,
+                  fontWeight: 400,
+                  cursor:     'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                Skip for now
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
