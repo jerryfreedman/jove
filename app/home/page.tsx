@@ -81,6 +81,7 @@ interface IntelLine {
   text:  string;
   blink: boolean;
   glow:  boolean;
+  route: string;
 }
 
 function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
@@ -101,12 +102,15 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
     const accountLabel = stalestDeal.accounts?.name || stalestDeal.name;
     const daysUntil = pulseThreshold - stalestDays;
 
+    const staleDealRoute = stalestDeal.id ? `/deals/${stalestDeal.id}` : '/deals';
+
     if (stalestDays >= pulseThreshold) {
       lines.push({
         dot:   COLORS.red,
         text:  `${accountLabel} — overdue for a touchpoint`,
         blink: true,
         glow:  true,
+        route: staleDealRoute,
       });
     } else if (daysUntil <= 3) {
       lines.push({
@@ -114,6 +118,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
         text:  `${accountLabel} — at risk in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
         blink: true,
         glow:  true,
+        route: staleDealRoute,
       });
     } else {
       lines.push({
@@ -121,6 +126,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
         text:  `${accountLabel} — ${stalestDays} days since last activity`,
         blink: false,
         glow:  false,
+        route: staleDealRoute,
       });
     }
   } else {
@@ -129,6 +135,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
       text:  'Capture your first signal with the + button below.',
       blink: false,
       glow:  false,
+      route: '/deals',
     });
   }
 
@@ -151,6 +158,8 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
       ? (matchedDeal.accounts?.name || matchedDeal.name)
       : null;
 
+    const signalDealRoute = positiveSignal.deal_id ? `/deals/${positiveSignal.deal_id}` : '/deals';
+
     lines.push({
       dot:   COLORS.green,
       text:  dealLabel
@@ -158,6 +167,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
         : `${label} — momentum increasing`,
       blink: false,
       glow:  false,
+      route: signalDealRoute,
     });
   } else {
     const dealCount = allActive.length;
@@ -166,6 +176,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
       text:  `${dealCount} active deal${dealCount !== 1 ? 's' : ''} in pipeline`,
       blink: false,
       glow:  false,
+      route: '/deals',
     });
   }
 
@@ -181,6 +192,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
       text:  `${todayMeetings.length} meeting${todayMeetings.length !== 1 ? 's' : ''} today — tap sun to prep`,
       blink: false,
       glow:  false,
+      route: '/briefing',
     });
   } else {
     lines.push({
@@ -188,6 +200,7 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
       text:  'No meetings today — good time to capture',
       blink: false,
       glow:  false,
+      route: '/briefing',
     });
   }
 
@@ -236,6 +249,9 @@ export default function HomePage() {
 
   // Track signal count before capture to diff after re-fetch
   const preCaptureSignalCountRef = useRef<number | null>(null);
+
+  // Guard: track which interaction IDs have already been retried this session
+  const retriedInteractionIdsRef = useRef<Set<string>>(new Set());
 
   // ── FIRST VISIT OVERLAY STATE ────────────────────────────
   const [firstVisitVisible, setFirstVisitVisible] = useState(
@@ -397,6 +413,7 @@ export default function HomePage() {
         streakRes,
         accountCountRes,
         debriefRes,
+        stuckInteractionsRes,
       ] = await Promise.all([
         supabase
           .from('users')
@@ -459,6 +476,16 @@ export default function HomePage() {
           .lt('scheduled_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
           .order('scheduled_at', { ascending: false })
           .limit(1),
+
+        // Stuck interactions: failed OR processing > 2 min old, but not < 30s old
+        supabase
+          .from('interactions')
+          .select('id, user_id, extraction_status, created_at')
+          .eq('user_id', authUser.id)
+          .or('extraction_status.eq.failed,extraction_status.eq.processing')
+          .lt('created_at', new Date(Date.now() - 30 * 1000).toISOString())
+          .order('created_at', { ascending: false })
+          .limit(5),
       ]);
 
       const activeDeals = (allDealsRes.data ?? []) as unknown as DealWithAccount[];
@@ -474,6 +501,31 @@ export default function HomePage() {
       });
 
       setDebriefMeetings((debriefRes.data ?? []) as MeetingRow[]);
+
+      // ── SILENT EXTRACTION RETRY ──────────────────────────
+      // Re-fire extraction for the most recent stuck interaction (fire-and-forget)
+      const stuckInteractions = (stuckInteractionsRes.data ?? []) as Array<{
+        id: string;
+        user_id: string;
+        extraction_status: string;
+        created_at: string;
+      }>;
+
+      const twoMinAgo = Date.now() - 2 * 60 * 1000;
+      // Filter: failed (any age past 30s) OR processing older than 2 min
+      const eligible = stuckInteractions.filter(si => {
+        if (retriedInteractionIdsRef.current.has(si.id)) return false;
+        if (si.extraction_status === 'failed') return true;
+        // processing + older than 2 minutes
+        return new Date(si.created_at).getTime() < twoMinAgo;
+      });
+
+      if (eligible.length > 0) {
+        const mostRecent = eligible[0]; // already ordered desc by created_at
+        retriedInteractionIdsRef.current.add(mostRecent.id);
+        // Fire-and-forget — do not await, do not block render
+        triggerExtraction(mostRecent.id, mostRecent.user_id);
+      }
 
     } catch (err) {
       console.error('Home data fetch error:', err);
@@ -1363,11 +1415,36 @@ export default function HomePage() {
             : intelLines.map((line, i) => (
                 <div
                   key={i}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => router.push(line.route)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') router.push(line.route); }}
                   style={{
                     display:      'flex',
                     alignItems:   'flex-start',
                     gap:          10,
-                    marginBottom: 9,
+                    marginBottom: 1,
+                    minHeight:    44,
+                    paddingTop:   4,
+                    paddingBottom:4,
+                    cursor:       'pointer',
+                    WebkitTapHighlightColor: 'transparent',
+                    transition:   'opacity 0.12s ease, transform 0.12s ease',
+                  }}
+                  onPointerDown={(e) => {
+                    const el = e.currentTarget;
+                    el.style.opacity = '0.7';
+                    el.style.transform = 'scale(0.98)';
+                  }}
+                  onPointerUp={(e) => {
+                    const el = e.currentTarget;
+                    el.style.opacity = '1';
+                    el.style.transform = 'scale(1)';
+                  }}
+                  onPointerCancel={(e) => {
+                    const el = e.currentTarget;
+                    el.style.opacity = '1';
+                    el.style.transform = 'scale(1)';
                   }}
                 >
                   <div style={{
