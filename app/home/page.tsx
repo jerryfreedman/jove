@@ -541,6 +541,9 @@ export default function HomePage() {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
 
+  // ── HERO GATE STATE — tracks whether pre-fetch gate passed ──
+  const [heroGatePassed, setHeroGatePassed] = useState(false);
+
   // ── DO THIS FIRST — INDEPENDENT ASYNC FETCH ─────────────
   useEffect(() => {
     if (!data) return;
@@ -548,8 +551,60 @@ export default function HomePage() {
 
     if (activeDeals.length === 0) {
       setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
+      setHeroGatePassed(false);
       return;
     }
+
+    // ── LAYER 1: PRE-FETCH GATE (importance only) ──────────
+    const userPulseThreshold = data.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
+
+    // Condition A — Overdue deal
+    const conditionA = activeDeals.some(
+      d => getDaysSinceActivity(d) >= userPulseThreshold
+    );
+
+    // Condition B — Recent meaningful signal on active deal
+    const meaningfulTypes = new Set([
+      'champion_identified', 'budget_mentioned', 'next_step_agreed',
+      'competitor_mentioned', 'timeline_mentioned', 'risk_identified',
+    ]);
+    const lastHeroShownRaw = localStorage.getItem('jove_last_hero_shown');
+    const lastHeroShownTs = lastHeroShownRaw ? parseInt(lastHeroShownRaw, 10) : 0;
+    const activeDealIds = new Set(activeDeals.map(d => d.id));
+
+    const conditionB = data.signals.some(s => {
+      if (!meaningfulTypes.has(s.signal_type)) return false;
+      if (!s.deal_id || !activeDealIds.has(s.deal_id)) return false;
+      const signalTs = new Date(s.created_at).getTime();
+      return lastHeroShownTs === 0 || signalTs > lastHeroShownTs;
+    });
+
+    // Condition C — Upcoming meeting today (not already ended)
+    const nowMs = Date.now();
+    const oneHourAgo = nowMs - 60 * 60 * 1000;
+    const conditionC = data.meetings.some(m => {
+      const mt = new Date(m.scheduled_at);
+      if (mt.toDateString() !== new Date().toDateString()) return false;
+      return mt.getTime() > oneHourAgo;
+    });
+
+    // Cooldown override: block if last shown < 4 hours ago AND Condition B is false
+    const fourHoursMs = 4 * 60 * 60 * 1000;
+    const cooldownActive = lastHeroShownTs > 0 && (nowMs - lastHeroShownTs) < fourHoursMs;
+    const blockedByCooldown = cooldownActive && !conditionB;
+
+    const anyConditionMet = conditionA || conditionB || conditionC;
+    const gateOpen = anyConditionMet && !blockedByCooldown;
+
+    if (!gateOpen) {
+      // Gate blocks — do not fetch, do not render hero or empty state
+      setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
+      setHeroGatePassed(false);
+      return;
+    }
+
+    setHeroGatePassed(true);
+    // ── END LAYER 1 ────────────────────────────────────────
 
     let cancelled = false;
     const fetchDoThisFirst = async () => {
@@ -575,6 +630,18 @@ export default function HomePage() {
         const suggestion = dtfJson.suggestion;
 
         if (suggestion && typeof suggestion === 'string' && suggestion.trim()) {
+          // ── LAYER 2: POST-FETCH SUPPRESSION (repetition only) ──
+          const normalizedSuggestion = suggestion.trim().toLowerCase();
+          const acknowledged = sessionStorage.getItem('jove_action_acknowledged');
+          if (acknowledged === normalizedSuggestion) {
+            // User already acted on this exact suggestion this session
+            if (!cancelled) {
+              setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
+            }
+            return;
+          }
+          // ── END LAYER 2 ──────────────────────────────────────
+
           const lowerSuggestion = suggestion.toLowerCase();
           const matchedDeal = activeDeals.find(d => {
             if (d.name && lowerSuggestion.includes(d.name.toLowerCase())) return true;
@@ -590,6 +657,9 @@ export default function HomePage() {
               dealLabel: matchedDeal ? (matchedDeal.accounts?.name || matchedDeal.name) : null,
               dealId: matchedDeal ? matchedDeal.id : null,
             });
+            // Update localStorage timestamps after successful render decision
+            localStorage.setItem('jove_last_hero_shown', Date.now().toString());
+            localStorage.setItem('jove_last_hero_suggestion', suggestion.trim().toLowerCase());
           }
         } else if (!cancelled) {
           setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
@@ -1137,7 +1207,7 @@ export default function HomePage() {
         )}
 
         {/* ── DO THIS FIRST EMPTY STATE ─────────────────── */}
-        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && !actionAcknowledged && data && (
+        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && !actionAcknowledged && heroGatePassed && data && (
           <div
             style={{
               padding:   '0 22px',
