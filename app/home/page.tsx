@@ -237,6 +237,10 @@ export default function HomePage() {
   const birdHitboxRef = useRef<HTMLDivElement>(null);
   const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Session memory: deal IDs + meeting IDs already answered via bird this session.
+  // Prevents asking the same question while extraction is still in flight.
+  const birdAnsweredRef = useRef<Set<string>>(new Set());
+
   // ── DO THIS FIRST STATE ────────────────────────────────────
   const [doThisFirst, setDoThisFirst] = useState<{
     loading: boolean;
@@ -848,10 +852,15 @@ export default function HomePage() {
   const birdQuestion = useMemo(() => {
     if (!data) return { text: "What's on your mind?", dealId: null as string | null };
 
+    const answered = birdAnsweredRef.current;
     const now = new Date();
     const twoDaysOut = new Date(now);
     twoDaysOut.setDate(twoDaysOut.getDate() + 2);
     twoDaysOut.setHours(0, 0, 0, 0);
+
+    // Helper: build a candidate and check if already answered this session
+    const wasAnswered = (text: string, dealId: string | null) =>
+      answered.has(`q:${text}`) || (dealId && answered.has(`deal:${dealId}`));
 
     // ── P1: FUTURE MEETING INTENT ─────────────────────────
     // Upcoming meeting in next 48h — ask what they want from it.
@@ -861,9 +870,12 @@ export default function HomePage() {
       return mt > now && mt < twoDaysOut;
     });
 
-    if (upcoming.length > 0) {
-      const soonest = upcoming[0]; // already sorted ascending
-      return { text: `What's your goal for ${soonest.title}?`, dealId: soonest.deal_id ?? null };
+    for (const meeting of upcoming) {
+      const text = `What's your goal for ${meeting.title}?`;
+      const dealId = meeting.deal_id ?? null;
+      if (!wasAnswered(text, dealId)) {
+        return { text, dealId };
+      }
     }
 
     // ── P2: POST-MEETING DEBRIEF ──────────────────────────
@@ -874,41 +886,40 @@ export default function HomePage() {
       return mt < now && mt > twoHoursAgo && !m.debrief_completed;
     });
 
-    if (recentUnDebriefed.length > 0) {
-      const latest = recentUnDebriefed[0];
-      return { text: `How did ${latest.title} go?`, dealId: latest.deal_id ?? null };
+    for (const meeting of recentUnDebriefed) {
+      const text = `How did ${meeting.title} go?`;
+      const dealId = meeting.deal_id ?? null;
+      if (!wasAnswered(text, dealId)) {
+        return { text, dealId };
+      }
     }
 
     // ── P3: STALE DEAL GAP-FILL ──────────────────────────
-    // Find the stalest active deal, then ask about its most valuable missing signal.
-    if (data.allDeals.length > 0) {
-      let stalest = data.allDeals[0];
-      let stalestDays = getDaysSinceActivity(data.allDeals[0]);
-      for (const d of data.allDeals) {
-        const days = getDaysSinceActivity(d);
-        if (days > stalestDays) {
-          stalestDays = days;
-          stalest = d;
-        }
-      }
+    // Walk deals from stalest to freshest, skip already-answered, ask about first gap.
+    const sortedDeals = [...data.allDeals].sort(
+      (a, b) => new Date(a.last_activity_at).getTime() - new Date(b.last_activity_at).getTime(),
+    );
 
-      const name = stalest.accounts?.name || stalest.name;
-      const dealSignals = data.signals.filter(s => s.deal_id === stalest.id);
+    for (const deal of sortedDeals) {
+      if (answered.has(`deal:${deal.id}`)) continue;
+
+      const name = deal.accounts?.name || deal.name;
+      const dealSignals = data.signals.filter(s => s.deal_id === deal.id);
       const signalTypes = new Set(dealSignals.map(s => s.signal_type));
 
       // Target the highest-value missing signal for this deal
       if (!signalTypes.has('champion_identified')) {
-        return { text: `Who's your champion at ${name}?`, dealId: stalest.id };
+        return { text: `Who's your champion at ${name}?`, dealId: deal.id };
       }
-      if (!stalest.next_action) {
-        return { text: `What's the next step on ${name}?`, dealId: stalest.id };
+      if (!deal.next_action) {
+        return { text: `What's the next step on ${name}?`, dealId: deal.id };
       }
       if (!signalTypes.has('budget_mentioned')) {
-        return { text: `Any budget context on ${name}?`, dealId: stalest.id };
+        return { text: `Any budget context on ${name}?`, dealId: deal.id };
       }
 
       // All key signals present — just refresh activity
-      return { text: `Anything new on ${name}?`, dealId: stalest.id };
+      return { text: `Anything new on ${name}?`, dealId: deal.id };
     }
 
     // ── P4: OPEN FALLBACK ────────────────────────────────
@@ -919,6 +930,14 @@ export default function HomePage() {
   const handleBirdSubmit = async () => {
     if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
     setBirdModalSaving(true);
+
+    // Record this question's context so bird moves on to the next gap
+    if (birdQuestion.dealId) {
+      birdAnsweredRef.current.add(`deal:${birdQuestion.dealId}`);
+    }
+    // Also track by meeting ID if the question was meeting-derived
+    // (birdQuestion stores dealId, but we mark the meeting title to prevent re-ask)
+    birdAnsweredRef.current.add(`q:${birdQuestion.text}`);
 
     try {
       const result = await saveInteraction(supabase, {
