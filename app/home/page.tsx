@@ -840,26 +840,47 @@ export default function HomePage() {
   }).length ?? 0;
 
   // ── BIRD QUESTION GENERATION ────────────────────────────
+  // Priority hierarchy targets the gap whose answer compounds the most:
+  //   1. Future meeting intent  → shapes prep brief, smart questions, draft emails
+  //   2. Post-meeting debrief   → highest signal density while memory is fresh
+  //   3. Stale deal gap-fill    → targets specific missing signal (champion > next step > budget)
+  //   4. Open fallback          → captures ideas, early-stage thinking
   const birdQuestion = useMemo(() => {
-    if (!data) return { text: "What's happening in your pipeline today?", dealId: null as string | null };
+    if (!data) return { text: "What's on your mind?", dealId: null as string | null };
 
     const now = new Date();
-    const tomorrowEnd = new Date(now);
-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 2);
-    tomorrowEnd.setHours(0, 0, 0, 0);
+    const twoDaysOut = new Date(now);
+    twoDaysOut.setDate(twoDaysOut.getDate() + 2);
+    twoDaysOut.setHours(0, 0, 0, 0);
 
-    // Priority 1: upcoming meeting today or tomorrow (soonest first)
+    // ── P1: FUTURE MEETING INTENT ─────────────────────────
+    // Upcoming meeting in next 48h — ask what they want from it.
+    // This answer directly enriches the prep brief and draft artifacts.
     const upcoming = data.meetings.filter(m => {
       const mt = new Date(m.scheduled_at);
-      return mt > now && mt < tomorrowEnd;
+      return mt > now && mt < twoDaysOut;
     });
 
     if (upcoming.length > 0) {
-      const soonest = upcoming[0]; // already sorted ascending by scheduled_at
-      return { text: `Quick note on ${soonest.title}?`, dealId: soonest.deal_id ?? null };
+      const soonest = upcoming[0]; // already sorted ascending
+      return { text: `What's your goal for ${soonest.title}?`, dealId: soonest.deal_id ?? null };
     }
 
-    // Priority 2: most stale active deal
+    // ── P2: POST-MEETING DEBRIEF ──────────────────────────
+    // Meeting ended in last 2 hours, no debrief yet — fresh recall = richest extraction.
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    const recentUnDebriefed = data.meetings.filter(m => {
+      const mt = new Date(m.scheduled_at);
+      return mt < now && mt > twoHoursAgo && !m.debrief_completed;
+    });
+
+    if (recentUnDebriefed.length > 0) {
+      const latest = recentUnDebriefed[0];
+      return { text: `How did ${latest.title} go?`, dealId: latest.deal_id ?? null };
+    }
+
+    // ── P3: STALE DEAL GAP-FILL ──────────────────────────
+    // Find the stalest active deal, then ask about its most valuable missing signal.
     if (data.allDeals.length > 0) {
       let stalest = data.allDeals[0];
       let stalestDays = getDaysSinceActivity(data.allDeals[0]);
@@ -870,12 +891,28 @@ export default function HomePage() {
           stalest = d;
         }
       }
+
       const name = stalest.accounts?.name || stalest.name;
-      return { text: `Quick update on ${name}?`, dealId: stalest.id };
+      const dealSignals = data.signals.filter(s => s.deal_id === stalest.id);
+      const signalTypes = new Set(dealSignals.map(s => s.signal_type));
+
+      // Target the highest-value missing signal for this deal
+      if (!signalTypes.has('champion_identified')) {
+        return { text: `Who's your champion at ${name}?`, dealId: stalest.id };
+      }
+      if (!stalest.next_action) {
+        return { text: `What's the next step on ${name}?`, dealId: stalest.id };
+      }
+      if (!signalTypes.has('budget_mentioned')) {
+        return { text: `Any budget context on ${name}?`, dealId: stalest.id };
+      }
+
+      // All key signals present — just refresh activity
+      return { text: `Anything new on ${name}?`, dealId: stalest.id };
     }
 
-    // Fallback
-    return { text: "What's happening in your pipeline today?", dealId: null as string | null };
+    // ── P4: OPEN FALLBACK ────────────────────────────────
+    return { text: "What's on your mind?", dealId: null as string | null };
   }, [data]);
 
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
