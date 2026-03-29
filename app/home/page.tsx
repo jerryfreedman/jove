@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useReducer } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
+import AmbientFish from '@/components/home/AmbientFish';
 import Logo from '@/components/ui/Logo';
 import StreakBadge from '@/components/ui/StreakBadge';
 import CaptureSheet from '@/components/capture/CaptureSheet';
@@ -908,6 +909,7 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
+      <AmbientFish />
 
       {/* ── SUN PULSE KEYFRAME ──────────────────────── */}
       <style>{`
