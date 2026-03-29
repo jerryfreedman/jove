@@ -1034,13 +1034,13 @@ export default function HomePage() {
 
       <div
         className="absolute inset-0 flex flex-col"
-        style={{ zIndex: 10 }}
+        style={{ zIndex: 20, pointerEvents: 'none' }}
       >
 
         {/* ── TOP BAR ──────────────────────────────── */}
         <div
           className="flex items-start justify-between"
-          style={{ paddingTop: 'env(safe-area-inset-top)', paddingLeft: 22, paddingRight: 22, ...anim(0.06) }}
+          style={{ paddingTop: 'env(safe-area-inset-top)', paddingLeft: 22, paddingRight: 22, pointerEvents: 'auto', ...anim(0.06) }}
         >
           {/* Logo — taps to settings */}
           <div
@@ -1145,6 +1145,7 @@ export default function HomePage() {
             style={{
               padding:   '0 22px',
               marginTop: 14,
+              pointerEvents: 'auto',
               ...anim(0.28),
             }}
           >
@@ -1212,6 +1213,7 @@ export default function HomePage() {
             style={{
               padding:   '0 22px',
               marginTop: 14,
+              pointerEvents: 'auto',
               ...anim(0.28),
             }}
           >
@@ -1256,6 +1258,7 @@ export default function HomePage() {
               alignItems:     'center',
               justifyContent: 'center',
               gap:            12,
+              pointerEvents:  'auto',
               ...anim(0.23),
             }}
           >
@@ -1331,6 +1334,7 @@ export default function HomePage() {
           <div style={{
             padding:    '0 22px',
             marginBottom: 10,
+            pointerEvents: 'auto',
             ...anim(0.30),
           }}>
             <div style={{
@@ -1426,7 +1430,7 @@ export default function HomePage() {
         )}
 
         {/* ── THREE INTELLIGENCE LINES ─────────────── */}
-        <div style={{ padding: '0 26px', ...anim(0.34) }}>
+        <div style={{ padding: '0 26px', pointerEvents: 'auto', ...anim(0.34) }}>
           {loading
             ? Array.from({ length: 3 }).map((_, i) => (
                 <div
@@ -1510,6 +1514,7 @@ export default function HomePage() {
             alignItems:     'center',
             justifyContent: 'space-between',
             padding:        '20px 26px 44px',
+            pointerEvents:  'auto',
             ...anim(0.42),
           }}
         >
