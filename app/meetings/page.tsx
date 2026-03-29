@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
+import CaptureSheet from '@/components/capture/CaptureSheet';
 import type { MeetingRow, DealRow } from '@/lib/types';
 
 function formatScheduledAt(dateStr: string): string {
@@ -54,6 +55,9 @@ function MeetingsPageInner() {
   const [saving, setSaving]           = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<MeetingRow | null>(null);
   const [showPast, setShowPast]       = useState(false);
+
+  // Capture bridge state
+  const [captureMeeting, setCaptureMeeting] = useState<MeetingRow | null>(null);
 
   // Screenshot import
   const [importing, setImporting]     = useState(false);
@@ -221,7 +225,7 @@ function MeetingsPageInner() {
     marginBottom: 10,
   };
 
-  const MeetingCard = ({ meeting, onTap }: { meeting: MeetingRow; onTap: () => void }) => {
+  const MeetingCard = ({ meeting, onTap, onAddContext }: { meeting: MeetingRow; onTap: () => void; onAddContext: () => void }) => {
     const linkedDeal = deals.find(d => d.id === meeting.deal_id);
     return (
       <div
@@ -278,6 +282,22 @@ function MeetingsPageInner() {
             {linkedDeal.name}
           </div>
         )}
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddContext();
+          }}
+          style={{
+            marginTop:    8,
+            fontSize:     12,
+            fontWeight:   500,
+            color:        COLORS.amber,
+            cursor:       'pointer',
+            fontFamily:   "'DM Sans', sans-serif",
+          }}
+        >
+          Add context &rarr;
+        </div>
       </div>
     );
   };
@@ -479,7 +499,7 @@ function MeetingsPageInner() {
             </div>
             {upcoming.map((m, i) => (
               <div key={m.id} ref={i === 0 ? meetingCardRef : undefined}>
-                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} onAddContext={() => setCaptureMeeting(m)} />
               </div>
             ))}
           </div>
@@ -517,7 +537,7 @@ function MeetingsPageInner() {
 
             {showPast && past.slice(0, 20).map(m => (
               <div key={m.id} style={{ opacity: 0.55 }}>
-                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} onAddContext={() => setCaptureMeeting(m)} />
               </div>
             ))}
           </div>
@@ -687,6 +707,18 @@ function MeetingsPageInner() {
         ]}
         storageKey="jove_tour_meetings"
         onComplete={() => setShowMeetingsTour(false)}
+      />
+    )}
+
+    {/* Capture Sheet — opened from meeting card "Add context" */}
+    {captureMeeting && userId && (
+      <CaptureSheet
+        onClose={() => setCaptureMeeting(null)}
+        userId={userId}
+        activeDeals={deals}
+        onCaptureComplete={() => fetchData()}
+        initialDealId={captureMeeting.deal_id}
+        meetingContext={captureMeeting.title}
       />
     )}
 

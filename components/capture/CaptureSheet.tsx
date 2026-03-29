@@ -28,6 +28,8 @@ interface CaptureSheetProps {
   onCaptureComplete?: () => void;
   initialMode?: CaptureMode;
   initialText?: string;
+  initialDealId?: string | null;
+  meetingContext?: string | null;
 }
 
 // ── EMAIL PATTERN DETECTION ───────────────────────────────
@@ -83,6 +85,8 @@ export default function CaptureSheet({
   onCaptureComplete,
   initialMode,
   initialText,
+  initialDealId,
+  meetingContext,
 }: CaptureSheetProps) {
   const supabase = createClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -94,7 +98,7 @@ export default function CaptureSheet({
   const [draftOutput, setDraftOutput] = useState('');
   const [draftSaving, setDraftSaving] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(
-    activeDeals.length === 1 ? activeDeals[0].id : null,
+    initialDealId ?? (activeDeals.length === 1 ? activeDeals[0].id : null),
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -537,12 +541,31 @@ export default function CaptureSheet({
                 Capture
               </p>
 
+              {/* Meeting context hint */}
+              {meetingContext && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 400,
+                    color: COLORS.textMid,
+                    background: 'rgba(232,160,48,0.06)',
+                    border: '0.5px solid rgba(232,160,48,0.15)',
+                    borderRadius: 10,
+                    padding: '8px 12px',
+                    marginBottom: 10,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  About: {meetingContext}
+                </div>
+              )}
+
               {/* Primary textarea — visible and focused on open */}
               <textarea
                 ref={textareaRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="What just happened?"
+                placeholder={meetingContext ? 'What happened in this meeting?' : 'What just happened?'}
                 style={textareaStyle}
                 onFocus={(e) => {
                   e.target.style.borderColor = 'rgba(232,160,48,0.44)';
