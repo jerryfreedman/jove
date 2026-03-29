@@ -909,7 +909,7 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
-      <AmbientFish />
+      <AmbientFish signalCount={data?.signals.length ?? 0} />
 
       {/* ── SUN PULSE KEYFRAME ──────────────────────── */}
       <style>{`
