@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useReducer } from 'react';
+import { useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
@@ -228,6 +228,15 @@ export default function HomePage() {
   const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
 
+  // ── FISH INTERACTION STATE ──────────────────────────────────
+  const [fishModalOpen, setFishModalOpen] = useState(false);
+  const [fishModalInput, setFishModalInput] = useState('');
+  const [fishModalSaving, setFishModalSaving] = useState(false);
+  const [fishPulseTrigger, setFishPulseTrigger] = useState(0);
+  const fishPositionRef = useRef({ x: 0, y: 0 });
+  const fishHitboxRef = useRef<HTMLDivElement>(null);
+  const fishModalInputRef = useRef<HTMLTextAreaElement>(null);
+
   // ── DO THIS FIRST STATE ────────────────────────────────────
   const [doThisFirst, setDoThisFirst] = useState<{
     loading: boolean;
@@ -377,6 +386,38 @@ export default function HomePage() {
   useEffect(() => {
     const interval = setInterval(() => setTime(formatTime()), 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  // ── FISH HITBOX TRACKING ────────────────────────────────
+  useEffect(() => {
+    let rafId: number;
+    const track = () => {
+      const el = fishHitboxRef.current;
+      if (el) {
+        // Fish SVG is 28x12 — center at (x+14, y+6)
+        const cx = fishPositionRef.current.x + 14;
+        const cy = fishPositionRef.current.y + 6;
+        el.style.transform = `translate(${cx - 22}px, ${cy - 22}px)`;
+      }
+      rafId = requestAnimationFrame(track);
+    };
+    rafId = requestAnimationFrame(track);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  // ── GLOBAL CAPTURE PULSE ON RETURN ────────────────────
+  useEffect(() => {
+    const pending = localStorage.getItem('jove_pulse_pending');
+    if (pending) {
+      const ts = parseInt(pending, 10);
+      if (Date.now() - ts < 15000) {
+        setTimeout(() => {
+          setShowSignalPulse(true);
+          setTimeout(() => setShowSignalPulse(false), 900);
+        }, 600);
+      }
+      localStorage.removeItem('jove_pulse_pending');
+    }
   }, []);
 
   // ── WEATHER ────────────────────────────────────────────
@@ -798,6 +839,87 @@ export default function HomePage() {
     return mt.toDateString() === tod.toDateString();
   }).length ?? 0;
 
+  // ── FISH QUESTION GENERATION ────────────────────────────
+  const fishQuestion = useMemo(() => {
+    if (!data) return { text: "What's happening in your pipeline today?", dealId: null as string | null };
+
+    const now = new Date();
+    const tomorrowEnd = new Date(now);
+    tomorrowEnd.setDate(tomorrowEnd.getDate() + 2);
+    tomorrowEnd.setHours(0, 0, 0, 0);
+
+    // Priority 1: upcoming meeting today or tomorrow (soonest first)
+    const upcoming = data.meetings.filter(m => {
+      const mt = new Date(m.scheduled_at);
+      return mt > now && mt < tomorrowEnd;
+    });
+
+    if (upcoming.length > 0) {
+      const soonest = upcoming[0]; // already sorted ascending by scheduled_at
+      return { text: `Quick note on ${soonest.title}?`, dealId: soonest.deal_id ?? null };
+    }
+
+    // Priority 2: most stale active deal
+    if (data.allDeals.length > 0) {
+      let stalest = data.allDeals[0];
+      let stalestDays = getDaysSinceActivity(data.allDeals[0]);
+      for (const d of data.allDeals) {
+        const days = getDaysSinceActivity(d);
+        if (days > stalestDays) {
+          stalestDays = days;
+          stalest = d;
+        }
+      }
+      const name = stalest.accounts?.name || stalest.name;
+      return { text: `Quick update on ${name}?`, dealId: stalest.id };
+    }
+
+    // Fallback
+    return { text: "What's happening in your pipeline today?", dealId: null as string | null };
+  }, [data]);
+
+  // ── FISH CAPTURE HANDLER ──────────────────────────────────
+  const handleFishSubmit = async () => {
+    if (!fishModalInput.trim() || fishModalSaving || !data?.user) return;
+    setFishModalSaving(true);
+
+    try {
+      const result = await saveInteraction(supabase, {
+        userId: data.user.id,
+        dealId: fishQuestion.dealId,
+        type: 'note',
+        rawContent: fishModalInput,
+      });
+
+      if (result?.id) {
+        triggerExtraction(result.id, data.user.id);
+      }
+
+      await updateStreak(supabase, data.user.id);
+    } catch (err) {
+      console.error('Fish capture error:', err);
+    }
+
+    // Close modal immediately
+    setFishModalOpen(false);
+    setFishModalInput('');
+    setFishModalSaving(false);
+
+    // Clear pending pulse flag (prevent double-fire on next mount)
+    localStorage.removeItem('jove_pulse_pending');
+
+    // Fish pulse + sun pulse — simultaneous
+    setFishPulseTrigger(k => k + 1);
+    setShowSignalPulse(true);
+    setTimeout(() => setShowSignalPulse(false), 900);
+
+    // Snapshot signal count for post-capture feedback
+    preCaptureSignalCountRef.current = data?.signals.length ?? 0;
+
+    // Delayed re-fetch to let extraction complete
+    setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
+  };
+
   const pulseThreshold  = data?.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
   const atRiskCount     = data
     ? data.allDeals.filter(d => getDaysSinceActivity(d) >= pulseThreshold).length
@@ -903,6 +1025,8 @@ export default function HomePage() {
     // Signal pulse — immediate environment feedback on action capture
     setShowSignalPulse(true);
     setTimeout(() => setShowSignalPulse(false), 900);
+    // Clear pending pulse flag (prevent double-fire on next mount)
+    localStorage.removeItem('jove_pulse_pending');
 
     // Show feedback banner
     const fb = dealWasStale
@@ -943,7 +1067,33 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
-      <AmbientFish signalCount={data?.signals.length ?? 0} reactionTrigger={fishReactionTrigger} />
+      <AmbientFish signalCount={data?.signals.length ?? 0} reactionTrigger={fishReactionTrigger} positionRef={fishPositionRef} pulseTrigger={fishPulseTrigger} />
+
+      {/* ── FISH TAP HITBOX ──────────────────────────── */}
+      <div
+        ref={fishHitboxRef}
+        onClick={() => {
+          if (!fishModalOpen) {
+            setFishModalInput('');
+            setFishModalOpen(true);
+            setTimeout(() => fishModalInputRef.current?.focus(), 200);
+          }
+        }}
+        style={{
+          position:     'fixed',
+          top:          0,
+          left:         0,
+          width:        44,
+          height:       44,
+          borderRadius: '50%',
+          zIndex:       7,
+          pointerEvents:'auto',
+          cursor:       'pointer',
+          willChange:   'transform',
+          WebkitTapHighlightColor: 'transparent',
+        }}
+        aria-label="Tap fish to capture"
+      />
 
       {/* ── SUN PULSE KEYFRAMES ─────────────────────── */}
       <style>{`
@@ -1753,6 +1903,8 @@ export default function HomePage() {
             // Signal pulse — immediate environment feedback on capture
             setShowSignalPulse(true);
             setTimeout(() => setShowSignalPulse(false), 900);
+            // Clear pending pulse flag (prevent double-fire on next mount)
+            localStorage.removeItem('jove_pulse_pending');
             // Delay re-fetch to give extraction time to complete
             setTimeout(() => {
               setHomeRefreshKey((k) => k + 1);
@@ -1761,6 +1913,124 @@ export default function HomePage() {
           initialMode={captureInitialMode ?? undefined}
           initialText={captureInitialText || undefined}
         />
+      )}
+
+      {/* ── FISH CAPTURE MODAL ──────────────────────── */}
+      {fishModalOpen && (
+        <>
+          {/* Backdrop — tap to dismiss */}
+          <div
+            onClick={() => {
+              setFishModalOpen(false);
+              setFishModalInput('');
+            }}
+            style={{
+              position:       'fixed',
+              inset:          0,
+              zIndex:         290,
+              background:     'rgba(13,15,18,0.6)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }}
+          />
+
+          {/* Modal — centered on screen */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setFishModalOpen(false);
+                setFishModalInput('');
+              }
+            }}
+            style={{
+              position:       'fixed',
+              top:            '50%',
+              left:           '50%',
+              transform:      'translate(-50%, -50%)',
+              zIndex:         300,
+              width:          'calc(100% - 48px)',
+              maxWidth:       340,
+              background:     '#0f1420',
+              borderRadius:   18,
+              border:         '0.5px solid rgba(232,160,48,0.18)',
+              padding:        '22px 20px 18px',
+              fontFamily:     "'DM Sans', sans-serif",
+            }}
+          >
+            {/* Question */}
+            <div style={{
+              fontFamily:   "'Cormorant Garamond', serif",
+              fontSize:     18,
+              fontWeight:   400,
+              color:        'rgba(252,246,234,0.88)',
+              lineHeight:   1.4,
+              marginBottom: 14,
+            }}>
+              {fishQuestion.text}
+            </div>
+
+            {/* Input */}
+            <textarea
+              ref={fishModalInputRef}
+              value={fishModalInput}
+              onChange={(e) => setFishModalInput(e.target.value)}
+              placeholder="Type anything..."
+              style={{
+                width:        '100%',
+                background:   'rgba(16,20,30,0.6)',
+                border:       '0.5px solid rgba(232,160,48,0.22)',
+                borderRadius: 12,
+                padding:      '12px 14px',
+                fontFamily:   "'DM Sans', sans-serif",
+                fontSize:     14,
+                fontWeight:   300,
+                color:        'rgba(252,246,234,0.92)',
+                outline:      'none',
+                resize:       'none',
+                minHeight:    80,
+                lineHeight:   1.6,
+                marginBottom: 12,
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'rgba(232,160,48,0.44)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'rgba(232,160,48,0.22)';
+              }}
+            />
+
+            {/* Submit button */}
+            <button
+              onClick={handleFishSubmit}
+              disabled={!fishModalInput.trim() || fishModalSaving}
+              style={{
+                width:           '100%',
+                padding:         '12px 0',
+                borderRadius:    10,
+                border:          'none',
+                background:      fishModalInput.trim() && !fishModalSaving
+                  ? 'linear-gradient(135deg, #C87820, #E09838)'
+                  : 'rgba(255,255,255,0.06)',
+                color:           fishModalInput.trim() && !fishModalSaving
+                  ? 'white'
+                  : 'rgba(240,235,224,0.36)',
+                fontSize:        12,
+                fontWeight:      600,
+                cursor:          fishModalInput.trim() && !fishModalSaving
+                  ? 'pointer'
+                  : 'default',
+                fontFamily:      "'DM Sans', sans-serif",
+                transition:      'all 0.2s ease',
+                boxShadow:       fishModalInput.trim() && !fishModalSaving
+                  ? '0 4px 14px rgba(200,120,32,0.28)'
+                  : 'none',
+              }}
+            >
+              {fishModalSaving ? 'Saving...' : 'Save \u2192'}
+            </button>
+          </div>
+        </>
       )}
 
       {/* ── ACTION CAPTURE OVERLAY ────────────────── */}

@@ -37,9 +37,11 @@ function randomBetween(min: number, max: number) {
 interface AmbientFishProps {
   signalCount?: number;
   reactionTrigger?: number;
+  positionRef?: React.MutableRefObject<{ x: number; y: number }>;
+  pulseTrigger?: number;
 }
 
-export default function AmbientFish({ signalCount = 0, reactionTrigger = 0 }: AmbientFishProps) {
+export default function AmbientFish({ signalCount = 0, reactionTrigger = 0, positionRef, pulseTrigger = 0 }: AmbientFishProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Position ref — shared with future prompts for hitbox placement
@@ -76,6 +78,10 @@ export default function AmbientFish({ signalCount = 0, reactionTrigger = 0 }: Am
     jumpPeakY: 0,
   });
   const prevTriggerRef = useRef(reactionTrigger);
+
+  // ── PULSE STATE (fish scale pulse after capture) ──────
+  const pulseAnimRef = useRef({ active: false, startTime: 0 });
+  const prevPulseTriggerRef = useRef(pulseTrigger);
 
   // Internal animation state (not React state — no re-renders)
   const stateRef = useRef({
@@ -236,14 +242,28 @@ export default function AmbientFish({ signalCount = 0, reactionTrigger = 0 }: Am
       }
     }
 
-    // Update position ref for Prompt 4
+    // Update position refs
     fishPositionRef.current.x = s.x;
     fishPositionRef.current.y = s.y;
+    if (positionRef) {
+      positionRef.current.x = s.x;
+      positionRef.current.y = s.y;
+    }
+
+    // Pulse boost: 1 → 1.08 → 1 over 600ms (sine curve)
+    let pulseBoost = 1;
+    const pa = pulseAnimRef.current;
+    if (pa.active) {
+      const elapsed = now - pa.startTime;
+      const progress = Math.min(elapsed / 600, 1);
+      pulseBoost = 1 + 0.08 * Math.sin(progress * Math.PI);
+      if (progress >= 1) pa.active = false;
+    }
 
     // Apply transform directly (no React state)
     // Scale evolves continuously — scaleX flips for direction, uniform scale for growth
     const scaleX = s.direction >= 0 ? -1 : 1;
-    el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX}) scale(${g.scale})`;
+    el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX}) scale(${g.scale * pulseBoost})`;
 
     frameRef.current = requestAnimationFrame(tick);
   }, []);
@@ -324,6 +344,14 @@ export default function AmbientFish({ signalCount = 0, reactionTrigger = 0 }: Am
       };
     }
   }, [reactionTrigger]);
+
+  // ── PULSE TRIGGER ───────────────────────────────────────
+  useEffect(() => {
+    if (pulseTrigger > prevPulseTriggerRef.current) {
+      pulseAnimRef.current = { active: true, startTime: performance.now() };
+    }
+    prevPulseTriggerRef.current = pulseTrigger;
+  }, [pulseTrigger]);
 
   return (
     <div

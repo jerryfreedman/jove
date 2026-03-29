@@ -76,6 +76,9 @@ export async function updateStreak(
   // Trigger logo bloom on home screen
   localStorage.setItem('jove_bloom_trigger', String(Date.now()));
 
+  // Signal pending sun pulse for when home screen mounts (cross-page captures)
+  localStorage.setItem('jove_pulse_pending', String(Date.now()));
+
   // Check for streak milestone — count consecutive days
   const { data: recentLogs } = await supabase
     .from('streak_log')
