@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'r
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
-import AmbientFish from '@/components/home/AmbientFish';
+import AmbientBird from '@/components/home/AmbientBird';
 import Logo from '@/components/ui/Logo';
 import StreakBadge from '@/components/ui/StreakBadge';
 import CaptureSheet from '@/components/capture/CaptureSheet';
@@ -228,14 +228,14 @@ export default function HomePage() {
   const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
 
-  // ── FISH INTERACTION STATE ──────────────────────────────────
-  const [fishModalOpen, setFishModalOpen] = useState(false);
-  const [fishModalInput, setFishModalInput] = useState('');
-  const [fishModalSaving, setFishModalSaving] = useState(false);
-  const [fishPulseTrigger, setFishPulseTrigger] = useState(0);
-  const fishPositionRef = useRef({ x: 0, y: 0 });
-  const fishHitboxRef = useRef<HTMLDivElement>(null);
-  const fishModalInputRef = useRef<HTMLTextAreaElement>(null);
+  // ── BIRD INTERACTION STATE ──────────────────────────────────
+  const [birdModalOpen, setBirdModalOpen] = useState(false);
+  const [birdModalInput, setBirdModalInput] = useState('');
+  const [birdModalSaving, setBirdModalSaving] = useState(false);
+  const [birdPulseTrigger, setBirdPulseTrigger] = useState(0);
+  const birdPositionRef = useRef({ x: 0, y: 0 });
+  const birdHitboxRef = useRef<HTMLDivElement>(null);
+  const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
 
   // ── DO THIS FIRST STATE ────────────────────────────────────
   const [doThisFirst, setDoThisFirst] = useState<{
@@ -257,9 +257,9 @@ export default function HomePage() {
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
 
-  // ── FISH REACTION TRIGGER ────────────────────────────
-  const [fishReactionTrigger, setFishReactionTrigger] = useState(0);
-  const prevSignalCountForFishRef = useRef<number>(0);
+  // ── BIRD REACTION TRIGGER ────────────────────────────
+  const [birdReactionTrigger, setBirdReactionTrigger] = useState(0);
+  const prevSignalCountForBirdRef = useRef<number>(0);
 
   // ── SIGNAL PULSE STATE ──────────────────────────────────
   const [showSignalPulse, setShowSignalPulse] = useState(false);
@@ -388,15 +388,15 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── FISH HITBOX TRACKING ────────────────────────────────
+  // ── BIRD HITBOX TRACKING ────────────────────────────────
   useEffect(() => {
     let rafId: number;
     const track = () => {
-      const el = fishHitboxRef.current;
+      const el = birdHitboxRef.current;
       if (el) {
-        // Fish SVG is 28x12 — center at (x+14, y+6)
-        const cx = fishPositionRef.current.x + 14;
-        const cy = fishPositionRef.current.y + 6;
+        // Bird SVG is 32x14 — center at (x+16, y+7)
+        const cx = birdPositionRef.current.x + 16;
+        const cy = birdPositionRef.current.y + 7;
         el.style.transform = `translate(${cx - 22}px, ${cy - 22}px)`;
       }
       rafId = requestAnimationFrame(track);
@@ -799,8 +799,8 @@ export default function HomePage() {
       if (e.key === 'jove_bloom_trigger') {
         setLogoBloom(true);
         setTimeout(() => setLogoBloom(false), 800);
-        // Fish reacts to cross-tab capture / Save to Jove
-        setFishReactionTrigger(k => k + 1);
+        // Bird reacts to cross-tab capture / Save to Jove
+        setBirdReactionTrigger(k => k + 1);
       }
       if (e.key === 'jove_milestone_trigger') {
         setLogoMilestone(true);
@@ -811,13 +811,13 @@ export default function HomePage() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // ── FISH REACTION ON SIGNAL COUNT INCREASE ─────────────
+  // ── BIRD REACTION ON SIGNAL COUNT INCREASE ─────────────
   useEffect(() => {
     const currentCount = data?.signals.length ?? 0;
-    if (currentCount > prevSignalCountForFishRef.current && prevSignalCountForFishRef.current > 0) {
-      setFishReactionTrigger(k => k + 1);
+    if (currentCount > prevSignalCountForBirdRef.current && prevSignalCountForBirdRef.current > 0) {
+      setBirdReactionTrigger(k => k + 1);
     }
-    prevSignalCountForFishRef.current = currentCount;
+    prevSignalCountForBirdRef.current = currentCount;
   }, [data?.signals.length]);
 
   // ── SIGNAL PULSE ON SIGNAL COUNT INCREASE ──────────────
@@ -839,8 +839,8 @@ export default function HomePage() {
     return mt.toDateString() === tod.toDateString();
   }).length ?? 0;
 
-  // ── FISH QUESTION GENERATION ────────────────────────────
-  const fishQuestion = useMemo(() => {
+  // ── BIRD QUESTION GENERATION ────────────────────────────
+  const birdQuestion = useMemo(() => {
     if (!data) return { text: "What's happening in your pipeline today?", dealId: null as string | null };
 
     const now = new Date();
@@ -878,17 +878,17 @@ export default function HomePage() {
     return { text: "What's happening in your pipeline today?", dealId: null as string | null };
   }, [data]);
 
-  // ── FISH CAPTURE HANDLER ──────────────────────────────────
-  const handleFishSubmit = async () => {
-    if (!fishModalInput.trim() || fishModalSaving || !data?.user) return;
-    setFishModalSaving(true);
+  // ── BIRD CAPTURE HANDLER ──────────────────────────────────
+  const handleBirdSubmit = async () => {
+    if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
+    setBirdModalSaving(true);
 
     try {
       const result = await saveInteraction(supabase, {
         userId: data.user.id,
-        dealId: fishQuestion.dealId,
+        dealId: birdQuestion.dealId,
         type: 'note',
-        rawContent: fishModalInput,
+        rawContent: birdModalInput,
       });
 
       if (result?.id) {
@@ -897,19 +897,19 @@ export default function HomePage() {
 
       await updateStreak(supabase, data.user.id);
     } catch (err) {
-      console.error('Fish capture error:', err);
+      console.error('Bird capture error:', err);
     }
 
     // Close modal immediately
-    setFishModalOpen(false);
-    setFishModalInput('');
-    setFishModalSaving(false);
+    setBirdModalOpen(false);
+    setBirdModalInput('');
+    setBirdModalSaving(false);
 
     // Clear pending pulse flag (prevent double-fire on next mount)
     localStorage.removeItem('jove_pulse_pending');
 
-    // Fish pulse + sun pulse — simultaneous
-    setFishPulseTrigger(k => k + 1);
+    // Bird pulse + sun pulse — simultaneous
+    setBirdPulseTrigger(k => k + 1);
     setShowSignalPulse(true);
     setTimeout(() => setShowSignalPulse(false), 900);
 
@@ -1067,16 +1067,16 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
-      <AmbientFish signalCount={data?.signals.length ?? 0} reactionTrigger={fishReactionTrigger} positionRef={fishPositionRef} pulseTrigger={fishPulseTrigger} />
+      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} />
 
-      {/* ── FISH TAP HITBOX ──────────────────────────── */}
+      {/* ── BIRD TAP HITBOX ──────────────────────────── */}
       <div
-        ref={fishHitboxRef}
+        ref={birdHitboxRef}
         onClick={() => {
-          if (!fishModalOpen) {
-            setFishModalInput('');
-            setFishModalOpen(true);
-            setTimeout(() => fishModalInputRef.current?.focus(), 200);
+          if (!birdModalOpen) {
+            setBirdModalInput('');
+            setBirdModalOpen(true);
+            setTimeout(() => birdModalInputRef.current?.focus(), 200);
           }
         }}
         style={{
@@ -1086,13 +1086,13 @@ export default function HomePage() {
           width:        44,
           height:       44,
           borderRadius: '50%',
-          zIndex:       7,
+          zIndex:       23,
           pointerEvents:'auto',
           cursor:       'pointer',
           willChange:   'transform',
           WebkitTapHighlightColor: 'transparent',
         }}
-        aria-label="Tap fish to capture"
+        aria-label="Tap bird to capture"
       />
 
       {/* ── SUN PULSE KEYFRAMES ─────────────────────── */}
@@ -1255,12 +1255,17 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* ── TOP BAR (z:30 — above bird) ─────────── */}
       <div
-        className="absolute inset-0 flex flex-col"
-        style={{ zIndex: 20, pointerEvents: 'none' }}
+        style={{
+          position:      'absolute',
+          top:           0,
+          left:          0,
+          right:         0,
+          zIndex:        30,
+          pointerEvents: 'none',
+        }}
       >
-
-        {/* ── TOP BAR ──────────────────────────────── */}
         <div
           className="flex items-start justify-between"
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingLeft: 22, paddingRight: 22, pointerEvents: 'auto', ...anim(0.06) }}
@@ -1321,6 +1326,14 @@ export default function HomePage() {
             )}
           </div>
         </div>
+      </div>
+
+      <div
+        className="absolute inset-0 flex flex-col"
+        style={{ zIndex: 20, pointerEvents: 'none' }}
+      >
+        {/* Top bar spacer */}
+        <div style={{ paddingTop: 'calc(env(safe-area-inset-top) + 44px)' }} />
 
         {/* ── GREETING ─────────────────────────────── */}
         <div
@@ -1730,7 +1743,22 @@ export default function HomePage() {
           }
         </div>
 
-        {/* ── BOTTOM ROW ───────────────────────────── */}
+        {/* Bottom row spacer */}
+        <div style={{ height: 122, flexShrink: 0 }} />
+
+      </div>
+
+      {/* ── BOTTOM ROW (z:30 — above bird) ─────── */}
+      <div
+        style={{
+          position:      'absolute',
+          bottom:        0,
+          left:          0,
+          right:         0,
+          zIndex:        30,
+          pointerEvents: 'none',
+        }}
+      >
         <div
           style={{
             display:        'flex',
@@ -1813,7 +1841,6 @@ export default function HomePage() {
             </span>
           </button>
         </div>
-
       </div>
 
       {/* ── SPOTLIGHT TOUR ─────────────────────── */}
@@ -1898,8 +1925,8 @@ export default function HomePage() {
           onCaptureComplete={() => {
             // Snapshot current signal count before re-fetch
             preCaptureSignalCountRef.current = data?.signals.length ?? 0;
-            // Fish reacts immediately to capture submission
-            setFishReactionTrigger(k => k + 1);
+            // Bird reacts immediately to capture submission
+            setBirdReactionTrigger(k => k + 1);
             // Signal pulse — immediate environment feedback on capture
             setShowSignalPulse(true);
             setTimeout(() => setShowSignalPulse(false), 900);
@@ -1915,14 +1942,14 @@ export default function HomePage() {
         />
       )}
 
-      {/* ── FISH CAPTURE MODAL ──────────────────────── */}
-      {fishModalOpen && (
+      {/* ── BIRD CAPTURE MODAL ──────────────────────── */}
+      {birdModalOpen && (
         <>
           {/* Backdrop — tap to dismiss */}
           <div
             onClick={() => {
-              setFishModalOpen(false);
-              setFishModalInput('');
+              setBirdModalOpen(false);
+              setBirdModalInput('');
             }}
             style={{
               position:       'fixed',
@@ -1939,8 +1966,8 @@ export default function HomePage() {
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
-                setFishModalOpen(false);
-                setFishModalInput('');
+                setBirdModalOpen(false);
+                setBirdModalInput('');
               }
             }}
             style={{
@@ -1967,14 +1994,14 @@ export default function HomePage() {
               lineHeight:   1.4,
               marginBottom: 14,
             }}>
-              {fishQuestion.text}
+              {birdQuestion.text}
             </div>
 
             {/* Input */}
             <textarea
-              ref={fishModalInputRef}
-              value={fishModalInput}
-              onChange={(e) => setFishModalInput(e.target.value)}
+              ref={birdModalInputRef}
+              value={birdModalInput}
+              onChange={(e) => setBirdModalInput(e.target.value)}
               placeholder="Type anything..."
               style={{
                 width:        '100%',
@@ -2002,32 +2029,32 @@ export default function HomePage() {
 
             {/* Submit button */}
             <button
-              onClick={handleFishSubmit}
-              disabled={!fishModalInput.trim() || fishModalSaving}
+              onClick={handleBirdSubmit}
+              disabled={!birdModalInput.trim() || birdModalSaving}
               style={{
                 width:           '100%',
                 padding:         '12px 0',
                 borderRadius:    10,
                 border:          'none',
-                background:      fishModalInput.trim() && !fishModalSaving
+                background:      birdModalInput.trim() && !birdModalSaving
                   ? 'linear-gradient(135deg, #C87820, #E09838)'
                   : 'rgba(255,255,255,0.06)',
-                color:           fishModalInput.trim() && !fishModalSaving
+                color:           birdModalInput.trim() && !birdModalSaving
                   ? 'white'
                   : 'rgba(240,235,224,0.36)',
                 fontSize:        12,
                 fontWeight:      600,
-                cursor:          fishModalInput.trim() && !fishModalSaving
+                cursor:          birdModalInput.trim() && !birdModalSaving
                   ? 'pointer'
                   : 'default',
                 fontFamily:      "'DM Sans', sans-serif",
                 transition:      'all 0.2s ease',
-                boxShadow:       fishModalInput.trim() && !fishModalSaving
+                boxShadow:       birdModalInput.trim() && !birdModalSaving
                   ? '0 4px 14px rgba(200,120,32,0.28)'
                   : 'none',
               }}
             >
-              {fishModalSaving ? 'Saving...' : 'Save \u2192'}
+              {birdModalSaving ? 'Saving...' : 'Save \u2192'}
             </button>
           </div>
         </>
