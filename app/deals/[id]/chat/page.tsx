@@ -57,6 +57,8 @@ export default function DealChatPage() {
   const [chips, setChips] = useState<UpdateChip[]>([]);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [loggedMsgId, setLoggedMsgId] = useState<string | null>(null);
+  const [savedMsgKeys, setSavedMsgKeys] = useState<Set<string>>(new Set());
+  const [saveConfirmKey, setSaveConfirmKey] = useState<string | null>(null);
 
   // Tour state
   const [hasInteractions, setHasInteractions] = useState(false);
@@ -395,6 +397,40 @@ export default function DealChatPage() {
     setTimeout(() => setLoggedMsgId(null), 2000);
   };
 
+  // Save to Jove — commit user message as note interaction
+  const saveToJove = async (msg: Message) => {
+    if (!userId) return;
+    const key = msg.id;
+    if (savedMsgKeys.has(key)) return;
+
+    const { data: noteInteraction } = await supabase.from('interactions').insert({
+      user_id: userId,
+      deal_id: dealId,
+      type: 'note',
+      raw_content: msg.content.trim(),
+      extraction_status: 'pending',
+    }).select('id').single();
+
+    if (!noteInteraction?.id) return;
+
+    // Mark as saved
+    setSavedMsgKeys(prev => new Set(prev).add(key));
+
+    // Fire extraction — fire and forget
+    fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        interactionId: noteInteraction.id,
+        userId,
+      }),
+    }).catch(() => {});
+
+    // Show confirmation, fade after 2s
+    setSaveConfirmKey(key);
+    setTimeout(() => setSaveConfirmKey(prev => prev === key ? null : prev), 2000);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -610,6 +646,58 @@ export default function DealChatPage() {
                 </div>
               )}
 
+              {/* Save to Jove chip — user messages >= 30 trimmed chars */}
+              {isUser && msg.content.trim().length >= 30 && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  marginTop: 6,
+                  paddingRight: 4,
+                }}>
+                  {savedMsgKeys.has(msg.id) ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600,
+                        color: COLORS.green,
+                        fontFamily: FONTS.sans,
+                        letterSpacing: '0.3px',
+                      }}>
+                        Saved ✓
+                      </span>
+                      {saveConfirmKey === msg.id && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 300,
+                          color: 'rgba(240,235,224,0.5)',
+                          fontFamily: FONTS.sans,
+                          animation: 'saveConfirmFade 2s ease-out forwards',
+                        }}>
+                          Saved — Jove is learning from this
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => saveToJove(msg)}
+                      style={{
+                        background: 'rgba(232,160,48,0.08)',
+                        border: '0.5px solid rgba(232,160,48,0.2)',
+                        borderRadius: 12,
+                        padding: '3px 10px',
+                        fontSize: 10,
+                        fontWeight: 500,
+                        color: COLORS.amberDim,
+                        fontFamily: FONTS.sans,
+                        letterSpacing: '0.3px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      Save to Jove
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Update chips */}
               {msgChips.map(chip => (
                 <div
@@ -742,6 +830,11 @@ export default function DealChatPage() {
         @keyframes dotBlink {
           0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
           40% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes saveConfirmFade {
+          0% { opacity: 1; }
+          70% { opacity: 1; }
+          100% { opacity: 0; }
         }
       `}</style>
 
