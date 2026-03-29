@@ -10,6 +10,7 @@ import {
 } from '@/lib/design-system';
 import type {
   DealRow,
+  DealStage,
   AccountRow,
   ContactRow,
   InteractionRow,
@@ -71,6 +72,11 @@ export default function DealDetailPage() {
   const [editingName, setEditingName]           = useState(false);
   const [editingNextAction, setEditingNextAction] = useState(false);
   const [editingValue, setEditingValue]         = useState(false);
+  const [editingStage, setEditingStage]         = useState(false);
+  const [editingAccount, setEditingAccount]     = useState(false);
+  const [accountInput, setAccountInput]         = useState('');
+  const [savingAccount, setSavingAccount]       = useState(false);
+  const [accountConfirm, setAccountConfirm]     = useState('');
   const [nameInput, setNameInput]               = useState('');
   const [nextActionInput, setNextActionInput]   = useState('');
   const [valueInput, setValueInput]             = useState('');
@@ -207,7 +213,7 @@ export default function DealDetailPage() {
     if (!deal || !userId) return;
     await supabase
       .from('deals')
-      .update({ [field]: value, last_activity_at: new Date().toISOString() })
+      .update({ [field]: value })
       .eq('id', dealId)
       .eq('user_id', userId);
     setDeal(d => d ? { ...d, [field]: value } as DealRow : d);
@@ -226,7 +232,6 @@ export default function DealDetailPage() {
       .update({
         next_action:           nextActionInput.trim(),
         next_action_confirmed: true,
-        last_activity_at:      new Date().toISOString(),
       })
       .eq('id', dealId)
       .eq('user_id', userId!);
@@ -264,6 +269,76 @@ export default function DealDetailPage() {
     notesTimer.current = setTimeout(async () => {
       await saveDealField('notes', val);
     }, 600);
+  };
+
+  // ── STAGE SAVE ────────────────────────────────────────────
+  const handleSaveStage = async (newStage: DealStage) => {
+    await saveDealField('stage', newStage);
+    setEditingStage(false);
+    localStorage.setItem('jove_deals_refresh', String(Date.now()));
+  };
+
+  // ── ACCOUNT ASSOCIATION SAVE ─────────────────────────────
+  const handleSaveAccount = async () => {
+    if (!userId || !deal) return;
+    const trimmed = accountInput.trim();
+    if (!trimmed) {
+      setEditingAccount(false);
+      return;
+    }
+    // If identical to current account name (case-insensitive), exit without write
+    if (account?.name && trimmed.toLowerCase() === account.name.trim().toLowerCase()) {
+      setEditingAccount(false);
+      return;
+    }
+    setSavingAccount(true);
+    // Search for existing account (case-insensitive, user-scoped)
+    const { data: matchedAccounts } = await supabase
+      .from('accounts')
+      .select('id, name')
+      .eq('user_id', userId)
+      .ilike('name', trimmed);
+
+    let targetAccountId: string;
+    let targetAccountName: string;
+
+    if (matchedAccounts && matchedAccounts.length > 0) {
+      // Use the first match
+      targetAccountId = matchedAccounts[0].id;
+      targetAccountName = matchedAccounts[0].name;
+    } else {
+      // Create new account with minimal fields
+      const { data: newAccount, error } = await supabase
+        .from('accounts')
+        .insert({ user_id: userId, name: trimmed })
+        .select('id, name')
+        .single();
+      if (error || !newAccount) {
+        setSavingAccount(false);
+        return;
+      }
+      targetAccountId = newAccount.id;
+      targetAccountName = newAccount.name;
+    }
+
+    // Update deal.account_id (no last_activity_at)
+    await supabase
+      .from('deals')
+      .update({ account_id: targetAccountId })
+      .eq('id', dealId)
+      .eq('user_id', userId);
+
+    // Update local state immediately
+    setDeal(d => d ? { ...d, account_id: targetAccountId } as DealRow : d);
+    setAccount(prev => prev
+      ? { ...prev, id: targetAccountId, name: targetAccountName }
+      : { id: targetAccountId, user_id: userId, name: targetAccountName, industry: null, website: null, notes: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as AccountRow
+    );
+    setAccountInput(targetAccountName);
+    setSavingAccount(false);
+    setEditingAccount(false);
+    setAccountConfirm('Account updated');
+    setTimeout(() => setAccountConfirm(''), 2000);
   };
 
   // ── COPY STATUS ───────────────────────────────────────────
@@ -595,14 +670,51 @@ export default function DealDetailPage() {
                 {deal.name}
               </h1>
             )}
-            <p style={{
-              fontSize:   13,
-              fontWeight: 300,
-              color:      'rgba(26,20,16,0.44)',
-              marginTop:  2,
-            }}>
-              {account?.name ?? ''}
-            </p>
+            {editingAccount ? (
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <input
+                  autoFocus
+                  value={accountInput}
+                  onChange={e => setAccountInput(e.target.value)}
+                  onBlur={handleSaveAccount}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleSaveAccount();
+                    if (e.key === 'Escape') { setEditingAccount(false); setAccountInput(account?.name ?? ''); }
+                  }}
+                  placeholder="Account name"
+                  disabled={savingAccount}
+                  style={{
+                    ...inputStyle,
+                    fontSize:   13,
+                    padding:    '4px 8px',
+                    fontWeight: 300,
+                  }}
+                />
+              </div>
+            ) : (
+              <p
+                onClick={() => { setAccountInput(account?.name ?? ''); setEditingAccount(true); }}
+                style={{
+                  fontSize:   13,
+                  fontWeight: 300,
+                  color:      'rgba(26,20,16,0.44)',
+                  marginTop:  2,
+                  cursor:     'text',
+                }}
+              >
+                {account?.name || 'Set account...'}
+                {accountConfirm && (
+                  <span style={{
+                    marginLeft: 8,
+                    fontSize:   10,
+                    fontWeight: 500,
+                    color:      '#48C878',
+                  }}>
+                    {accountConfirm}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
 
           {/* Copy status button */}
@@ -643,18 +755,71 @@ export default function DealDetailPage() {
           gap:        10,
           flexWrap:   'wrap',
         }}>
-          <div style={{
-            fontSize:     9,
-            fontWeight:   600,
-            letterSpacing:'0.8px',
-            textTransform:'uppercase',
-            color:        stage.color,
-            background:   stage.bg,
-            border:       `0.5px solid ${stage.border}`,
-            borderRadius: 20,
-            padding:      '4px 11px',
-          }}>
-            {deal.stage}
+          <div style={{ position: 'relative' }}>
+            <div
+              onClick={() => setEditingStage(!editingStage)}
+              style={{
+                fontSize:     9,
+                fontWeight:   600,
+                letterSpacing:'0.8px',
+                textTransform:'uppercase',
+                color:        stage.color,
+                background:   stage.bg,
+                border:       `0.5px solid ${stage.border}`,
+                borderRadius: 20,
+                padding:      '4px 11px',
+                cursor:       'pointer',
+              }}
+            >
+              {deal.stage}
+            </div>
+            {editingStage && (
+              <>
+              <div
+                onClick={() => setEditingStage(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+              />
+              <div style={{
+                position:     'absolute',
+                top:          '100%',
+                left:         0,
+                marginTop:    6,
+                background:   '#FFFFFF',
+                border:       '0.5px solid rgba(200,160,80,0.28)',
+                borderRadius: 12,
+                padding:      '6px 0',
+                zIndex:       50,
+                boxShadow:    '0 8px 24px rgba(26,20,16,0.12)',
+                minWidth:     140,
+              }}>
+                {(['Prospect','Discovery','POC','Proposal','Negotiation','Closed Won','Closed Lost'] as DealStage[]).map(s => {
+                  const sStyle = STAGE_STYLES[s] ?? STAGE_STYLES['Prospect'];
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => handleSaveStage(s)}
+                      style={{
+                        display:       'block',
+                        width:         '100%',
+                        padding:       '8px 14px',
+                        background:    deal.stage === s ? sStyle.bg : 'transparent',
+                        border:        'none',
+                        cursor:        'pointer',
+                        fontSize:      11,
+                        fontWeight:    deal.stage === s ? 600 : 400,
+                        color:         sStyle.color,
+                        textAlign:     'left',
+                        fontFamily:    "'DM Sans', sans-serif",
+                        letterSpacing: '0.3px',
+                      }}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+              </>
+            )}
           </div>
           <span style={{
             fontSize:   11,
