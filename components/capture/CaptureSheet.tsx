@@ -110,9 +110,9 @@ export default function CaptureSheet({
     return () => clearTimeout(t);
   }, []);
 
-  // Auto-focus textarea when mode changes
+  // Auto-focus textarea when mode changes (including initial 'tiles' mode)
   useEffect(() => {
-    if (mode !== 'tiles' && mode !== 'done' && mode !== 'draft_output') {
+    if (mode !== 'done' && mode !== 'draft_output') {
       const t = setTimeout(() => textareaRef.current?.focus(), 200);
       return () => clearTimeout(t);
     }
@@ -528,7 +528,7 @@ export default function CaptureSheet({
           </div>
         )}
 
-        {/* ── TILE SELECTION ── */}
+        {/* ── INPUT-FIRST CAPTURE ── */}
         {!saved && mode === 'tiles' && (
           <>
             <div style={{ padding: '18px 20px 14px' }}>
@@ -538,27 +538,60 @@ export default function CaptureSheet({
                   fontSize: 24,
                   fontWeight: 400,
                   color: COLORS.textPrimary,
-                  marginBottom: 4,
+                  marginBottom: 12,
                 }}
               >
                 Capture
               </p>
-              <p
-                style={{
-                  fontSize: 13,
-                  fontWeight: 300,
-                  color: COLORS.textMid,
+
+              {/* Primary textarea — visible and focused on open */}
+              <textarea
+                ref={textareaRef}
+                autoFocus
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="What just happened?"
+                style={textareaStyle}
+                onFocus={(e) => {
+                  e.target.style.borderColor = 'rgba(232,160,48,0.44)';
                 }}
-              >
-                What just happened?
-              </p>
+                onBlur={(e) => {
+                  e.target.style.borderColor = 'rgba(232,160,48,0.22)';
+                }}
+              />
+
+              {/* Deal selector — optional, between input and tiles */}
+              <DealSelector />
+
+              {error && (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: COLORS.red,
+                    marginBottom: 10,
+                  }}
+                >
+                  {error}
+                </p>
+              )}
+
+              {/* Submit without tile — saves as debrief */}
+              <SubmitButton
+                label="Send to Jove →"
+                disabled={!text.trim()}
+                onPress={() => {
+                  saveCapture('debrief', text);
+                }}
+              />
             </div>
+
+            {/* Tiles — secondary, below input */}
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
-                gap: 10,
-                padding: '0 18px',
+                gap: 8,
+                padding: '8px 18px 0',
               }}
             >
               {TILES.map((tile) => (
@@ -574,22 +607,23 @@ export default function CaptureSheet({
                   style={{
                     background: COLORS.card,
                     border: `0.5px solid ${COLORS.cardBorder}`,
-                    borderRadius: 16,
-                    padding: '17px 15px',
+                    borderRadius: 12,
+                    padding: '11px 12px',
                     cursor: 'pointer',
                     textAlign: 'left',
                     transition: 'border-color 0.18s',
                     fontFamily: FONTS.sans,
+                    opacity: 0.75,
                   }}
                 >
-                  <div style={{ fontSize: 24, marginBottom: 9 }}>
+                  <div style={{ fontSize: 18, marginBottom: 5 }}>
                     {tile.icon}
                   </div>
                   <div
                     style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: COLORS.textPrimary,
+                      fontSize: 12,
+                      fontWeight: 400,
+                      color: COLORS.textMid,
                       lineHeight: 1.3,
                     }}
                   >
