@@ -252,6 +252,10 @@ export default function HomePage() {
   const [fishReactionTrigger, setFishReactionTrigger] = useState(0);
   const prevSignalCountForFishRef = useRef<number>(0);
 
+  // ── SIGNAL PULSE STATE ──────────────────────────────────
+  const [showSignalPulse, setShowSignalPulse] = useState(false);
+  const prevSignalCountForPulseRef = useRef<number | null>(null);
+
   // Track signal count before capture to diff after re-fetch
   const preCaptureSignalCountRef = useRef<number | null>(null);
 
@@ -775,6 +779,16 @@ export default function HomePage() {
     prevSignalCountForFishRef.current = currentCount;
   }, [data?.signals.length]);
 
+  // ── SIGNAL PULSE ON SIGNAL COUNT INCREASE ──────────────
+  useEffect(() => {
+    const currentCount = data?.signals.length ?? 0;
+    if (prevSignalCountForPulseRef.current !== null && currentCount > prevSignalCountForPulseRef.current) {
+      setShowSignalPulse(true);
+      setTimeout(() => setShowSignalPulse(false), 900);
+    }
+    prevSignalCountForPulseRef.current = currentCount;
+  }, [data?.signals.length]);
+
   // ── DERIVED VALUES ─────────────────────────────────────
   const streak = data ? calculateStreak(data.streakLogs) : null;
 
@@ -789,6 +803,7 @@ export default function HomePage() {
     ? data.allDeals.filter(d => getDaysSinceActivity(d) >= pulseThreshold).length
     : 0;
   const intelLines      = data ? buildIntelLines(data, pulseThreshold) : [];
+  const richnessLevel   = Math.min((data?.signals.length ?? 0) / 12, 1);
 
   // ── SUN IMMINENT / IN-PROGRESS STATE ─────────────────
   const now = new Date();
@@ -885,6 +900,10 @@ export default function HomePage() {
     setActionOverlayOpen(false);
     acknowledgeAction();
 
+    // Signal pulse — immediate environment feedback on action capture
+    setShowSignalPulse(true);
+    setTimeout(() => setShowSignalPulse(false), 900);
+
     // Show feedback banner
     const fb = dealWasStale
       ? dealName
@@ -926,13 +945,50 @@ export default function HomePage() {
       <SceneBackground />
       <AmbientFish signalCount={data?.signals.length ?? 0} reactionTrigger={fishReactionTrigger} />
 
-      {/* ── SUN PULSE KEYFRAME ──────────────────────── */}
+      {/* ── SUN PULSE KEYFRAMES ─────────────────────── */}
       <style>{`
         @keyframes sunPing {
           0% { transform: translate(-50%,-50%) scale(1); opacity: 0.6; }
           100% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; }
         }
+        @keyframes signalPulse {
+          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.22; }
+          100% { transform: translate(-50%,-50%) scale(1.15); opacity: 0; }
+        }
       `}</style>
+
+      {/* ── WARM TINT LAYER (additive, gradient-based) ── */}
+      {richnessLevel > 0 && (
+        <div
+          style={{
+            position:       'fixed',
+            inset:          0,
+            pointerEvents:  'none',
+            zIndex:         1,
+            background:     `radial-gradient(circle at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,${richnessLevel * 0.03}) 0%, transparent 60%)`,
+            transition:     'opacity 1.2s ease',
+          }}
+        />
+      )}
+
+      {/* ── SIGNAL PULSE RING ───────────────────────── */}
+      {showSignalPulse && (
+        <div
+          style={{
+            position:       'absolute',
+            left:           sunCenterLeft,
+            top:            sunCenterTop,
+            transform:      'translate(-50%, -50%)',
+            width:          120,
+            height:         120,
+            borderRadius:   '50%',
+            background:     'radial-gradient(circle, rgba(248,190,64,0.18), transparent 70%)',
+            animation:      'signalPulse 900ms ease-out forwards',
+            zIndex:         4,
+            pointerEvents:  'none',
+          }}
+        />
+      )}
 
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {scene.sun.opacity > 0 ? (
@@ -1563,11 +1619,6 @@ export default function HomePage() {
             </svg>
           </button>
 
-          {/* Streak badge — center */}
-          {streak && streak.currentStreak > 0 && (
-            <StreakBadge days={streak.currentStreak} light />
-          )}
-
           {/* Deals pill */}
           <button
             ref={dealsRef}
@@ -1699,6 +1750,9 @@ export default function HomePage() {
             preCaptureSignalCountRef.current = data?.signals.length ?? 0;
             // Fish reacts immediately to capture submission
             setFishReactionTrigger(k => k + 1);
+            // Signal pulse — immediate environment feedback on capture
+            setShowSignalPulse(true);
+            setTimeout(() => setShowSignalPulse(false), 900);
             // Delay re-fetch to give extraction time to complete
             setTimeout(() => {
               setHomeRefreshKey((k) => k + 1);
