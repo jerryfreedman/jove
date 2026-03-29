@@ -216,11 +216,12 @@ export default function HomePage() {
 
   // ── DO THIS FIRST STATE ────────────────────────────────────
   const [doThisFirst, setDoThisFirst] = useState<{
+    loading: boolean;
     loaded: boolean;
     suggestion: string | null;
     dealLabel: string | null;
     dealId: string | null;
-  }>({ loaded: false, suggestion: null, dealLabel: null, dealId: null });
+  }>({ loading: false, loaded: false, suggestion: null, dealLabel: null, dealId: null });
 
   // ── ACTION OVERLAY STATE ────────────────────────────────
   const [actionOverlayOpen, setActionOverlayOpen] = useState(false);
@@ -232,6 +233,9 @@ export default function HomePage() {
   // ── FEEDBACK BANNER STATE ──────────────────────────────
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
+
+  // Track signal count before capture to diff after re-fetch
+  const preCaptureSignalCountRef = useRef<number | null>(null);
 
   // ── FIRST VISIT OVERLAY STATE ────────────────────────────
   const [firstVisitVisible, setFirstVisitVisible] = useState(
@@ -471,48 +475,6 @@ export default function HomePage() {
 
       setDebriefMeetings((debriefRes.data ?? []) as MeetingRow[]);
 
-      // ── DO THIS FIRST FETCH ─────────────────────────────
-      if (activeDeals.length > 0) {
-        try {
-          const dtfContext = activeDeals.map(d => {
-            const acct = d.accounts?.name;
-            const days = getDaysSinceActivity(d);
-            const base = acct ? `${d.name} at ${acct}` : d.name;
-            return `${base} (${d.stage}, ${days}d since activity)`;
-          }).join('; ');
-
-          const dtfRes = await fetch('/api/do-this-first', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: dtfContext, userId: authUser.id }),
-          });
-          const dtfJson = await dtfRes.json();
-          const suggestion = dtfJson.suggestion;
-
-          if (suggestion && typeof suggestion === 'string' && suggestion.trim()) {
-            const lowerSuggestion = suggestion.toLowerCase();
-            const matchedDeal = activeDeals.find(d => {
-              if (d.name && lowerSuggestion.includes(d.name.toLowerCase())) return true;
-              const accountName = d.accounts?.name;
-              if (accountName && lowerSuggestion.includes(accountName.toLowerCase())) return true;
-              return false;
-            });
-            setDoThisFirst({
-              loaded: true,
-              suggestion: suggestion.trim(),
-              dealLabel: matchedDeal ? (matchedDeal.accounts?.name || matchedDeal.name) : null,
-              dealId: matchedDeal ? matchedDeal.id : null,
-            });
-          } else {
-            setDoThisFirst({ loaded: true, suggestion: null, dealLabel: null, dealId: null });
-          }
-        } catch {
-          setDoThisFirst({ loaded: true, suggestion: null, dealLabel: null, dealId: null });
-        }
-      } else {
-        setDoThisFirst({ loaded: true, suggestion: null, dealLabel: null, dealId: null });
-      }
-
     } catch (err) {
       console.error('Home data fetch error:', err);
       setFetchError(true);
@@ -526,6 +488,126 @@ export default function HomePage() {
   useEffect(() => {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
+
+  // ── DO THIS FIRST — INDEPENDENT ASYNC FETCH ─────────────
+  useEffect(() => {
+    if (!data) return;
+    const activeDeals = data.allDeals;
+
+    if (activeDeals.length === 0) {
+      setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
+      return;
+    }
+
+    let cancelled = false;
+    const fetchDoThisFirst = async () => {
+      setDoThisFirst(prev => ({ ...prev, loading: true }));
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (!authUser || cancelled) return;
+
+        const dtfContext = activeDeals.map(d => {
+          const acct = d.accounts?.name;
+          const days = getDaysSinceActivity(d);
+          const base = acct ? `${d.name} at ${acct}` : d.name;
+          return `${base} (${d.stage}, ${days}d since activity)`;
+        }).join('; ');
+
+        const dtfRes = await fetch('/api/do-this-first', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context: dtfContext, userId: authUser.id }),
+        });
+        if (cancelled) return;
+        const dtfJson = await dtfRes.json();
+        const suggestion = dtfJson.suggestion;
+
+        if (suggestion && typeof suggestion === 'string' && suggestion.trim()) {
+          const lowerSuggestion = suggestion.toLowerCase();
+          const matchedDeal = activeDeals.find(d => {
+            if (d.name && lowerSuggestion.includes(d.name.toLowerCase())) return true;
+            const accountName = d.accounts?.name;
+            if (accountName && lowerSuggestion.includes(accountName.toLowerCase())) return true;
+            return false;
+          });
+          if (!cancelled) {
+            setDoThisFirst({
+              loading: false,
+              loaded: true,
+              suggestion: suggestion.trim(),
+              dealLabel: matchedDeal ? (matchedDeal.accounts?.name || matchedDeal.name) : null,
+              dealId: matchedDeal ? matchedDeal.id : null,
+            });
+          }
+        } else if (!cancelled) {
+          setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
+        }
+      } catch {
+        if (!cancelled) {
+          setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
+        }
+      }
+    };
+
+    fetchDoThisFirst();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  // ── POST-CAPTURE FEEDBACK FROM REAL EXTRACTION ─────────
+  useEffect(() => {
+    if (preCaptureSignalCountRef.current === null || !data) return;
+
+    const prevCount = preCaptureSignalCountRef.current;
+    const newCount = data.signals.length;
+    const newSignals = data.signals.slice(0, Math.max(0, newCount - prevCount));
+
+    // Reset ref so this only fires once per capture
+    preCaptureSignalCountRef.current = null;
+
+    if (newSignals.length > 0) {
+      // Derive feedback from actual extracted signal types
+      const signalLabels: Record<string, string> = {
+        champion_identified: 'Champion identified',
+        budget_mentioned:    'Budget mentioned — momentum increasing',
+        positive_sentiment:  'Positive signal detected',
+        next_step_agreed:    'Next step agreed',
+        risk_flag:           'Risk flag raised',
+        competitor_mentioned:'Competitor mentioned',
+      };
+
+      const firstSignal = newSignals[0];
+      const label = signalLabels[firstSignal.signal_type] || firstSignal.signal_type;
+
+      // Try to match signal to a deal for account context
+      const matchedDeal = firstSignal.deal_id
+        ? data.allDeals.find(d => d.id === firstSignal.deal_id)
+        : null;
+      const accountLabel = matchedDeal
+        ? (matchedDeal.accounts?.name || matchedDeal.name)
+        : null;
+
+      let fb: string;
+      if (newSignals.length === 1) {
+        fb = accountLabel ? `${label} at ${accountLabel}` : label;
+      } else {
+        fb = accountLabel
+          ? `${newSignals.length} signals captured — ${accountLabel} updated`
+          : `${newSignals.length} signals captured — deal updated`;
+      }
+
+      setFeedbackText(fb);
+      setFeedbackVisible(true);
+      setTimeout(() => setFeedbackVisible(false), 3500);
+      setTimeout(() => setFeedbackText(null), 4100);
+    } else {
+      // No new signals extracted — graceful fallback
+      setFeedbackText('Update captured — intelligence improving');
+      setFeedbackVisible(true);
+      setTimeout(() => setFeedbackVisible(false), 2500);
+      setTimeout(() => setFeedbackText(null), 3100);
+    }
+  }, [data]);
 
   // ── SESSION ACKNOWLEDGMENT CHECK ──────────────────────────
   useEffect(() => {
@@ -982,6 +1064,48 @@ export default function HomePage() {
         {/* ── SPACER — replaces the old flex:1 orb container */}
         {!(fetchError && !data) && (
           <div style={{ flex: 1 }} />
+        )}
+
+        {/* ── DO THIS FIRST HERO CARD — LOADING SHIMMER ── */}
+        {!loading && doThisFirst.loading && !actionAcknowledged && (
+          <div
+            style={{
+              padding:      '0 22px',
+              marginBottom: 10,
+              ...anim(0.26),
+            }}
+          >
+            <div
+              style={{
+                background:     'rgba(232,160,48,0.05)',
+                backdropFilter: 'blur(16px)',
+                borderRadius:   16,
+                padding:        '14px 16px',
+                border:         '0.5px solid rgba(232,160,48,0.15)',
+              }}
+            >
+              <div style={{
+                height:       10,
+                width:        80,
+                borderRadius: 5,
+                background:   'rgba(232,160,48,0.12)',
+                marginBottom: 12,
+              }} />
+              <div style={{
+                height:       16,
+                width:        '85%',
+                borderRadius: 8,
+                background:   'rgba(240,235,224,0.06)',
+                marginBottom: 8,
+              }} />
+              <div style={{
+                height:       16,
+                width:        '60%',
+                borderRadius: 8,
+                background:   'rgba(240,235,224,0.04)',
+              }} />
+            </div>
+          </div>
         )}
 
         {/* ── DO THIS FIRST HERO CARD ────────────────── */}
@@ -1444,7 +1568,12 @@ export default function HomePage() {
           userId={data.user.id}
           activeDeals={data.allDeals ?? []}
           onCaptureComplete={() => {
-            setHomeRefreshKey((k) => k + 1);
+            // Snapshot current signal count before re-fetch
+            preCaptureSignalCountRef.current = data?.signals.length ?? 0;
+            // Delay re-fetch to give extraction time to complete
+            setTimeout(() => {
+              setHomeRefreshKey((k) => k + 1);
+            }, 3000);
           }}
           initialMode={captureInitialMode ?? undefined}
           initialText={captureInitialText || undefined}
@@ -1520,16 +1649,54 @@ export default function HomePage() {
               {/* Deal context if matched */}
               {matchedDeal && (
                 <div style={{
-                  display:      'inline-block',
-                  fontSize:     10,
-                  fontWeight:   500,
-                  color:        COLORS.amber,
-                  background:   'rgba(232,160,48,0.12)',
-                  borderRadius: 6,
-                  padding:      '3px 8px',
+                  background:   'rgba(240,235,224,0.04)',
+                  borderRadius: 10,
+                  padding:      '10px 12px',
                   marginBottom: 14,
+                  borderLeft:   `2px solid rgba(232,160,48,0.3)`,
                 }}>
-                  {matchedDeal.accounts?.name || matchedDeal.name} · {matchedDeal.stage}
+                  <div style={{
+                    fontSize:     11,
+                    fontWeight:   500,
+                    color:        COLORS.amber,
+                    marginBottom: 4,
+                  }}>
+                    {matchedDeal.accounts?.name || matchedDeal.name} · {matchedDeal.stage}
+                  </div>
+                  {matchedDeal.next_action && (
+                    <div style={{
+                      fontSize:     12,
+                      fontWeight:   300,
+                      color:        'rgba(240,235,224,0.56)',
+                      lineHeight:   1.4,
+                      marginBottom: data?.signals.find(s => s.deal_id === matchedDeal.id) ? 4 : 0,
+                    }}>
+                      Next: {matchedDeal.next_action}
+                    </div>
+                  )}
+                  {(() => {
+                    const recentSignal = data?.signals.find(s => s.deal_id === matchedDeal.id);
+                    if (!recentSignal) return null;
+                    const signalTypeLabels: Record<string, string> = {
+                      champion_identified: 'Champion identified',
+                      budget_mentioned:    'Budget mentioned',
+                      positive_sentiment:  'Positive signal',
+                      next_step_agreed:    'Next step agreed',
+                      risk_flag:           'Risk flag',
+                      competitor_mentioned:'Competitor mentioned',
+                    };
+                    const label = signalTypeLabels[recentSignal.signal_type] || recentSignal.signal_type;
+                    return (
+                      <div style={{
+                        fontSize:   11,
+                        fontWeight: 300,
+                        color:      'rgba(240,235,224,0.40)',
+                        lineHeight: 1.4,
+                      }}>
+                        Latest: {label}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
