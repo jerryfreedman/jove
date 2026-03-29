@@ -1069,6 +1069,113 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* ── DO THIS FIRST HERO CARD ────────────────── */}
+        {!loading && doThisFirst.loaded && doThisFirst.suggestion && !actionAcknowledged && (
+          <div
+            style={{
+              padding:   '0 22px',
+              marginTop: 14,
+              ...anim(0.28),
+            }}
+          >
+            <div
+              onClick={handleActionOverlayOpen}
+              style={{
+                background:     'rgba(232,160,48,0.06)',
+                backdropFilter: 'blur(16px)',
+                borderRadius:   16,
+                padding:        '14px 16px',
+                border:         '0.5px solid rgba(232,160,48,0.22)',
+                cursor:         'pointer',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <div style={{
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                color:         COLORS.amber,
+                marginBottom:  8,
+              }}>
+                Do this first
+              </div>
+              <div style={{
+                fontFamily:   "'Cormorant Garamond', serif",
+                fontSize:     18,
+                fontWeight:   400,
+                color:        'rgba(252,246,234,0.88)',
+                lineHeight:   1.4,
+                marginBottom: doThisFirst.dealLabel ? 10 : 4,
+              }}>
+                {doThisFirst.suggestion}
+              </div>
+              {doThisFirst.dealLabel && (
+                <div style={{
+                  display:      'inline-block',
+                  fontSize:     10,
+                  fontWeight:   500,
+                  color:        COLORS.amber,
+                  background:   'rgba(232,160,48,0.10)',
+                  borderRadius: 6,
+                  padding:      '3px 8px',
+                  marginBottom: 4,
+                }}>
+                  {doThisFirst.dealLabel}
+                </div>
+              )}
+              <div style={{
+                fontSize:   11,
+                fontWeight: 300,
+                color:      'rgba(240,235,224,0.32)',
+                marginTop:  4,
+              }}>
+                Tap to act →
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── DO THIS FIRST EMPTY STATE ─────────────────── */}
+        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && !actionAcknowledged && data && (
+          <div
+            style={{
+              padding:   '0 22px',
+              marginTop: 14,
+              ...anim(0.28),
+            }}
+          >
+            <div
+              style={{
+                background:     'rgba(0,0,0,0.14)',
+                backdropFilter: 'blur(16px)',
+                borderRadius:   16,
+                padding:        '14px 16px',
+                border:         '0.5px solid rgba(240,235,224,0.05)',
+                opacity:        0.45,
+              }}
+            >
+              <div style={{
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                color:         'rgba(240,235,224,0.36)',
+                marginBottom:  8,
+              }}>
+                Do this first
+              </div>
+              <div style={{
+                fontSize:   13,
+                fontWeight: 300,
+                color:      'rgba(240,235,224,0.44)',
+              }}>
+                Capture something to generate your first priority.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── ERROR STATE ─────────────────────────── */}
         {fetchError && !data && (
           <div
@@ -1116,155 +1223,6 @@ export default function HomePage() {
         {/* ── SPACER — replaces the old flex:1 orb container */}
         {!(fetchError && !data) && (
           <div style={{ flex: 1 }} />
-        )}
-
-        {/* ── DO THIS FIRST HERO CARD — LOADING SHIMMER ── */}
-        {!loading && doThisFirst.loading && !actionAcknowledged && (
-          <div
-            style={{
-              padding:      '0 22px',
-              marginBottom: 10,
-              ...anim(0.26),
-            }}
-          >
-            <div
-              style={{
-                background:     'rgba(232,160,48,0.05)',
-                backdropFilter: 'blur(16px)',
-                borderRadius:   16,
-                padding:        '14px 16px',
-                border:         '0.5px solid rgba(232,160,48,0.15)',
-              }}
-            >
-              <div style={{
-                height:       10,
-                width:        80,
-                borderRadius: 5,
-                background:   'rgba(232,160,48,0.12)',
-                marginBottom: 12,
-              }} />
-              <div style={{
-                height:       16,
-                width:        '85%',
-                borderRadius: 8,
-                background:   'rgba(240,235,224,0.06)',
-                marginBottom: 8,
-              }} />
-              <div style={{
-                height:       16,
-                width:        '60%',
-                borderRadius: 8,
-                background:   'rgba(240,235,224,0.04)',
-              }} />
-            </div>
-          </div>
-        )}
-
-        {/* ── DO THIS FIRST HERO CARD ────────────────── */}
-        {!loading && doThisFirst.loaded && doThisFirst.suggestion && !actionAcknowledged && (
-          <div
-            style={{
-              padding:   '0 22px',
-              marginBottom: 10,
-              ...anim(0.26),
-            }}
-          >
-            <div
-              onClick={handleActionOverlayOpen}
-              style={{
-                background:     'rgba(232,160,48,0.08)',
-                backdropFilter: 'blur(16px)',
-                borderRadius:   16,
-                padding:        '14px 16px',
-                border:         '0.5px solid rgba(232,160,48,0.3)',
-                cursor:         'pointer',
-                WebkitTapHighlightColor: 'transparent',
-              }}
-            >
-              <div style={{
-                fontSize:      9,
-                fontWeight:    700,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                color:         COLORS.amber,
-                marginBottom:  8,
-              }}>
-                Do this first
-              </div>
-              <div style={{
-                fontFamily:   "'Cormorant Garamond', serif",
-                fontSize:     18,
-                fontWeight:   400,
-                color:        'rgba(252,246,234,0.92)',
-                lineHeight:   1.4,
-                marginBottom: doThisFirst.dealLabel ? 10 : 4,
-              }}>
-                {doThisFirst.suggestion}
-              </div>
-              {doThisFirst.dealLabel && (
-                <div style={{
-                  display:      'inline-block',
-                  fontSize:     10,
-                  fontWeight:   500,
-                  color:        COLORS.amber,
-                  background:   'rgba(232,160,48,0.12)',
-                  borderRadius: 6,
-                  padding:      '3px 8px',
-                  marginBottom: 4,
-                }}>
-                  {doThisFirst.dealLabel}
-                </div>
-              )}
-              <div style={{
-                fontSize:   11,
-                fontWeight: 300,
-                color:      'rgba(240,235,224,0.36)',
-                marginTop:  4,
-              }}>
-                Tap to act →
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── DO THIS FIRST EMPTY STATE ─────────────────── */}
-        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && !actionAcknowledged && data && (
-          <div
-            style={{
-              padding:      '0 22px',
-              marginBottom: 10,
-              ...anim(0.26),
-            }}
-          >
-            <div
-              style={{
-                background:     'rgba(0,0,0,0.18)',
-                backdropFilter: 'blur(16px)',
-                borderRadius:   16,
-                padding:        '14px 16px',
-                border:         '0.5px solid rgba(240,235,224,0.06)',
-                opacity:        0.5,
-              }}
-            >
-              <div style={{
-                fontSize:      9,
-                fontWeight:    700,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                color:         'rgba(240,235,224,0.36)',
-                marginBottom:  8,
-              }}>
-                Do this first
-              </div>
-              <div style={{
-                fontSize:   13,
-                fontWeight: 300,
-                color:      'rgba(240,235,224,0.44)',
-              }}>
-                Capture something to generate your first priority.
-              </div>
-            </div>
-          </div>
         )}
 
         {/* ── FEEDBACK BANNER ────────────────────────── */}
