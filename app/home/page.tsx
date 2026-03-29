@@ -248,6 +248,10 @@ export default function HomePage() {
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
 
+  // ── FISH REACTION TRIGGER ────────────────────────────
+  const [fishReactionTrigger, setFishReactionTrigger] = useState(0);
+  const prevSignalCountForFishRef = useRef<number>(0);
+
   // Track signal count before capture to diff after re-fetch
   const preCaptureSignalCountRef = useRef<number | null>(null);
 
@@ -750,6 +754,8 @@ export default function HomePage() {
       if (e.key === 'jove_bloom_trigger') {
         setLogoBloom(true);
         setTimeout(() => setLogoBloom(false), 800);
+        // Fish reacts to cross-tab capture / Save to Jove
+        setFishReactionTrigger(k => k + 1);
       }
       if (e.key === 'jove_milestone_trigger') {
         setLogoMilestone(true);
@@ -759,6 +765,15 @@ export default function HomePage() {
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
+
+  // ── FISH REACTION ON SIGNAL COUNT INCREASE ─────────────
+  useEffect(() => {
+    const currentCount = data?.signals.length ?? 0;
+    if (currentCount > prevSignalCountForFishRef.current && prevSignalCountForFishRef.current > 0) {
+      setFishReactionTrigger(k => k + 1);
+    }
+    prevSignalCountForFishRef.current = currentCount;
+  }, [data?.signals.length]);
 
   // ── DERIVED VALUES ─────────────────────────────────────
   const streak = data ? calculateStreak(data.streakLogs) : null;
@@ -909,7 +924,7 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
-      <AmbientFish signalCount={data?.signals.length ?? 0} />
+      <AmbientFish signalCount={data?.signals.length ?? 0} reactionTrigger={fishReactionTrigger} />
 
       {/* ── SUN PULSE KEYFRAME ──────────────────────── */}
       <style>{`
@@ -1682,6 +1697,8 @@ export default function HomePage() {
           onCaptureComplete={() => {
             // Snapshot current signal count before re-fetch
             preCaptureSignalCountRef.current = data?.signals.length ?? 0;
+            // Fish reacts immediately to capture submission
+            setFishReactionTrigger(k => k + 1);
             // Delay re-fetch to give extraction time to complete
             setTimeout(() => {
               setHomeRefreshKey((k) => k + 1);

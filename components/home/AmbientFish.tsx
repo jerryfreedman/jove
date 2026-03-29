@@ -36,9 +36,10 @@ function randomBetween(min: number, max: number) {
 
 interface AmbientFishProps {
   signalCount?: number;
+  reactionTrigger?: number;
 }
 
-export default function AmbientFish({ signalCount = 0 }: AmbientFishProps) {
+export default function AmbientFish({ signalCount = 0, reactionTrigger = 0 }: AmbientFishProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Position ref — shared with future prompts for hitbox placement
@@ -64,6 +65,17 @@ export default function AmbientFish({ signalCount = 0 }: AmbientFishProps) {
   // without causing re-mounts
   const growthRef = useRef({ scale, sineAmplitude, speed, growthFactor });
   growthRef.current = { scale, sineAmplitude, speed, growthFactor };
+
+  // ── REACTION STATE ──────────────────────────────────────
+  const reactionRef = useRef({
+    active: false,
+    type: null as 'acceleration' | 'turn' | 'jump' | null,
+    startTime: 0,
+    duration: 0,
+    jumpStartY: 0,
+    jumpPeakY: 0,
+  });
+  const prevTriggerRef = useRef(reactionTrigger);
 
   // Internal animation state (not React state — no re-renders)
   const stateRef = useRef({
@@ -195,6 +207,35 @@ export default function AmbientFish({ signalCount = 0 }: AmbientFishProps) {
       s.baseY = s.waterBottomPx - g.sineAmplitude;
     }
 
+    // ── REACTION OVERLAY ─────────────────────────────────
+    const rx = reactionRef.current;
+    if (rx.active) {
+      const elapsed = now - rx.startTime;
+      const progress = Math.min(elapsed / rx.duration, 1);
+
+      if (rx.type === 'acceleration') {
+        // Brief speed boost — sine curve peaks mid-reaction
+        const boost = Math.sin(progress * Math.PI);
+        s.x += g.speed * s.direction * boost * 1.8;
+      } else if (rx.type === 'jump') {
+        // Parabolic arc: rise to just above horizon, return to water
+        const arc = Math.sin(progress * Math.PI);
+        const height = rx.jumpStartY - rx.jumpPeakY;
+        s.y = rx.jumpStartY - height * arc;
+      }
+      // 'turn' reaction is handled by the existing direction transition system
+
+      if (progress >= 1) {
+        if (rx.type === 'jump') {
+          // Restore position into water zone
+          s.y = rx.jumpStartY;
+          s.baseY = rx.jumpStartY;
+        }
+        rx.active = false;
+        rx.type = null;
+      }
+    }
+
     // Update position ref for Prompt 4
     fishPositionRef.current.x = s.x;
     fishPositionRef.current.y = s.y;
@@ -227,6 +268,62 @@ export default function AmbientFish({ signalCount = 0 }: AmbientFishProps) {
       window.removeEventListener('resize', handleResize);
     };
   }, [init, tick]);
+
+  // ── REACTION TRIGGER ──────────────────────────────────
+  useEffect(() => {
+    if (reactionTrigger <= prevTriggerRef.current) {
+      prevTriggerRef.current = reactionTrigger;
+      return;
+    }
+    prevTriggerRef.current = reactionTrigger;
+
+    // Stacking prevention — ignore if reaction already in progress
+    if (reactionRef.current.active) return;
+
+    const s = stateRef.current;
+    const now = performance.now();
+
+    // Weighted random: A=50%, B=35%, C=15%
+    const roll = Math.random();
+
+    if (roll < 0.50) {
+      // Reaction A — Acceleration burst (300–500ms)
+      reactionRef.current = {
+        active: true,
+        type: 'acceleration',
+        startTime: now,
+        duration: 300 + Math.random() * 200,
+        jumpStartY: 0,
+        jumpPeakY: 0,
+      };
+    } else if (roll < 0.85) {
+      // Reaction B — Directional turn (~400ms, more pronounced)
+      reactionRef.current = {
+        active: true,
+        type: 'turn',
+        startTime: now,
+        duration: 400,
+        jumpStartY: 0,
+        jumpPeakY: 0,
+      };
+      // Force confident direction change
+      s.targetDirection = s.targetDirection === 1 ? -1 : 1;
+      s.turnProgress = 0;
+      s.turnStartTime = now;
+      s.nextDirChange = now + randomBetween(DIR_CHANGE_MIN, DIR_CHANGE_MAX);
+    } else {
+      // Reaction C — Jump (arc above horizon, under 800ms)
+      const horizonY = (SCENE_HORIZON_PERCENT / 100) * s.viewH;
+      reactionRef.current = {
+        active: true,
+        type: 'jump',
+        startTime: now,
+        duration: 700,
+        jumpStartY: s.y,
+        jumpPeakY: horizonY - 12, // just clears horizon
+      };
+    }
+  }, [reactionTrigger]);
 
   return (
     <div
