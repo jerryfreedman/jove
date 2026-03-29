@@ -26,12 +26,14 @@ import type {
 } from '@/lib/types';
 
 // ── TYPES ──────────────────────────────────────────────────
+type DealWithAccount = DealRow & { accounts: { name: string } | null };
+
 interface HomeData {
   user:          UserRow | null;
   meetings:      MeetingRow[];
-  urgentDeals:   DealRow[];
-  allDeals:      DealRow[];
-  recentSignal:  SignalRow | null;
+  urgentDeals:   DealWithAccount[];
+  allDeals:      DealWithAccount[];
+  signals:       SignalRow[];
   streakLogs:    StreakLogRow[];
   accountCount:  number;
 }
@@ -61,107 +63,127 @@ function getFirstName(user: UserRow | null): string {
   return '';
 }
 
-// ── INTELLIGENCE LINES ───────────────────────────────────
-interface IntelLine {
-  dot:   string;  // color
-  text:  string;
-  blink: boolean;
+// ── HELPERS ───────────────────────────────────────────────
+function getDaysSinceActivity(deal: DealRow): number {
+  return Math.floor(
+    (Date.now() - new Date(deal.last_activity_at).getTime()) / (1000 * 60 * 60 * 24)
+  );
 }
 
-function buildIntelLines(data: HomeData): IntelLine[] {
-  const lines: IntelLine[] = [];
+// ── INTELLIGENCE LINES ───────────────────────────────────
+interface IntelLine {
+  dot:   string;
+  text:  string;
+  blink: boolean;
+  glow:  boolean;
+}
 
-  // Line 1 — most recent signal or most recently updated deal
-  if (data.recentSignal) {
-    lines.push({
-      dot:   COLORS.amber,
-      text:  data.recentSignal.content,
-      blink: false,
-    });
-  } else if (data.allDeals.length > 0) {
-    const d = data.allDeals[0];
-    lines.push({
-      dot:   COLORS.amber,
-      text:  `${d.name} · ${d.stage}`,
-      blink: false,
-    });
+function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
+  const lines: IntelLine[] = [];
+  const allActive = data.allDeals;
+
+  // Line 1 — Urgency signal: most stale active deal
+  if (allActive.length > 0) {
+    let stalestDeal = allActive[0];
+    let stalestDays = getDaysSinceActivity(allActive[0]);
+    for (const d of allActive) {
+      const days = getDaysSinceActivity(d);
+      if (days > stalestDays) {
+        stalestDays = days;
+        stalestDeal = d;
+      }
+    }
+    const accountLabel = stalestDeal.accounts?.name || stalestDeal.name;
+    const daysUntil = pulseThreshold - stalestDays;
+
+    if (stalestDays >= pulseThreshold) {
+      lines.push({
+        dot:   COLORS.red,
+        text:  `${accountLabel} — overdue for a touchpoint`,
+        blink: true,
+        glow:  true,
+      });
+    } else if (daysUntil <= 3) {
+      lines.push({
+        dot:   COLORS.red,
+        text:  `${accountLabel} — at risk in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
+        blink: true,
+        glow:  true,
+      });
+    } else {
+      lines.push({
+        dot:   'rgba(240,235,224,0.26)',
+        text:  `${accountLabel} — ${stalestDays} days since last activity`,
+        blink: false,
+        glow:  false,
+      });
+    }
   } else {
     lines.push({
       dot:   'rgba(240,235,224,0.2)',
       text:  'Capture your first signal with the + button below.',
       blink: false,
+      glow:  false,
     });
   }
 
-  // Line 2 — most urgent stale deal
-  if (data.urgentDeals.length > 0) {
-    const d    = data.urgentDeals[0];
-    const days = Math.floor(
-      (Date.now() - new Date(d.last_activity_at).getTime())
-      / (1000 * 60 * 60 * 24)
-    );
+  // Line 2 — Positive signal or pipeline context
+  const positiveTypes = ['positive_sentiment', 'next_step_agreed', 'champion_identified', 'budget_mentioned'];
+  const positiveSignal = data.signals.find(s => positiveTypes.includes(s.signal_type));
+
+  if (positiveSignal) {
+    const signalLabels: Record<string, string> = {
+      positive_sentiment:  'positive signal',
+      next_step_agreed:    'next step agreed',
+      champion_identified: 'champion identified',
+      budget_mentioned:    'budget mentioned',
+    };
+    const label = signalLabels[positiveSignal.signal_type] || positiveSignal.signal_type;
+    const matchedDeal = positiveSignal.deal_id
+      ? allActive.find(d => d.id === positiveSignal.deal_id)
+      : null;
+    const dealLabel = matchedDeal
+      ? (matchedDeal.accounts?.name || matchedDeal.name)
+      : null;
+
     lines.push({
-      dot:   COLORS.red,
-      text:  `${d.name} — ${days} days since last activity.`,
-      blink: true,
-    });
-  } else if (data.allDeals.length > 1) {
-    const d    = data.allDeals[1];
-    const days = Math.floor(
-      (Date.now() - new Date(d.last_activity_at).getTime())
-      / (1000 * 60 * 60 * 24)
-    );
-    lines.push({
-      dot:   COLORS.amber,
-      text:  `${d.name} — ${days} days since last activity.`,
+      dot:   COLORS.green,
+      text:  dealLabel
+        ? `${dealLabel} — ${label}, momentum increasing`
+        : `${label} — momentum increasing`,
       blink: false,
+      glow:  false,
     });
   } else {
-    lines.push({
-      dot:   'rgba(240,235,224,0.2)',
-      text:  'Add your deals via the Deals button below.',
-      blink: false,
-    });
-  }
-
-  // Line 3 — next meeting or deal/account count
-  const now      = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(23, 59, 59, 999);
-
-  const upcoming = data.meetings.find(m => {
-    const mt = new Date(m.scheduled_at);
-    return mt > now && mt < tomorrow;
-  });
-
-  if (upcoming) {
-    const mt   = new Date(upcoming.scheduled_at);
-    const h    = mt.getHours();
-    const m    = mt.getMinutes().toString().padStart(2, '0');
-    const h12  = h % 12 || 12;
-    const ap   = h < 12 ? 'am' : 'pm';
+    const dealCount = allActive.length;
     lines.push({
       dot:   'rgba(240,235,224,0.26)',
-      text:  `${upcoming.title} · ${h12}:${m}${ap}`,
+      text:  `${dealCount} active deal${dealCount !== 1 ? 's' : ''} in pipeline`,
       blink: false,
+      glow:  false,
+    });
+  }
+
+  // Line 3 — Meetings or capture prompt
+  const todayMeetings = data.meetings.filter(m => {
+    const mt = new Date(m.scheduled_at);
+    return mt.toDateString() === new Date().toDateString();
+  });
+
+  if (todayMeetings.length > 0) {
+    lines.push({
+      dot:   'rgba(240,235,224,0.26)',
+      text:  `${todayMeetings.length} meeting${todayMeetings.length !== 1 ? 's' : ''} today — tap sun to prep`,
+      blink: false,
+      glow:  false,
     });
   } else {
-    const dealCount    = data.allDeals.length;
-    const accountCount = data.accountCount;
-    if (dealCount > 0) {
-      lines.push({
-        dot:   'rgba(240,235,224,0.26)',
-        text:  `${dealCount} active deal${dealCount !== 1 ? 's' : ''} across ${accountCount} account${accountCount !== 1 ? 's' : ''}.`,
-        blink: false,
-      });
-    } else {
-      lines.push({
-        dot:   'rgba(240,235,224,0.26)',
-        text:  'No meetings today. Good time to log a capture.',
-        blink: false,
-      });
-    }
+    lines.push({
+      dot:   'rgba(240,235,224,0.26)',
+      text:  'No meetings today — good time to capture',
+      blink: false,
+      glow:  false,
+    });
   }
 
   return lines;
@@ -186,6 +208,14 @@ export default function HomePage() {
   const [logoBloom, setLogoBloom] = useState(false);
   const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
+
+  // ── DO THIS FIRST STATE ────────────────────────────────────
+  const [doThisFirst, setDoThisFirst] = useState<{
+    loaded: boolean;
+    suggestion: string | null;
+    dealLabel: string | null;
+    dealId: string | null;
+  }>({ loaded: false, suggestion: null, dealLabel: null, dealId: null });
 
   // ── FIRST VISIT OVERLAY STATE ────────────────────────────
   const [firstVisitVisible, setFirstVisitVisible] = useState(
@@ -364,7 +394,7 @@ export default function HomePage() {
 
         supabase
           .from('deals')
-          .select('id, name, stage, last_activity_at, snoozed_until, intel_score, momentum_score, signal_velocity, next_action, account_id, user_id')
+          .select('id, name, stage, last_activity_at, snoozed_until, intel_score, momentum_score, signal_velocity, next_action, account_id, user_id, accounts(name)')
           .eq('user_id', authUser.id)
           .not('stage', 'in', '("Closed Won","Closed Lost")')
           .lt('last_activity_at', cutoff.toISOString())
@@ -374,7 +404,7 @@ export default function HomePage() {
 
         supabase
           .from('deals')
-          .select('id, name, stage, last_activity_at, snoozed_until, intel_score, momentum_score, signal_velocity, next_action, account_id, user_id')
+          .select('id, name, stage, last_activity_at, snoozed_until, intel_score, momentum_score, signal_velocity, next_action, account_id, user_id, accounts(name)')
           .eq('user_id', authUser.id)
           .not('stage', 'in', '("Closed Won","Closed Lost")')
           .order('last_activity_at', { ascending: false })
@@ -385,8 +415,7 @@ export default function HomePage() {
           .select('id, content, signal_type, deal_id, created_at')
           .eq('user_id', authUser.id)
           .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+          .limit(20),
 
         supabase
           .from('streak_log')
@@ -412,17 +441,61 @@ export default function HomePage() {
           .limit(1),
       ]);
 
+      const activeDeals = (allDealsRes.data ?? []) as unknown as DealWithAccount[];
+
       setData({
         user:         userRes.data as UserRow | null,
         meetings:     (meetingsRes.data ?? []) as MeetingRow[],
-        urgentDeals:  (urgentDealsRes.data ?? []) as DealRow[],
-        allDeals:     (allDealsRes.data ?? []) as DealRow[],
-        recentSignal: (signalRes.data ?? null) as SignalRow | null,
+        urgentDeals:  (urgentDealsRes.data ?? []) as unknown as DealWithAccount[],
+        allDeals:     activeDeals,
+        signals:      (signalRes.data ?? []) as SignalRow[],
         streakLogs:   (streakRes.data ?? []) as StreakLogRow[],
         accountCount: accountCountRes.count ?? 0,
       });
 
       setDebriefMeetings((debriefRes.data ?? []) as MeetingRow[]);
+
+      // ── DO THIS FIRST FETCH ─────────────────────────────
+      if (activeDeals.length > 0) {
+        try {
+          const dtfContext = activeDeals.map(d => {
+            const acct = d.accounts?.name;
+            const days = getDaysSinceActivity(d);
+            const base = acct ? `${d.name} at ${acct}` : d.name;
+            return `${base} (${d.stage}, ${days}d since activity)`;
+          }).join('; ');
+
+          const dtfRes = await fetch('/api/do-this-first', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: dtfContext, userId: authUser.id }),
+          });
+          const dtfJson = await dtfRes.json();
+          const suggestion = dtfJson.suggestion;
+
+          if (suggestion && typeof suggestion === 'string' && suggestion.trim()) {
+            const lowerSuggestion = suggestion.toLowerCase();
+            const matchedDeal = activeDeals.find(d => {
+              if (d.name && lowerSuggestion.includes(d.name.toLowerCase())) return true;
+              const accountName = d.accounts?.name;
+              if (accountName && lowerSuggestion.includes(accountName.toLowerCase())) return true;
+              return false;
+            });
+            setDoThisFirst({
+              loaded: true,
+              suggestion: suggestion.trim(),
+              dealLabel: matchedDeal ? (matchedDeal.accounts?.name || matchedDeal.name) : null,
+              dealId: matchedDeal ? matchedDeal.id : null,
+            });
+          } else {
+            setDoThisFirst({ loaded: true, suggestion: null, dealLabel: null, dealId: null });
+          }
+        } catch {
+          setDoThisFirst({ loaded: true, suggestion: null, dealLabel: null, dealId: null });
+        }
+      } else {
+        setDoThisFirst({ loaded: true, suggestion: null, dealLabel: null, dealId: null });
+      }
 
     } catch (err) {
       console.error('Home data fetch error:', err);
@@ -465,7 +538,11 @@ export default function HomePage() {
     return mt.toDateString() === tod.toDateString();
   }).length ?? 0;
 
-  const intelLines      = data ? buildIntelLines(data) : [];
+  const pulseThreshold  = data?.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
+  const atRiskCount     = data
+    ? data.allDeals.filter(d => getDaysSinceActivity(d) >= pulseThreshold).length
+    : 0;
+  const intelLines      = data ? buildIntelLines(data, pulseThreshold) : [];
 
   // ── SUN IMMINENT / IN-PROGRESS STATE ─────────────────
   const now = new Date();
@@ -809,6 +886,119 @@ export default function HomePage() {
           <div style={{ flex: 1 }} />
         )}
 
+        {/* ── DO THIS FIRST HERO CARD ────────────────── */}
+        {!loading && doThisFirst.loaded && doThisFirst.suggestion && (
+          <div
+            style={{
+              padding:   '0 22px',
+              marginBottom: 10,
+              ...anim(0.26),
+            }}
+          >
+            <div
+              onClick={() => {
+                if (doThisFirst.dealId) {
+                  router.push(`/deals/${doThisFirst.dealId}`);
+                } else {
+                  router.push('/briefing');
+                }
+              }}
+              style={{
+                background:     'rgba(232,160,48,0.08)',
+                backdropFilter: 'blur(16px)',
+                borderRadius:   16,
+                padding:        '14px 16px',
+                border:         '0.5px solid rgba(232,160,48,0.3)',
+                cursor:         'pointer',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <div style={{
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                color:         COLORS.amber,
+                marginBottom:  8,
+              }}>
+                Do this first
+              </div>
+              <div style={{
+                fontFamily:   "'Cormorant Garamond', serif",
+                fontSize:     18,
+                fontWeight:   400,
+                color:        'rgba(252,246,234,0.92)',
+                lineHeight:   1.4,
+                marginBottom: doThisFirst.dealLabel ? 10 : 4,
+              }}>
+                {doThisFirst.suggestion}
+              </div>
+              {doThisFirst.dealLabel && (
+                <div style={{
+                  display:      'inline-block',
+                  fontSize:     10,
+                  fontWeight:   500,
+                  color:        COLORS.amber,
+                  background:   'rgba(232,160,48,0.12)',
+                  borderRadius: 6,
+                  padding:      '3px 8px',
+                  marginBottom: 4,
+                }}>
+                  {doThisFirst.dealLabel}
+                </div>
+              )}
+              <div style={{
+                fontSize:   11,
+                fontWeight: 300,
+                color:      'rgba(240,235,224,0.36)',
+                marginTop:  4,
+              }}>
+                Tap to act →
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── DO THIS FIRST EMPTY STATE ─────────────────── */}
+        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && data && (
+          <div
+            style={{
+              padding:      '0 22px',
+              marginBottom: 10,
+              ...anim(0.26),
+            }}
+          >
+            <div
+              style={{
+                background:     'rgba(0,0,0,0.18)',
+                backdropFilter: 'blur(16px)',
+                borderRadius:   16,
+                padding:        '14px 16px',
+                border:         '0.5px solid rgba(240,235,224,0.06)',
+                opacity:        0.5,
+              }}
+            >
+              <div style={{
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                color:         'rgba(240,235,224,0.36)',
+                marginBottom:  8,
+              }}>
+                Do this first
+              </div>
+              <div style={{
+                fontSize:   13,
+                fontWeight: 300,
+                color:      'rgba(240,235,224,0.44)',
+              }}>
+                Capture something to generate your first priority.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
         {debriefMeeting && (
           <div style={{
@@ -943,6 +1133,9 @@ export default function HomePage() {
                     animation:    line.blink
                       ? 'dotBlink 3s ease-in-out infinite'
                       : 'none',
+                    boxShadow:    line.glow
+                      ? `0 0 6px 2px ${line.dot}`
+                      : 'none',
                   }} />
                   <div style={{
                     fontSize:   13,
@@ -1019,13 +1212,23 @@ export default function HomePage() {
             }}
             aria-label="Open deals"
           >
+            {atRiskCount > 0 && (
+              <div style={{
+                width:        6,
+                height:       6,
+                borderRadius: '50%',
+                background:   COLORS.red,
+                boxShadow:    `0 0 6px 2px ${COLORS.red}`,
+                flexShrink:   0,
+              }} />
+            )}
             <span style={{
               fontFamily: "'Cormorant Garamond', serif",
               fontSize:   15,
               fontWeight: 400,
               color:      'rgba(240,235,224,0.78)',
             }}>
-              Deals
+              {atRiskCount > 0 ? `Deals · ${atRiskCount} at risk` : 'Deals'}
             </span>
             <span style={{
               fontSize: 14,
@@ -1044,22 +1247,22 @@ export default function HomePage() {
           stops={[
             {
               ref:      sunRef as React.RefObject<HTMLElement>,
-              copy:     'Your daily briefing. Tap every morning.',
+              copy:     'What to do first. Tap every morning.',
               position: 'below',
             },
             {
               ref:      captureRef as React.RefObject<HTMLElement>,
-              copy:     'Log calls, emails, and ideas here.',
+              copy:     'Feed the system. Every capture makes your intelligence sharper.',
               position: 'above',
             },
             {
               ref:      dealsRef as React.RefObject<HTMLElement>,
-              copy:     'Your pipeline and open opportunities.',
+              copy:     'Risk and leverage. See what needs your attention now.',
               position: 'above',
             },
             {
               ref:      logoRef as React.RefObject<HTMLElement>,
-              copy:     'Settings and preferences.',
+              copy:     'Profile and preferences.',
               position: 'below',
             },
           ]}
