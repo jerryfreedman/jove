@@ -135,7 +135,7 @@ export default function AmbientFish() {
     fishPositionRef.current.y = s.y;
 
     // Apply transform directly (no React state)
-    const scaleX = s.direction >= 0 ? 1 : -1;
+    const scaleX = s.direction >= 0 ? -1 : 1;
     el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX})`;
 
     frameRef.current = requestAnimationFrame(tick);
