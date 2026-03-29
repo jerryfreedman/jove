@@ -304,13 +304,25 @@ export default function DealChatPage() {
     }
 
     if (chip.type === 'log_interaction') {
-      await supabase.from('interactions').insert({
+      const { data: chipInteraction } = await supabase.from('interactions').insert({
         user_id: userId,
         deal_id: dealId,
         type: 'note',
         raw_content: chip.to,
         extraction_status: 'pending',
-      });
+      }).select('id').single();
+
+      // Fire extraction for chip interaction — fire and forget
+      if (chipInteraction?.id) {
+        fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interactionId: chipInteraction.id,
+            userId,
+          }),
+        }).catch(() => {});
+      }
     } else if (chip.type === 'new_contact') {
       const { data: dealData } = await supabase
         .from('deals')
@@ -353,14 +365,27 @@ export default function DealChatPage() {
   const logAsSent = async (msg: Message) => {
     if (!userId) return;
     const { body } = extractEmailParts(msg.content);
-    await supabase.from('interactions').insert({
+    const { data: sentInteraction } = await supabase.from('interactions').insert({
       user_id: userId,
       deal_id: dealId,
       type: 'email_sent',
       raw_content: msg.content,
       final_sent_content: body,
       extraction_status: 'pending',
-    });
+    }).select('id').single();
+
+    // Fire extraction for logged email — fire and forget
+    if (sentInteraction?.id) {
+      fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interactionId: sentInteraction.id,
+          userId,
+        }),
+      }).catch(() => {});
+    }
+
     await supabase
       .from('deals')
       .update({ last_activity_at: new Date().toISOString() })

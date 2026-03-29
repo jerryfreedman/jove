@@ -288,13 +288,25 @@ export default function DealDetailPage() {
 
     // Save close reason as a signal
     if (closeReason.trim()) {
-      await supabase.from('interactions').insert({
+      const { data: closeInteraction } = await supabase.from('interactions').insert({
         user_id:          userId,
         deal_id:          dealId,
         type:             'note',
         raw_content:      `${closeType}: ${closeReason.trim()}`,
         extraction_status:'pending',
-      });
+      }).select('id').single();
+
+      // Fire extraction for close reason — fire and forget
+      if (closeInteraction?.id) {
+        fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interactionId: closeInteraction.id,
+            userId,
+          }),
+        }).catch(() => {});
+      }
     }
 
     // Update deal stage

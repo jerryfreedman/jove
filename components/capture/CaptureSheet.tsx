@@ -284,14 +284,26 @@ export default function CaptureSheet({
         ? 'email_received'
         : 'note';
 
-      await supabase.from('interactions').insert({
+      const { data: contextInteraction } = await supabase.from('interactions').insert({
         user_id: userId,
         deal_id: selectedDealId,
         contact_id: null,
         type: contextType,
         raw_content: draftContext.trim(),
         extraction_status: 'pending',
-      });
+      }).select('id').single();
+
+      // Fire extraction for context interaction — fire and forget
+      if (contextInteraction?.id) {
+        fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interactionId: contextInteraction.id,
+            userId,
+          }),
+        }).catch(() => {});
+      }
 
       // Call Claude API for draft
       const response = await fetch('/api/draft', {
