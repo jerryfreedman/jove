@@ -110,13 +110,6 @@ export default function CaptureSheet({
     return () => clearTimeout(t);
   }, []);
 
-  // Auto-focus textarea when mode changes (including initial 'tiles' mode)
-  useEffect(() => {
-    if (mode !== 'done' && mode !== 'draft_output') {
-      const t = setTimeout(() => textareaRef.current?.focus(), 200);
-      return () => clearTimeout(t);
-    }
-  }, [mode]);
 
   // Check if first capture of day
   useEffect(() => {
@@ -547,7 +540,6 @@ export default function CaptureSheet({
               {/* Primary textarea — visible and focused on open */}
               <textarea
                 ref={textareaRef}
-                autoFocus
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="What just happened?"
