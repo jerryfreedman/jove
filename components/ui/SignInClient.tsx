@@ -1,11 +1,18 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
 import Logo from '@/components/ui/Logo';
 
 export default function SignInClient() {
   const supabase = createClient();
+
+  const [email, setEmail]               = useState('');
+  const [password, setPassword]         = useState('');
+  const [isSignUp, setIsSignUp]         = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError]     = useState('');
 
   const handleGoogleSignIn = async () => {
     await supabase.auth.signInWithOAuth({
@@ -15,6 +22,62 @@ export default function SignInClient() {
       },
     });
   };
+
+  const handleEmailAuth = async () => {
+    if (!email.trim() || !password.trim()) {
+      setEmailError('Please enter your email and password.');
+      return;
+    }
+    setEmailLoading(true);
+    setEmailError('');
+
+    if (isSignUp) {
+      const { error } = await supabase.auth.signUp({
+        email:    email.trim(),
+        password: password.trim(),
+      });
+      if (error) {
+        setEmailError(error.message);
+        setEmailLoading(false);
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email:    email.trim(),
+        password: password.trim(),
+      });
+      if (error) {
+        setEmailError(error.message);
+        setEmailLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          const { data: userData } = await supabase
+            .from('users')
+            .select('onboarding_completed')
+            .eq('id', session.user.id)
+            .single();
+
+          if (userData?.onboarding_completed) {
+            window.location.href = '/home';
+          } else {
+            await supabase.from('users').upsert({
+              id:         session.user.id,
+              email:      session.user.email ?? '',
+              full_name:  session.user.user_metadata?.full_name ?? null,
+              avatar_url: session.user.user_metadata?.avatar_url ?? null,
+            }, { onConflict: 'id', ignoreDuplicates: false });
+            window.location.href = '/onboarding';
+          }
+        }
+      }
+    );
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <div
@@ -143,6 +206,154 @@ export default function SignInClient() {
           >
             Continue with Google
           </span>
+        </button>
+
+        {/* Divider */}
+        <div style={{
+          display:     'flex',
+          alignItems:  'center',
+          gap:         12,
+          margin:      '20px 0 16px',
+          width:       '100%',
+          maxWidth:    320,
+        }}>
+          <div style={{
+            flex:            1,
+            height:          '0.5px',
+            background:      'rgba(247,243,236,0.15)',
+          }} />
+          <span style={{
+            fontSize:    11,
+            fontWeight:  300,
+            color:       'rgba(247,243,236,0.3)',
+            fontFamily:  "'DM Sans', sans-serif",
+            letterSpacing: '0.5px',
+          }}>
+            or
+          </span>
+          <div style={{
+            flex:            1,
+            height:          '0.5px',
+            background:      'rgba(247,243,236,0.15)',
+          }} />
+        </div>
+
+        {/* Email input */}
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
+          style={{
+            width:        '100%',
+            maxWidth:     320,
+            padding:      '13px 16px',
+            borderRadius: 12,
+            border:       '0.5px solid rgba(247,243,236,0.2)',
+            background:   'rgba(247,243,236,0.06)',
+            color:        '#F7F3EC',
+            fontSize:     14,
+            fontWeight:   300,
+            fontFamily:   "'DM Sans', sans-serif",
+            outline:      'none',
+            marginBottom: 8,
+            boxSizing:    'border-box' as const,
+          }}
+        />
+
+        {/* Password input */}
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
+          style={{
+            width:        '100%',
+            maxWidth:     320,
+            padding:      '13px 16px',
+            borderRadius: 12,
+            border:       '0.5px solid rgba(247,243,236,0.2)',
+            background:   'rgba(247,243,236,0.06)',
+            color:        '#F7F3EC',
+            fontSize:     14,
+            fontWeight:   300,
+            fontFamily:   "'DM Sans', sans-serif",
+            outline:      'none',
+            marginBottom: 8,
+            boxSizing:    'border-box' as const,
+          }}
+        />
+
+        {/* Error message */}
+        {emailError && (
+          <div style={{
+            width:        '100%',
+            maxWidth:     320,
+            fontSize:     12,
+            fontWeight:   300,
+            color:        '#E05840',
+            fontFamily:   "'DM Sans', sans-serif",
+            marginBottom: 8,
+            textAlign:    'left',
+            paddingLeft:  4,
+          }}>
+            {emailError}
+          </div>
+        )}
+
+        {/* Sign in / Sign up button */}
+        <button
+          onClick={handleEmailAuth}
+          disabled={emailLoading}
+          style={{
+            width:         '100%',
+            maxWidth:      320,
+            padding:       '13px 0',
+            borderRadius:  12,
+            border:        '0.5px solid rgba(247,243,236,0.2)',
+            background:    emailLoading
+              ? 'rgba(247,243,236,0.04)'
+              : 'rgba(247,243,236,0.08)',
+            color:         emailLoading
+              ? 'rgba(247,243,236,0.3)'
+              : 'rgba(247,243,236,0.7)',
+            fontSize:      13,
+            fontWeight:    400,
+            fontFamily:    "'DM Sans', sans-serif",
+            cursor:        emailLoading ? 'default' : 'pointer',
+            marginBottom:  8,
+            letterSpacing: '0.3px',
+            transition:    'all 0.2s ease',
+          }}
+        >
+          {emailLoading
+            ? 'Please wait...'
+            : isSignUp ? 'Create account' : 'Sign in'}
+        </button>
+
+        {/* Toggle sign in / sign up */}
+        <button
+          onClick={() => {
+            setIsSignUp(!isSignUp);
+            setEmailError('');
+          }}
+          style={{
+            background:  'none',
+            border:      'none',
+            color:       'rgba(247,243,236,0.28)',
+            fontSize:    11,
+            fontWeight:  300,
+            fontFamily:  "'DM Sans', sans-serif",
+            cursor:      'pointer',
+            padding:     '4px 0',
+            letterSpacing: '0.3px',
+          }}
+        >
+          {isSignUp
+            ? 'Already have an account? Sign in'
+            : "Don't have an account? Sign up"}
         </button>
 
         {/* Legal */}
