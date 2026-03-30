@@ -374,12 +374,13 @@ export default function HomePage() {
   // Moon vs sun color families — used by glow, bloom, warmth
   const glowColor   = isNight ? 'rgba(200,210,230,0.10)'  : 'rgba(248,190,64,0.08)';
   const bloomColor  = isNight
-    ? 'radial-gradient(circle, rgba(200,210,230,0.50), rgba(180,190,210,0.18) 50%, transparent 75%)'
-    : 'radial-gradient(circle, rgba(248,190,64,0.55), rgba(232,160,48,0.2) 50%, transparent 75%)';
-  const warmthInner = isNight ? 'rgba(180,200,230,0.18)' : 'rgba(232,160,48,0.22)';
-  const warmthOuter = isNight ? 'rgba(140,160,200,0.06)' : 'rgba(200,120,32,0.08)';
+    ? 'radial-gradient(circle, rgba(200,210,230,0.58), rgba(180,190,210,0.22) 50%, transparent 75%)'
+    : 'radial-gradient(circle, rgba(248,190,64,0.65), rgba(232,160,48,0.25) 50%, transparent 75%)';
+  const warmthInner = isNight ? 'rgba(180,200,230,0.24)' : 'rgba(232,160,48,0.28)';
+  const warmthOuter = isNight ? 'rgba(140,160,200,0.09)' : 'rgba(200,120,32,0.11)';
+  const brightInner = isNight ? 'rgba(210,220,240,0.08)' : 'rgba(255,248,230,0.10)';
+  const brightOuter = isNight ? 'rgba(210,220,240,0.04)' : 'rgba(255,248,230,0.05)';
   const pulseColor  = isNight ? 'rgba(200,210,230,0.35)' : 'rgba(248,190,64,0.4)';
-  const richGlow    = isNight ? 'rgba(180,200,230,0.03)'  : 'rgba(232,160,48,0.03)';
 
   // Text color adapts to sky brightness
   const textPrimary   = scene.lightText
@@ -1191,13 +1192,13 @@ export default function HomePage() {
           inset:          0,
           pointerEvents:  'none',
           zIndex:         19,
-          background:     'linear-gradient(to bottom, rgba(255,248,230,0.07) 0%, rgba(255,248,230,0.035) 40%, transparent 80%)',
+          background:     `linear-gradient(to bottom, ${brightInner} 0%, ${brightOuter} 40%, transparent 80%)`,
           animation:      ackToken > 0 ? 'ackBrightness 3200ms ease forwards' : 'none',
           opacity:        ackToken > 0 ? undefined : 0,
         }}
       />
 
-      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: sun bloom (visual anchor) ── */}
+      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: celestial bloom (visual anchor) ── */}
       <div
         key={`ack-bloom-${ackToken}`}
         style={{
@@ -1205,8 +1206,8 @@ export default function HomePage() {
           left:           sunCenterLeft,
           top:            sunCenterTop,
           transform:      'translate(-50%, -50%)',
-          width:          200,
-          height:         200,
+          width:          240,
+          height:         240,
           borderRadius:   '50%',
           background:     bloomColor,
           animation:      ackToken > 0 ? 'ackSunBloom 3200ms ease-out forwards' : 'none',

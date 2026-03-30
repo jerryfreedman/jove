@@ -46,7 +46,7 @@ const config: Config = {
       keyframes: {
         breath: { '0%,100%': { transform: 'scale(1)' }, '50%': { transform: 'scale(1.022)' } },
         orbPulse: { '0%,100%': { opacity: '0.92', transform: 'scale(1)' }, '50%': { opacity: '0.58', transform: 'scale(0.94)' } },
-        orbGlow: { '0%,100%': { opacity: '0.25' }, '50%': { opacity: '0.52' } },
+        orbGlow: { '0%,100%': { opacity: '0.20' }, '50%': { opacity: '0.35' } },
         dotBlink: { '0%,100%': { opacity: '1', transform: 'scale(1)' }, '50%': { opacity: '0.22', transform: 'scale(0.6)' } },
         sunGlow: { '0%,100%': { opacity: '0.1' }, '50%': { opacity: '0.2' } },
         sunPulse: { '0%,100%': { opacity: '0.9' }, '50%': { opacity: '0.62' } },
