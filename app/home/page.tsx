@@ -276,6 +276,8 @@ export default function HomePage() {
 
   // ── BIRD REACTION TRIGGER ────────────────────────────
   const [birdReactionTrigger, setBirdReactionTrigger] = useState(0);
+  // Stable ref: labels the source of the next reaction increment ('save' | 'ambient')
+  const birdReactionSourceRef = useRef<'save' | 'ambient'>('ambient');
   const prevSignalCountForBirdRef = useRef<number>(0);
 
   // ── SIGNAL PULSE STATE ──────────────────────────────────
@@ -792,13 +794,8 @@ export default function HomePage() {
       setFeedbackVisible(true);
       setTimeout(() => setFeedbackVisible(false), 3500);
       setTimeout(() => setFeedbackText(null), 4100);
-    } else {
-      // No new signals extracted — graceful fallback
-      setFeedbackText('Intelligence sharpening');
-      setFeedbackVisible(true);
-      setTimeout(() => setFeedbackVisible(false), 2500);
-      setTimeout(() => setFeedbackText(null), 3100);
     }
+    // else: no new signals — silence is correct; soar + pulse already confirmed save
   }, [data]);
 
   // ── SESSION ACKNOWLEDGMENT CHECK ──────────────────────────
@@ -989,6 +986,7 @@ export default function HomePage() {
 
     // ── SAVE CONFIRMED: bird reaction + one sun pulse ──
     setBirdPulseTrigger(k => k + 1);
+    birdReactionSourceRef.current = 'save';
     setBirdReactionTrigger(k => k + 1);
     setShowSignalPulse(true);
     setTimeout(() => setShowSignalPulse(false), 900);
@@ -1159,7 +1157,7 @@ export default function HomePage() {
       }}
     >
       <SceneBackground />
-      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} />
+      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
       <div
@@ -1194,8 +1192,8 @@ export default function HomePage() {
           100% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; }
         }
         @keyframes signalPulse {
-          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.22; }
-          100% { transform: translate(-50%,-50%) scale(1.15); opacity: 0; }
+          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.65; }
+          100% { transform: translate(-50%,-50%) scale(1.4); opacity: 0; }
         }
         /* (Zen keyframes removed — overlay no longer used) */
       `}</style>
@@ -1222,10 +1220,10 @@ export default function HomePage() {
             left:           sunCenterLeft,
             top:            sunCenterTop,
             transform:      'translate(-50%, -50%)',
-            width:          120,
-            height:         120,
+            width:          140,
+            height:         140,
             borderRadius:   '50%',
-            background:     'radial-gradient(circle, rgba(248,190,64,0.18), transparent 70%)',
+            background:     'radial-gradient(circle, rgba(248,190,64,0.40), transparent 70%)',
             animation:      'signalPulse 900ms ease-out forwards',
             zIndex:         21,
             pointerEvents:  'none',

@@ -35,6 +35,7 @@ function randomBetween(min: number, max: number) {
 interface AmbientBirdProps {
   signalCount?: number;
   reactionTrigger?: number;
+  reactionSourceRef?: React.MutableRefObject<'save' | 'ambient'>;
   positionRef?: React.MutableRefObject<{ x: number; y: number }>;
   pulseTrigger?: number;
 }
@@ -42,6 +43,7 @@ interface AmbientBirdProps {
 export default function AmbientBird({
   signalCount = 0,
   reactionTrigger = 0,
+  reactionSourceRef,
   positionRef,
   pulseTrigger = 0,
 }: AmbientBirdProps) {
@@ -291,51 +293,68 @@ export default function AmbientBird({
     // Stacking prevention — ignore if reaction already in progress
     if (reactionRef.current.active) return;
 
+    // Read and consume the reaction source
+    const source = reactionSourceRef?.current ?? 'ambient';
+    if (reactionSourceRef) reactionSourceRef.current = 'ambient';
+
     const s = stateRef.current;
     const now = performance.now();
 
-    // Weighted random: A=50%, B=35%, C=15%
-    const roll = Math.random();
-
-    if (roll < 0.50) {
-      // Reaction A — Speed burst (300–500ms)
-      reactionRef.current = {
-        active: true,
-        type: 'acceleration',
-        startTime: now,
-        duration: 300 + Math.random() * 200,
-        soarStartY: 0,
-        soarPeakY: 0,
-      };
-    } else if (roll < 0.85) {
-      // Reaction B — Directional shift (~400ms)
-      reactionRef.current = {
-        active: true,
-        type: 'turn',
-        startTime: now,
-        duration: 400,
-        soarStartY: 0,
-        soarPeakY: 0,
-      };
-      // Force confident direction change
-      s.targetDirection = s.targetDirection === 1 ? -1 : 1;
-      s.turnProgress = 0;
-      s.turnStartTime = now;
-      s.nextDirChange = now + randomBetween(DIR_CHANGE_MIN, DIR_CHANGE_MAX);
-    } else {
-      // Reaction C — Soar (~15%, rare, special)
-      // Rise higher within sky zone, ~40px upward arc
-      const peakY = Math.max(s.skyTopPx, s.y - 40);
+    if (source === 'save') {
+      // ── SAVE-CONFIRMED: deterministic soar (60px arc, 950ms) ──
+      const peakY = Math.max(s.skyTopPx, s.y - 60);
       reactionRef.current = {
         active: true,
         type: 'soar',
         startTime: now,
-        duration: 800,
+        duration: 950,
         soarStartY: s.y,
         soarPeakY: peakY,
       };
+    } else {
+      // ── AMBIENT: weighted random A=50%, B=35%, C=15% ──
+      const roll = Math.random();
+
+      if (roll < 0.50) {
+        // Reaction A — Speed burst (300–500ms)
+        reactionRef.current = {
+          active: true,
+          type: 'acceleration',
+          startTime: now,
+          duration: 300 + Math.random() * 200,
+          soarStartY: 0,
+          soarPeakY: 0,
+        };
+      } else if (roll < 0.85) {
+        // Reaction B — Directional shift (~400ms)
+        reactionRef.current = {
+          active: true,
+          type: 'turn',
+          startTime: now,
+          duration: 400,
+          soarStartY: 0,
+          soarPeakY: 0,
+        };
+        // Force confident direction change
+        s.targetDirection = s.targetDirection === 1 ? -1 : 1;
+        s.turnProgress = 0;
+        s.turnStartTime = now;
+        s.nextDirChange = now + randomBetween(DIR_CHANGE_MIN, DIR_CHANGE_MAX);
+      } else {
+        // Reaction C — Soar (~15%, rare, special)
+        // Rise higher within sky zone, ~40px upward arc
+        const peakY = Math.max(s.skyTopPx, s.y - 40);
+        reactionRef.current = {
+          active: true,
+          type: 'soar',
+          startTime: now,
+          duration: 800,
+          soarStartY: s.y,
+          soarPeakY: peakY,
+        };
+      }
     }
-  }, [reactionTrigger]);
+  }, [reactionTrigger, reactionSourceRef]);
 
   // ── PULSE TRIGGER ───────────────────────────────────────
   useEffect(() => {
