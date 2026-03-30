@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { calculateStreak } from '@/lib/streak';
@@ -17,6 +17,19 @@ import type {
 import CaptureSheet from '@/components/capture/CaptureSheet';
 import { renderMarkdown } from '@/lib/renderMarkdown';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
+
+// ── MEETING LIFECYCLE ─────────────────────────────────────
+type MeetingState = 'upcoming' | 'in_progress' | 'completed';
+
+function getMeetingState(meeting: MeetingRow): MeetingState {
+  const now = Date.now();
+  const start = new Date(meeting.scheduled_at).getTime();
+  const end = start + 60 * 60 * 1000; // +60 minutes
+
+  if (now < start) return 'upcoming';
+  if (now <= end)  return 'in_progress';
+  return 'completed';
+}
 
 // ── HELPERS ────────────────────────────────────────────────
 function getDaysSince(dateStr: string): number {
@@ -102,16 +115,27 @@ export default function BriefingPage() {
   const [doThisLoading, setDoThisLoading] = useState(true);
 
   const [showCapture, setShowCapture]   = useState(false);
+  const [captureMeetingContext, setCaptureMeetingContext] = useState<string | null>(null);
+  const [captureMeetingId, setCaptureMeetingId] = useState<string | undefined>(undefined);
   const [meetingTimes, setMeetingTimes] = useState<Record<string, string>>({});
 
   const [allClear, setAllClear]         = useState(false);
   const allClearTriggered = useRef(false);
   const briefingInteracted = useRef(false);
 
+  // Inline expansion state
+  const [expandedMeetingId, setExpandedMeetingId] = useState<string | null>(null);
+  const [inlineBriefs, setInlineBriefs] = useState<Record<string, string>>({});
+  const [briefLoading, setBriefLoading] = useState<Record<string, boolean>>({});
+  const [showCompleted, setShowCompleted] = useState(false);
+
   // Tour refs
   const doThisFirstRef    = useRef<HTMLDivElement>(null);
   const needsAttentionRef = useRef<HTMLDivElement>(null);
   const [showBriefingTour, setShowBriefingTour] = useState(false);
+
+  // Abort ref for inline brief streaming
+  const briefAbortRef = useRef<AbortController | null>(null);
 
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -398,6 +422,108 @@ export default function BriefingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  // ── INLINE BRIEF FETCH (on expand, deal-linked only) ──
+  const fetchInlineBrief = useCallback(async (meeting: MeetingRow) => {
+    if (!meeting.deal_id || !userId) return;
+    if (inlineBriefs[meeting.id]) return; // already fetched
+
+    // Check localStorage cache first
+    const today = new Date().toISOString().split('T')[0];
+    const cacheKey = `jove_prep_${meeting.deal_id}_${today}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      // Extract first 2 sentences for inline display
+      const brief = extractBriefSummary(cached);
+      setInlineBriefs(prev => ({ ...prev, [meeting.id]: brief }));
+      return;
+    }
+
+    setBriefLoading(prev => ({ ...prev, [meeting.id]: true }));
+
+    const controller = new AbortController();
+    briefAbortRef.current = controller;
+
+    try {
+      const response = await fetch('/api/prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dealId: meeting.deal_id, userId }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        setBriefLoading(prev => ({ ...prev, [meeting.id]: false }));
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value, { stream: true });
+      }
+
+      // Cache the full brief
+      localStorage.setItem(cacheKey, fullText);
+
+      // Extract 1-2 sentence summary for inline
+      const brief = extractBriefSummary(fullText);
+      setInlineBriefs(prev => ({ ...prev, [meeting.id]: brief }));
+    } catch (err: unknown) {
+      if ((err as Error).name !== 'AbortError') {
+        // Fail silently
+      }
+    } finally {
+      setBriefLoading(prev => ({ ...prev, [meeting.id]: false }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, inlineBriefs]);
+
+  // Extract the SITUATION section as 1-2 sentence brief
+  function extractBriefSummary(fullBrief: string): string {
+    // Try to extract SITUATION section
+    const situationMatch = fullBrief.match(/\*\*SITUATION\*\*\s*\n([\s\S]*?)(?=\n\*\*|$)/);
+    if (situationMatch) {
+      const text = situationMatch[1].trim();
+      // Take first 2 sentences
+      const sentences = text.match(/[^.!?]+[.!?]+/g);
+      if (sentences && sentences.length > 0) {
+        return sentences.slice(0, 2).join('').trim();
+      }
+      return text.slice(0, 200);
+    }
+    // Fallback: first 2 sentences of the whole thing
+    const sentences = fullBrief.match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length > 0) {
+      return sentences.slice(0, 2).join('').trim();
+    }
+    return fullBrief.slice(0, 200);
+  }
+
+  // ── HANDLE MEETING TAP (toggle inline expansion) ─────
+  const handleMeetingTap = useCallback((meeting: MeetingRow) => {
+    if (expandedMeetingId === meeting.id) {
+      setExpandedMeetingId(null);
+      briefAbortRef.current?.abort();
+      return;
+    }
+    setExpandedMeetingId(meeting.id);
+    // Fetch brief on expand if deal-linked
+    if (meeting.deal_id) {
+      fetchInlineBrief(meeting);
+    }
+  }, [expandedMeetingId, fetchInlineBrief]);
+
+  // ── HANDLE ADD CONTEXT ────────────────────────────────
+  const handleAddContext = useCallback((meeting: MeetingRow) => {
+    setCaptureMeetingContext(meeting.title);
+    setCaptureMeetingId(meeting.id);
+    setShowCapture(true);
+  }, []);
+
   // ── DERIVED VALUES ───────────────────────────────────
   const streak = calculateStreak(streakLogs);
   const avgIntelScore = allActiveDeals.length > 0
@@ -410,6 +536,31 @@ export default function BriefingPage() {
   const visibleAttentionDeals = attentionDeals.filter(
     d => !confirmedIds.has(d.id) && !snoozedIds.has(d.id)
   );
+
+  // ── MEETING GROUPS (lifecycle-aware) ─────────────────
+  const { nextMeeting, upcomingMeetings, completedMeetings } = useMemo(() => {
+    const upcoming: MeetingRow[] = [];
+    const completed: MeetingRow[] = [];
+
+    for (const m of meetings) {
+      const state = getMeetingState(m);
+      if (state === 'upcoming' || state === 'in_progress') {
+        upcoming.push(m);
+      } else {
+        completed.push(m);
+      }
+    }
+
+    // The first upcoming/in-progress meeting is the "next" one
+    const next = upcoming.length > 0 ? upcoming[0] : null;
+    const rest = upcoming.slice(1);
+
+    return {
+      nextMeeting: next,
+      upcomingMeetings: rest,
+      completedMeetings: completed,
+    };
+  }, [meetings]);
 
   // ── SECTION CARD STYLE ───────────────────────────────
   const sectionLabel: React.CSSProperties = {
@@ -472,27 +623,8 @@ export default function BriefingPage() {
           color:      '#1A1410',
           margin:     0,
         }}>
-          Today&apos;s Briefing
+          Today
         </h1>
-        <button
-          onClick={() => router.push('/meetings')}
-          style={{
-            fontSize:     10,
-            fontWeight:   600,
-            letterSpacing:'1px',
-            textTransform:'uppercase',
-            color:        'rgba(26,20,16,0.4)',
-            padding:      '6px 12px',
-            borderRadius: 20,
-            border:       '0.5px solid rgba(26,20,16,0.12)',
-            background:   'transparent',
-            cursor:       'pointer',
-            fontFamily:   "'DM Sans', sans-serif",
-            marginRight:  6,
-          }}
-        >
-          Meetings
-        </button>
         <button
           onClick={() => {
             const text = buildBriefingText(
@@ -560,114 +692,544 @@ export default function BriefingPage() {
       {!fetchError && (
       <div style={{ padding: '20px 18px 0' }}>
 
-        {/* ── MEETINGS ─────────────────────────────── */}
-        {meetings.length > 0 && (
+        {/* ── NEXT MEETING (hero) ─────────────────── */}
+        {nextMeeting && (
           <div style={{ marginBottom: 24 }}>
-            <div style={sectionLabel}>Meetings</div>
-            {meetings.map(meeting => (
-              <div
-                key={meeting.id}
-                style={{
-                  background:   '#FFFFFF',
-                  borderLeft:   '3px solid rgba(56,184,200,0.52)',
-                  borderRadius: '0 14px 14px 0',
-                  padding:      '14px 17px',
-                  marginBottom: 10,
-                  boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
-                }}
-              >
-                {/* Time */}
+            <div style={sectionLabel}>Next Meeting</div>
+            <div
+              onClick={() => handleMeetingTap(nextMeeting)}
+              style={{
+                background:   '#FFFFFF',
+                borderLeft:   `3px solid ${getMeetingState(nextMeeting) === 'in_progress' ? COLORS.green : 'rgba(56,184,200,0.52)'}`,
+                borderRadius: '0 14px 14px 0',
+                padding:      '16px 17px',
+                boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
+                cursor:       'pointer',
+              }}
+            >
+              {/* Time */}
+              <div style={{
+                display:      'flex',
+                alignItems:   'center',
+                gap:          7,
+                marginBottom: 7,
+              }}>
                 <div style={{
-                  display:      'flex',
-                  alignItems:   'center',
-                  gap:          7,
-                  marginBottom: 7,
+                  width:        6,
+                  height:       6,
+                  borderRadius: '50%',
+                  background:   getMeetingState(nextMeeting) === 'in_progress' ? COLORS.green : COLORS.teal,
+                  flexShrink:   0,
+                  ...(getMeetingState(nextMeeting) === 'in_progress' ? { animation: 'dotBlink 2.5s ease-in-out infinite' } : {}),
+                }} />
+                <span style={{
+                  fontSize:      10,
+                  fontWeight:    600,
+                  letterSpacing: '1.5px',
+                  textTransform: 'uppercase',
+                  color:         getMeetingState(nextMeeting) === 'in_progress'
+                    ? 'rgba(72,200,120,0.82)'
+                    : 'rgba(56,184,200,0.82)',
                 }}>
-                  <div style={{
-                    width:        6,
-                    height:       6,
-                    borderRadius: '50%',
-                    background:   COLORS.teal,
-                    flexShrink:   0,
-                  }} />
+                  {meetingTimes[nextMeeting.id] ?? formatMeetingTime(nextMeeting.scheduled_at)}
+                </span>
+                {nextMeeting.deal_id && (
                   <span style={{
-                    fontSize:      10,
+                    fontSize:      9,
                     fontWeight:    600,
-                    letterSpacing: '1.5px',
-                    textTransform: 'uppercase',
-                    color:         'rgba(56,184,200,0.82)',
+                    letterSpacing: '0.5px',
+                    color:         COLORS.teal,
+                    background:    'rgba(56,184,200,0.1)',
+                    border:        '0.5px solid rgba(56,184,200,0.22)',
+                    borderRadius:  20,
+                    padding:       '2px 8px',
+                    marginLeft:    'auto',
                   }}>
-                    {meetingTimes[meeting.id] ?? formatMeetingTime(meeting.scheduled_at)}
+                    Deal linked
                   </span>
-                  {meeting.deal_id && (
-                    <span style={{
-                      fontSize:      9,
-                      fontWeight:    600,
-                      letterSpacing: '0.5px',
-                      color:         COLORS.teal,
-                      background:    'rgba(56,184,200,0.1)',
-                      border:        '0.5px solid rgba(56,184,200,0.22)',
-                      borderRadius:  20,
-                      padding:       '2px 8px',
-                      marginLeft:    'auto',
-                    }}>
-                      Deal linked
-                    </span>
+                )}
+              </div>
+
+              {/* Title */}
+              <div style={{
+                fontFamily:   "'Cormorant Garamond', serif",
+                fontSize:     20,
+                fontWeight:   400,
+                color:        '#1A1410',
+                marginBottom: nextMeeting.attendees ? 5 : 10,
+              }}>
+                {nextMeeting.title}
+              </div>
+
+              {/* Attendees */}
+              {nextMeeting.attendees && (
+                <div style={{
+                  fontSize:     12,
+                  fontWeight:   300,
+                  color:        'rgba(26,20,16,0.44)',
+                  marginBottom: 10,
+                }}>
+                  {nextMeeting.attendees}
+                </div>
+              )}
+
+              {/* Inline expanded content */}
+              {expandedMeetingId === nextMeeting.id && (
+                <div style={{
+                  marginTop:    10,
+                  paddingTop:   10,
+                  borderTop:    '0.5px solid rgba(200,160,80,0.15)',
+                }}>
+                  {/* AI Brief (deal-linked only) */}
+                  {nextMeeting.deal_id && (
+                    <div style={{ marginBottom: 10 }}>
+                      {briefLoading[nextMeeting.id] ? (
+                        <div style={{
+                          height:       12,
+                          borderRadius: 6,
+                          background:   'rgba(26,20,16,0.06)',
+                          animation:    'shimmer 1.5s ease-in-out infinite',
+                          width:        '85%',
+                        }} />
+                      ) : inlineBriefs[nextMeeting.id] ? (
+                        <p style={{
+                          fontSize:   13,
+                          fontWeight: 300,
+                          color:      'rgba(26,20,16,0.56)',
+                          lineHeight: 1.6,
+                          margin:     0,
+                        }}>
+                          {inlineBriefs[nextMeeting.id]}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {/* CTAs */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {/* Prep Me — only for upcoming + deal-linked */}
+                    {nextMeeting.deal_id && getMeetingState(nextMeeting) === 'upcoming' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/deals/${nextMeeting.deal_id}/prep`);
+                        }}
+                        style={{
+                          padding:       '8px 16px',
+                          borderRadius:  9,
+                          border:        '0.5px solid rgba(56,184,200,0.4)',
+                          background:    'rgba(56,184,200,0.06)',
+                          color:         COLORS.teal,
+                          fontSize:      10,
+                          fontWeight:    700,
+                          letterSpacing: '1.5px',
+                          textTransform: 'uppercase',
+                          cursor:        'pointer',
+                          fontFamily:    "'DM Sans', sans-serif",
+                        }}
+                      >
+                        Prep Me
+                      </button>
+                    )}
+                    {/* Add context — always available */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddContext(nextMeeting);
+                      }}
+                      style={{
+                        padding:       '8px 16px',
+                        borderRadius:  9,
+                        border:        '0.5px solid rgba(200,160,80,0.3)',
+                        background:    'rgba(200,160,80,0.06)',
+                        color:         COLORS.amber,
+                        fontSize:      10,
+                        fontWeight:    700,
+                        letterSpacing: '1.5px',
+                        textTransform: 'uppercase',
+                        cursor:        'pointer',
+                        fontFamily:    "'DM Sans', sans-serif",
+                      }}
+                    >
+                      Add Context
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Collapsed state CTAs (visible without expansion) */}
+              {expandedMeetingId !== nextMeeting.id && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {nextMeeting.deal_id && getMeetingState(nextMeeting) === 'upcoming' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/deals/${nextMeeting.deal_id}/prep`);
+                      }}
+                      style={{
+                        padding:       '8px 16px',
+                        borderRadius:  9,
+                        border:        '0.5px solid rgba(56,184,200,0.4)',
+                        background:    'rgba(56,184,200,0.06)',
+                        color:         COLORS.teal,
+                        fontSize:      10,
+                        fontWeight:    700,
+                        letterSpacing: '1.5px',
+                        textTransform: 'uppercase',
+                        cursor:        'pointer',
+                        fontFamily:    "'DM Sans', sans-serif",
+                      }}
+                    >
+                      Prep Me
+                    </button>
+                  )}
+                  {getMeetingState(nextMeeting) !== 'upcoming' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddContext(nextMeeting);
+                      }}
+                      style={{
+                        padding:       '8px 16px',
+                        borderRadius:  9,
+                        border:        '0.5px solid rgba(200,160,80,0.3)',
+                        background:    'rgba(200,160,80,0.06)',
+                        color:         COLORS.amber,
+                        fontSize:      10,
+                        fontWeight:    700,
+                        letterSpacing: '1.5px',
+                        textTransform: 'uppercase',
+                        cursor:        'pointer',
+                        fontFamily:    "'DM Sans', sans-serif",
+                      }}
+                    >
+                      Add Context
+                    </button>
                   )}
                 </div>
+              )}
+            </div>
+          </div>
+        )}
 
-                {/* Title */}
-                <div style={{
-                  fontFamily:   "'Cormorant Garamond', serif",
-                  fontSize:     18,
-                  fontWeight:   400,
-                  color:        '#1A1410',
-                  marginBottom: meeting.attendees ? 5 : 10,
-                }}>
-                  {meeting.title}
-                </div>
-
-                {/* Attendees */}
-                {meeting.attendees && (
-                  <div style={{
-                    fontSize:     12,
-                    fontWeight:   300,
-                    color:        'rgba(26,20,16,0.44)',
-                    marginBottom: 10,
-                  }}>
-                    {meeting.attendees}
-                  </div>
-                )}
-
-                {/* Prep Me */}
-                <button
-                  onClick={() => {
-                    if (meeting.deal_id) {
-                      router.push(`/deals/${meeting.deal_id}/prep`);
-                    } else {
-                      router.push(
-                        `/prep?title=${encodeURIComponent(meeting.title)}`
-                      );
-                    }
-                  }}
+        {/* ── UPCOMING TODAY ─────────────────────────── */}
+        {upcomingMeetings.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={sectionLabel}>Upcoming Today</div>
+            {upcomingMeetings.map(meeting => {
+              const state = getMeetingState(meeting);
+              const isExpanded = expandedMeetingId === meeting.id;
+              return (
+                <div
+                  key={meeting.id}
+                  onClick={() => handleMeetingTap(meeting)}
                   style={{
-                    padding:       '8px 16px',
-                    borderRadius:  9,
-                    border:        '0.5px solid rgba(56,184,200,0.4)',
-                    background:    'rgba(56,184,200,0.06)',
-                    color:         COLORS.teal,
-                    fontSize:      10,
-                    fontWeight:    700,
-                    letterSpacing: '1.5px',
-                    textTransform: 'uppercase',
-                    cursor:        'pointer',
-                    fontFamily:    "'DM Sans', sans-serif",
+                    background:   '#FFFFFF',
+                    borderLeft:   `3px solid ${state === 'in_progress' ? COLORS.green : 'rgba(56,184,200,0.52)'}`,
+                    borderRadius: '0 14px 14px 0',
+                    padding:      '14px 17px',
+                    marginBottom: 10,
+                    boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
+                    cursor:       'pointer',
                   }}
                 >
-                  Prep Me →
-                </button>
-              </div>
-            ))}
+                  {/* Time */}
+                  <div style={{
+                    display:      'flex',
+                    alignItems:   'center',
+                    gap:          7,
+                    marginBottom: 7,
+                  }}>
+                    <div style={{
+                      width:        6,
+                      height:       6,
+                      borderRadius: '50%',
+                      background:   state === 'in_progress' ? COLORS.green : COLORS.teal,
+                      flexShrink:   0,
+                    }} />
+                    <span style={{
+                      fontSize:      10,
+                      fontWeight:    600,
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      color:         state === 'in_progress'
+                        ? 'rgba(72,200,120,0.82)'
+                        : 'rgba(56,184,200,0.82)',
+                    }}>
+                      {meetingTimes[meeting.id] ?? formatMeetingTime(meeting.scheduled_at)}
+                    </span>
+                    {meeting.deal_id && (
+                      <span style={{
+                        fontSize:      9,
+                        fontWeight:    600,
+                        letterSpacing: '0.5px',
+                        color:         COLORS.teal,
+                        background:    'rgba(56,184,200,0.1)',
+                        border:        '0.5px solid rgba(56,184,200,0.22)',
+                        borderRadius:  20,
+                        padding:       '2px 8px',
+                        marginLeft:    'auto',
+                      }}>
+                        Deal linked
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Title */}
+                  <div style={{
+                    fontFamily:   "'Cormorant Garamond', serif",
+                    fontSize:     18,
+                    fontWeight:   400,
+                    color:        '#1A1410',
+                    marginBottom: meeting.attendees ? 5 : 0,
+                  }}>
+                    {meeting.title}
+                  </div>
+
+                  {/* Attendees */}
+                  {meeting.attendees && (
+                    <div style={{
+                      fontSize:     12,
+                      fontWeight:   300,
+                      color:        'rgba(26,20,16,0.44)',
+                      marginBottom: 0,
+                    }}>
+                      {meeting.attendees}
+                    </div>
+                  )}
+
+                  {/* Inline expanded content */}
+                  {isExpanded && (
+                    <div style={{
+                      marginTop:    10,
+                      paddingTop:   10,
+                      borderTop:    '0.5px solid rgba(200,160,80,0.15)',
+                    }}>
+                      {/* AI Brief (deal-linked only) */}
+                      {meeting.deal_id && (
+                        <div style={{ marginBottom: 10 }}>
+                          {briefLoading[meeting.id] ? (
+                            <div style={{
+                              height:       12,
+                              borderRadius: 6,
+                              background:   'rgba(26,20,16,0.06)',
+                              animation:    'shimmer 1.5s ease-in-out infinite',
+                              width:        '85%',
+                            }} />
+                          ) : inlineBriefs[meeting.id] ? (
+                            <p style={{
+                              fontSize:   13,
+                              fontWeight: 300,
+                              color:      'rgba(26,20,16,0.56)',
+                              lineHeight: 1.6,
+                              margin:     0,
+                            }}>
+                              {inlineBriefs[meeting.id]}
+                            </p>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {/* CTAs based on state */}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {/* Prep Me — only upcoming + deal-linked */}
+                        {meeting.deal_id && state === 'upcoming' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/deals/${meeting.deal_id}/prep`);
+                            }}
+                            style={{
+                              padding:       '8px 16px',
+                              borderRadius:  9,
+                              border:        '0.5px solid rgba(56,184,200,0.4)',
+                              background:    'rgba(56,184,200,0.06)',
+                              color:         COLORS.teal,
+                              fontSize:      10,
+                              fontWeight:    700,
+                              letterSpacing: '1.5px',
+                              textTransform: 'uppercase',
+                              cursor:        'pointer',
+                              fontFamily:    "'DM Sans', sans-serif",
+                            }}
+                          >
+                            Prep Me
+                          </button>
+                        )}
+                        {/* Add context — always */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAddContext(meeting);
+                          }}
+                          style={{
+                            padding:       '8px 16px',
+                            borderRadius:  9,
+                            border:        '0.5px solid rgba(200,160,80,0.3)',
+                            background:    'rgba(200,160,80,0.06)',
+                            color:         COLORS.amber,
+                            fontSize:      10,
+                            fontWeight:    700,
+                            letterSpacing: '1.5px',
+                            textTransform: 'uppercase',
+                            cursor:        'pointer',
+                            fontFamily:    "'DM Sans', sans-serif",
+                          }}
+                        >
+                          Add Context
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── COMPLETED MEETINGS ───────────────────── */}
+        {completedMeetings.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <button
+              onClick={() => setShowCompleted(!showCompleted)}
+              style={{
+                background:    'none',
+                border:        'none',
+                cursor:        'pointer',
+                display:       'flex',
+                alignItems:    'center',
+                gap:           8,
+                padding:       '10px 0',
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: '2.5px',
+                textTransform: 'uppercase',
+                color:         'rgba(26,20,16,0.28)',
+                fontFamily:    "'DM Sans', sans-serif",
+                width:         '100%',
+                paddingBottom: 8,
+                marginBottom:  showCompleted ? 14 : 0,
+                borderBottom:  '0.5px solid rgba(200,160,80,0.2)',
+              }}
+            >
+              <span style={{
+                display:    'inline-block',
+                transform:  showCompleted ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+                fontSize:   12,
+              }}>›</span>
+              Completed · {completedMeetings.length}
+            </button>
+
+            {showCompleted && completedMeetings.map(meeting => {
+              const isExpanded = expandedMeetingId === meeting.id;
+              return (
+                <div
+                  key={meeting.id}
+                  onClick={() => handleMeetingTap(meeting)}
+                  style={{
+                    background:   '#FFFFFF',
+                    borderLeft:   '3px solid rgba(26,20,16,0.1)',
+                    borderRadius: '0 14px 14px 0',
+                    padding:      '14px 17px',
+                    marginBottom: 10,
+                    boxShadow:    '0 1px 6px rgba(26,20,16,0.04)',
+                    opacity:      0.7,
+                    cursor:       'pointer',
+                  }}
+                >
+                  {/* Time */}
+                  <div style={{
+                    display:      'flex',
+                    alignItems:   'center',
+                    gap:          7,
+                    marginBottom: 5,
+                  }}>
+                    <span style={{
+                      fontSize:      10,
+                      fontWeight:    600,
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      color:         'rgba(26,20,16,0.3)',
+                    }}>
+                      {meetingTimes[meeting.id] ?? formatMeetingTime(meeting.scheduled_at)}
+                    </span>
+                  </div>
+
+                  {/* Title */}
+                  <div style={{
+                    fontFamily:   "'Cormorant Garamond', serif",
+                    fontSize:     17,
+                    fontWeight:   400,
+                    color:        'rgba(26,20,16,0.6)',
+                    marginBottom: 0,
+                  }}>
+                    {meeting.title}
+                  </div>
+
+                  {/* Expanded content */}
+                  {isExpanded && (
+                    <div style={{
+                      marginTop:  10,
+                      paddingTop: 10,
+                      borderTop:  '0.5px solid rgba(200,160,80,0.12)',
+                    }}>
+                      {meeting.attendees && (
+                        <div style={{
+                          fontSize:     12,
+                          fontWeight:   300,
+                          color:        'rgba(26,20,16,0.4)',
+                          marginBottom: 10,
+                        }}>
+                          {meeting.attendees}
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddContext(meeting);
+                        }}
+                        style={{
+                          padding:       '8px 16px',
+                          borderRadius:  9,
+                          border:        '0.5px solid rgba(200,160,80,0.2)',
+                          background:    'rgba(200,160,80,0.04)',
+                          color:         'rgba(200,160,80,0.7)',
+                          fontSize:      10,
+                          fontWeight:    700,
+                          letterSpacing: '1.5px',
+                          textTransform: 'uppercase',
+                          cursor:        'pointer',
+                          fontFamily:    "'DM Sans', sans-serif",
+                        }}
+                      >
+                        Add Context
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* No meetings state */}
+        {!loading && meetings.length === 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={sectionLabel}>Meetings</div>
+            <div style={{
+              textAlign: 'center',
+              padding:   '24px 0 16px',
+            }}>
+              <p style={{
+                fontFamily: "'Cormorant Garamond', serif",
+                fontSize:   18,
+                fontWeight: 300,
+                color:      'rgba(26,20,16,0.36)',
+              }}>
+                No meetings today.
+              </p>
+            </div>
           </div>
         )}
 
@@ -956,7 +1518,11 @@ export default function BriefingPage() {
 
         {/* ── CAPTURE SHORTCUT ─────────────────────── */}
         <div
-          onClick={() => setShowCapture(true)}
+          onClick={() => {
+            setCaptureMeetingContext(null);
+            setCaptureMeetingId(undefined);
+            setShowCapture(true);
+          }}
           style={{
             display:      'flex',
             alignItems:   'center',
@@ -1030,13 +1596,22 @@ export default function BriefingPage() {
       {/* ── CAPTURE SHEET ────────────────────────────── */}
       {showCapture && userId && (
         <CaptureSheet
-          onClose={() => setShowCapture(false)}
+          onClose={() => {
+            setShowCapture(false);
+            setCaptureMeetingContext(null);
+            setCaptureMeetingId(undefined);
+          }}
           userId={userId}
           activeDeals={allActiveDeals}
           onCaptureComplete={() => {
             setShowCapture(false);
+            setCaptureMeetingContext(null);
+            setCaptureMeetingId(undefined);
             fetchData();
           }}
+          initialMode="debrief"
+          meetingContext={captureMeetingContext}
+          meetingId={captureMeetingId}
         />
       )}
 
