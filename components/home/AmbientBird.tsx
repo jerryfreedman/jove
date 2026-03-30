@@ -16,25 +16,23 @@ const DIR_CHANGE_MAX = 18000;         // max ms before direction change
 const TURN_DURATION = 1400;           // ms for smooth direction transition
 
 // ── SOAR CONSTANTS ───────────────────────────────────────
+// Single smooth arc using sin²(πt) — zero velocity at takeoff, peak, and landing
 const SOAR_HEIGHT = 65;               // px upward
-const SOAR_ASCENT_MS = 600;
-const SOAR_PEAK_MS = 120;
-const SOAR_DESCENT_MS = 700;
-const SOAR_TOTAL_MS = SOAR_ASCENT_MS + SOAR_PEAK_MS + SOAR_DESCENT_MS;
+const SOAR_DURATION_MS = 1800;        // total arc duration — unhurried
 
 // ── WING FLAP CONSTANTS ─────────────────────────────────
-const FLAP_CYCLE_MS = 360;            // one full flap cycle
+const FLAP_CYCLE_MS = 480;            // one full flap cycle — slower, calmer
 const FLAP_BURST_CYCLES = 2;          // 2 flap cycles per burst
-const FLAP_BURST_MS = FLAP_CYCLE_MS * FLAP_BURST_CYCLES; // 720ms
+const FLAP_BURST_MS = FLAP_CYCLE_MS * FLAP_BURST_CYCLES;
 const FLAP_MIN_INTERVAL = 4000;       // min ms between bursts
 const FLAP_MAX_INTERVAL = 9000;       // max ms between bursts
 
 // SVG path control points for wing animation:
-// Rest:  M0,11 Q7,1  16,8  Q25,1  32,11  (wings up — normal M-shape)
-// Flap:  M0,11 Q7,10 16,8  Q25,10 32,11  (wings down — nearly flat)
-// The control point Y moves from 1 (up) to 10 (down)
+// Rest:  M0,11 Q7,1  16,8 Q25,1  32,11  (wings up — normal M-shape)
+// Flap:  M0,11 Q7,5  16,8 Q25,5  32,11  (wings gently dipped — subtle)
+// Small range = gentle breath, not mechanical pump
 const WING_CP_REST = 1;
-const WING_CP_FLAP = 10;
+const WING_CP_FLAP = 5;
 
 // Sky zone: from 8% to SCENE_HORIZON_PERCENT% of viewport
 const SKY_TOP_PERCENT = 8;
@@ -299,29 +297,20 @@ export default function AmbientBird({
           rx.type = null;
         }
       } else if (rx.type === 'soar') {
-        // ── SMOOTH PHYSICAL ARC: ease-out ascent → peak pause → ease-in descent ──
-        const height = rx.soarStartY - rx.soarPeakY;
-
-        if (elapsed < SOAR_ASCENT_MS) {
-          // Phase 1 — Ascent (ease-out: fast start, decelerate)
-          const t = elapsed / SOAR_ASCENT_MS;
-          const easeOut = 1 - (1 - t) * (1 - t);
-          s.y = rx.soarStartY - height * easeOut;
-        } else if (elapsed < SOAR_ASCENT_MS + SOAR_PEAK_MS) {
-          // Phase 2 — Peak pause (hold at top)
-          s.y = rx.soarPeakY;
-        } else if (elapsed < SOAR_TOTAL_MS) {
-          // Phase 3 — Descent (ease-in: slow start, accelerate)
-          const t = (elapsed - SOAR_ASCENT_MS - SOAR_PEAK_MS) / SOAR_DESCENT_MS;
-          const easeIn = t * t;
-          s.y = rx.soarPeakY + height * easeIn;
+        // ── SMOOTH ARC: sin²(πt) — zero velocity at takeoff, apex, and landing ──
+        // This creates a single, perfectly smooth parabolic arc.
+        // No phases, no seams, no abrupt transitions.
+        const t = elapsed / SOAR_DURATION_MS;
+        if (t < 1) {
+          const height = rx.soarStartY - rx.soarPeakY;
+          const sinT = Math.sin(Math.PI * t);
+          const arc = sinT * sinT; // sin²(πt): 0 → 1 → 0, smooth at all edges
+          s.y = rx.soarStartY - height * arc;
         } else {
-          // Phase 4 — Return to drift: seamless handoff
-          // Set baseY to where bird landed so drift continues from here
+          // Return to drift: seamless handoff from current position
           s.baseY = rx.soarStartY;
           s.y = rx.soarStartY;
-          // Reset sine offset so drift picks up smoothly from current position
-          s.sineOffset = -now;
+          s.sineOffset = -now; // reset sine so drift starts at zero offset
           rx.active = false;
           rx.type = null;
         }
@@ -363,10 +352,15 @@ export default function AmbientBird({
         wf.nextBurstTime = now + randomBetween(FLAP_MIN_INTERVAL, FLAP_MAX_INTERVAL);
         wingCpY = WING_CP_REST;
       } else {
-        // Sine oscillation: wings sweep from rest (up) to flap (down) and back
-        const flapProgress = (flapElapsed % FLAP_CYCLE_MS) / FLAP_CYCLE_MS;
-        const sine = Math.sin(flapProgress * Math.PI);  // 0→1→0 per half-cycle
-        wingCpY = WING_CP_REST + (WING_CP_FLAP - WING_CP_REST) * sine;
+        // Full sine oscillation per cycle: wings dip down then back up
+        const cycleT = (flapElapsed % FLAP_CYCLE_MS) / FLAP_CYCLE_MS;
+        // sin(2πt) gives one full oscillation per cycle
+        // abs() keeps it always positive (dip below rest, never above)
+        const wave = Math.abs(Math.sin(cycleT * Math.PI * 2));
+        // Envelope: fade out the burst so it doesn't end abruptly
+        const burstT = flapElapsed / FLAP_BURST_MS;
+        const envelope = 1 - burstT * burstT; // quadratic fadeout
+        wingCpY = WING_CP_REST + (WING_CP_FLAP - WING_CP_REST) * wave * envelope;
       }
     }
 
@@ -431,7 +425,7 @@ export default function AmbientBird({
         active: true,
         type: 'soar',
         startTime: now,
-        duration: SOAR_TOTAL_MS,
+        duration: SOAR_DURATION_MS,
         soarStartY: s.y,
         soarPeakY: peakY,
       };
@@ -475,7 +469,7 @@ export default function AmbientBird({
           active: true,
           type: 'soar',
           startTime: now,
-          duration: SOAR_TOTAL_MS,
+          duration: SOAR_DURATION_MS,
           soarStartY: s.y,
           soarPeakY: peakY,
         };
