@@ -241,7 +241,15 @@ export default function HomePage() {
   // Session memory: promptKeys already answered via bird this session.
   // Primary logic: gap resolved in data → question disappears naturally.
   // Safety net: answered this session → skip even if gap still shows in data.
-  const birdAnsweredRef = useRef<Set<string>>(new Set());
+  const birdAnsweredRef = useRef<Set<string>>((() => {
+    try {
+      const stored = sessionStorage.getItem('jove_bird_answered');
+      if (stored) {
+        return new Set<string>(JSON.parse(stored) as string[]);
+      }
+    } catch { /* corrupt data — start fresh */ }
+    return new Set<string>();
+  })());
   // Counter to force birdQuestion useMemo to recompute after a submit
   // (refs alone don't trigger re-render, so useMemo wouldn't see the ref change).
   const [birdAnsweredCount, setBirdAnsweredCount] = useState(0);
@@ -399,17 +407,6 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── BIRD ANSWERED — HYDRATE FROM SESSION STORAGE ────────
-  useEffect(() => {
-    const stored = sessionStorage.getItem('jove_bird_answered');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as string[];
-        parsed.forEach(k => birdAnsweredRef.current.add(k));
-        if (parsed.length > 0) setBirdAnsweredCount(c => c + 1);
-      } catch { /* corrupt data — start fresh */ }
-    }
-  }, []);
 
   // ── BIRD HITBOX TRACKING ────────────────────────────────
   useEffect(() => {
