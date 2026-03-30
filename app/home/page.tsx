@@ -365,21 +365,14 @@ export default function HomePage() {
   const sunCenterTop  = celestialPos.y;
   const isNight       = celestialPos.isMoon;
 
-  // Proportional orbGlow: scales with the rendered celestial size.
-  // Glow diameter = ~3× the object size, with sane floor/ceiling.
-  const orbGlowSize = celestialPos.size > 0
-    ? Math.max(60, Math.min(celestialPos.size * 3, 160))
-    : 110;
-
-  // Moon vs sun color families — used by glow, bloom, warmth
-  const glowColor   = isNight ? 'rgba(200,210,230,0.10)'  : 'rgba(248,190,64,0.08)';
+  // Moon vs sun color families — used by bloom, warmth
   const bloomColor  = isNight
     ? 'radial-gradient(circle, rgba(200,210,230,0.58), rgba(180,190,210,0.22) 50%, transparent 75%)'
     : 'radial-gradient(circle, rgba(248,190,64,0.65), rgba(232,160,48,0.25) 50%, transparent 75%)';
   const warmthInner = isNight ? 'rgba(180,200,230,0.24)' : 'rgba(232,160,48,0.28)';
   const warmthOuter = isNight ? 'rgba(140,160,200,0.09)' : 'rgba(200,120,32,0.11)';
-  const brightInner = isNight ? 'rgba(210,220,240,0.08)' : 'rgba(255,248,230,0.10)';
-  const brightOuter = isNight ? 'rgba(210,220,240,0.04)' : 'rgba(255,248,230,0.05)';
+  const brightInner = isNight ? 'rgba(210,220,240,0.10)' : 'rgba(255,248,230,0.13)';
+  const brightOuter = isNight ? 'rgba(210,220,240,0.05)' : 'rgba(255,248,230,0.065)';
   const pulseColor  = isNight ? 'rgba(200,210,230,0.35)' : 'rgba(248,190,64,0.4)';
 
   // Text color adapts to sky brightness
@@ -1144,9 +1137,9 @@ export default function HomePage() {
         }
         @keyframes ackSunBloom {
           0% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
-          12.5% { transform: translate(-50%,-50%) scale(1.4); opacity: 0.85; }
-          37.5% { transform: translate(-50%,-50%) scale(1.6); opacity: 0.65; }
-          100% { transform: translate(-50%,-50%) scale(2.8); opacity: 0; }
+          12.5% { transform: translate(-50%,-50%) scale(1.4); opacity: 1; }
+          37.5% { transform: translate(-50%,-50%) scale(1.6); opacity: 0.81; }
+          100% { transform: translate(-50%,-50%) scale(3.22); opacity: 0; }
         }
         @keyframes ackBrightness {
           0% { opacity: 0; }
@@ -1220,23 +1213,6 @@ export default function HomePage() {
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {(scene.sun.opacity > 0 || isNight) ? (
         <>
-          {/* Breathing glow behind celestial object — proportional to rendered size */}
-          <div
-            style={{
-              position:     'absolute',
-              left:         sunCenterLeft,
-              top:          sunCenterTop,
-              transform:    'translate(-50%, -50%)',
-              width:        orbGlowSize,
-              height:       orbGlowSize,
-              borderRadius: '50%',
-              background:   `radial-gradient(circle, ${glowColor}, transparent 68%)`,
-              animation:    `orbGlow ${isNight ? '8' : '5'}s ease-in-out infinite`,
-              zIndex:       14,
-              pointerEvents:'none',
-            }}
-          />
-
           {/* Clickable celestial overlay — uses calc() for centering because the
               breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div

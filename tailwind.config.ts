@@ -51,7 +51,7 @@ const config: Config = {
         sunGlow: { '0%,100%': { opacity: '0.1' }, '50%': { opacity: '0.2' } },
         sunPulse: { '0%,100%': { opacity: '0.9' }, '50%': { opacity: '0.62' } },
         reflGlow: { '0%,100%': { width: '28px', opacity: '0.5' }, '50%': { width: '56px', opacity: '0.9' } },
-        waveFlow: { '0%': { transform: 'translateX(-12px)', opacity: '0' }, '15%': { opacity: '1' }, '85%': { opacity: '1' }, '100%': { transform: 'translateX(18px)', opacity: '0' } },
+        waveFlow: { '0%': { transform: 'translateX(-8px)', opacity: '0' }, '15%': { opacity: '1' }, '85%': { opacity: '1' }, '100%': { transform: 'translateX(13px)', opacity: '0' } },
         hazeBreath: { '0%,100%': { opacity: '0.65' }, '50%': { opacity: '1' } },
         starTwink: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.08' } },
         fadeUp: { from: { opacity: '0', transform: 'translateY(12px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
