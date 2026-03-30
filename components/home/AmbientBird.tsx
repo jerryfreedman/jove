@@ -301,13 +301,13 @@ export default function AmbientBird({
     const now = performance.now();
 
     if (source === 'save') {
-      // ── SAVE-CONFIRMED: deterministic soar (60px arc, 950ms) ──
-      const peakY = Math.max(s.skyTopPx, s.y - 60);
+      // ── SAVE-CONFIRMED: deterministic soar (65px arc, 1000ms) ──
+      const peakY = Math.max(s.skyTopPx, s.y - 65);
       reactionRef.current = {
         active: true,
         type: 'soar',
         startTime: now,
-        duration: 950,
+        duration: 1000,
         soarStartY: s.y,
         soarPeakY: peakY,
       };

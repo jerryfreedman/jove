@@ -270,23 +270,19 @@ export default function HomePage() {
   const [actionAcknowledged, setActionAcknowledged] = useState(false);
   const actionInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // ── FEEDBACK BANNER STATE ──────────────────────────────
-  const [feedbackText, setFeedbackText] = useState<string | null>(null);
-  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  // ── ENVIRONMENTAL RESPONSE STATE ─────────────────────
+  const [captureWarmth, setCaptureWarmth] = useState(false);
+  const environmentalResponseGuardRef = useRef<number>(0);
+  const captureCompletedRef = useRef(false);
 
   // ── BIRD REACTION TRIGGER ────────────────────────────
   const [birdReactionTrigger, setBirdReactionTrigger] = useState(0);
   // Stable ref: labels the source of the next reaction increment ('save' | 'ambient')
   const birdReactionSourceRef = useRef<'save' | 'ambient'>('ambient');
-  const prevSignalCountForBirdRef = useRef<number>(0);
 
   // ── SIGNAL PULSE STATE ──────────────────────────────────
   const [showSignalPulse, setShowSignalPulse] = useState(false);
-  // (Zen capture moment removed — save-confirmed feedback is per-path only)
-  const prevSignalCountForPulseRef = useRef<number | null>(null);
-
-  // Track signal count before capture to diff after re-fetch
-  const preCaptureSignalCountRef = useRef<number | null>(null);
+  // (Zen capture moment removed — environmental response replaces per-path feedback)
 
   // Guard: track which interaction IDs have already been retried this session
   const retriedInteractionIdsRef = useRef<Set<string>>(new Set());
@@ -433,8 +429,7 @@ export default function HomePage() {
       const ts = parseInt(pending, 10);
       if (Date.now() - ts < 15000) {
         setTimeout(() => {
-          setShowSignalPulse(true);
-          setTimeout(() => setShowSignalPulse(false), 900);
+          triggerEnvironmentalResponse();
         }, 600);
       }
       localStorage.removeItem('jove_pulse_pending');
@@ -747,56 +742,7 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // ── POST-CAPTURE FEEDBACK FROM REAL EXTRACTION ─────────
-  useEffect(() => {
-    if (preCaptureSignalCountRef.current === null || !data) return;
-
-    const prevCount = preCaptureSignalCountRef.current;
-    const newCount = data.signals.length;
-    const newSignals = data.signals.slice(0, Math.max(0, newCount - prevCount));
-
-    // Reset ref so this only fires once per capture
-    preCaptureSignalCountRef.current = null;
-
-    if (newSignals.length > 0) {
-      // Derive feedback from actual extracted signal types
-      const signalLabels: Record<string, string> = {
-        champion_identified: 'Champion identified',
-        budget_mentioned:    'Budget mentioned — momentum increasing',
-        positive_sentiment:  'Positive signal detected',
-        next_step_agreed:    'Next step agreed',
-        risk_flag:           'Risk flag raised',
-        competitor_mentioned:'Competitor mentioned',
-      };
-
-      const firstSignal = newSignals[0];
-      const label = signalLabels[firstSignal.signal_type] || firstSignal.signal_type;
-
-      // Try to match signal to a deal for account context
-      const matchedDeal = firstSignal.deal_id
-        ? data.allDeals.find(d => d.id === firstSignal.deal_id)
-        : null;
-      const accountLabel = matchedDeal
-        ? (matchedDeal.accounts?.name || matchedDeal.name)
-        : null;
-
-      let fb: string;
-      if (newSignals.length === 1) {
-        fb = accountLabel ? `${label} at ${accountLabel}` : label;
-      } else {
-        fb = accountLabel
-          ? `${newSignals.length} signals captured — ${accountLabel} updated`
-          : `${newSignals.length} signals captured — deal updated`;
-      }
-
-      // ── SYSTEM LEARNED: feedback banner only ──
-      setFeedbackText(fb);
-      setFeedbackVisible(true);
-      setTimeout(() => setFeedbackVisible(false), 3500);
-      setTimeout(() => setFeedbackText(null), 4100);
-    }
-    // else: no new signals — silence is correct; soar + pulse already confirmed save
-  }, [data]);
+  // (Post-capture feedback banner removed — environmental response replaces it)
 
   // ── SESSION ACKNOWLEDGMENT CHECK ──────────────────────────
   useEffect(() => {
@@ -816,8 +762,9 @@ export default function HomePage() {
       if (e.key === 'jove_bloom_trigger') {
         setLogoBloom(true);
         setTimeout(() => setLogoBloom(false), 800);
-        // Bird reacts to cross-tab capture / Save to Jove
-        setBirdReactionTrigger(k => k + 1);
+        // Environmental response for cross-tab capture / Save to Jove
+        // (Bird does NOT soar for non-bird captures — only sun pulse + warmth boost)
+        triggerEnvironmentalResponse();
       }
       if (e.key === 'jove_milestone_trigger') {
         setLogoMilestone(true);
@@ -829,13 +776,7 @@ export default function HomePage() {
   }, []);
 
   // ── BIRD/PULSE SIGNAL COUNT TRACKING ─────────────────
-  // (Second bird reaction and second signal pulse removed —
-  //  save-confirmed moment handles these; system-learned moment
-  //  uses feedback banner only.)
-  useEffect(() => {
-    prevSignalCountForBirdRef.current = data?.signals.length ?? 0;
-    prevSignalCountForPulseRef.current = data?.signals.length ?? 0;
-  }, [data?.signals.length]);
+  // (Bird/pulse signal count tracking removed — environmental response is the sole feedback path)
 
   // ── DERIVED VALUES ─────────────────────────────────────
   const streak = data ? calculateStreak(data.streakLogs) : null;
@@ -984,15 +925,12 @@ export default function HomePage() {
     // Clear pending pulse flag (prevent double-fire on next mount)
     localStorage.removeItem('jove_pulse_pending');
 
-    // ── SAVE CONFIRMED: bird reaction + one sun pulse ──
+    // ── SAVE CONFIRMED: environmental response + bird soar ──
+    triggerEnvironmentalResponse();
+    // Bird soar — only for bird captures
     setBirdPulseTrigger(k => k + 1);
     birdReactionSourceRef.current = 'save';
     setBirdReactionTrigger(k => k + 1);
-    setShowSignalPulse(true);
-    setTimeout(() => setShowSignalPulse(false), 900);
-
-    // Snapshot signal count for post-capture feedback
-    preCaptureSignalCountRef.current = data?.signals.length ?? 0;
 
     // Delayed re-fetch to let extraction complete
     setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
@@ -1016,6 +954,23 @@ export default function HomePage() {
     : 0;
   const intelLines      = data ? buildIntelLines(data, pulseThreshold) : [];
   const richnessLevel   = Math.min((data?.signals.length ?? 0) / 12, 1);
+
+  // ── ENVIRONMENTAL RESPONSE HELPER ──────────────────────
+  // One shared function for all post-capture environmental feedback.
+  // 1-second guard prevents double-firing from overlapping trigger paths.
+  const triggerEnvironmentalResponse = useCallback(() => {
+    const now = Date.now();
+    if (now - environmentalResponseGuardRef.current < 1000) return;
+    environmentalResponseGuardRef.current = now;
+
+    // Element 1: Strong sun pulse
+    setShowSignalPulse(true);
+    setTimeout(() => setShowSignalPulse(false), 1800);
+
+    // Element 2: Temporary warmth boost
+    setCaptureWarmth(true);
+    setTimeout(() => setCaptureWarmth(false), 3400);
+  }, []);
 
   // ── SUN IMMINENT / IN-PROGRESS STATE ─────────────────
   const now = new Date();
@@ -1083,14 +1038,6 @@ export default function HomePage() {
     if (!actionInput.trim() || actionSubmitting || !data?.user) return;
     setActionSubmitting(true);
 
-    // Capture pre-submission staleness for feedback
-    const dealWasStale = matchedDeal
-      ? getDaysSinceActivity(matchedDeal) >= pulseThreshold
-      : false;
-    const dealName = matchedDeal
-      ? (matchedDeal.accounts?.name || matchedDeal.name)
-      : null;
-
     try {
       const result = await saveInteraction(supabase, {
         userId: data.user.id,
@@ -1112,24 +1059,10 @@ export default function HomePage() {
     setActionOverlayOpen(false);
     acknowledgeAction();
 
-    // Signal pulse — immediate environment feedback on action capture
-    setShowSignalPulse(true);
-    setTimeout(() => setShowSignalPulse(false), 900);
+    // Environmental response — sun pulse + warmth boost
+    triggerEnvironmentalResponse();
     // Clear pending pulse flag (prevent double-fire on next mount)
     localStorage.removeItem('jove_pulse_pending');
-
-    // Show feedback banner
-    const fb = dealWasStale
-      ? dealName
-        ? `Touchpoint logged — ${dealName} risk reduced`
-        : 'Touchpoint logged — risk reduced'
-      : dealName
-        ? `Signal captured — ${dealName} updated`
-        : 'Signal captured — intelligence updated';
-    setFeedbackText(fb);
-    setFeedbackVisible(true);
-    setTimeout(() => setFeedbackVisible(false), 2500);
-    setTimeout(() => setFeedbackText(null), 3100);
   };
 
   const handleActionSkip = () => {
@@ -1193,7 +1126,7 @@ export default function HomePage() {
         }
         @keyframes signalPulse {
           0% { transform: translate(-50%,-50%) scale(1); opacity: 0.65; }
-          100% { transform: translate(-50%,-50%) scale(1.4); opacity: 0; }
+          100% { transform: translate(-50%,-50%) scale(1.5); opacity: 0; }
         }
         /* (Zen keyframes removed — overlay no longer used) */
       `}</style>
@@ -1212,7 +1145,22 @@ export default function HomePage() {
         />
       )}
 
-      {/* ── SIGNAL PULSE RING ───────────────────────── */}
+      {/* ── CAPTURE WARMTH BOOST (temporary, additive) ── */}
+      <div
+        style={{
+          position:       'fixed',
+          inset:          0,
+          pointerEvents:  'none',
+          zIndex:         1,
+          background:     `radial-gradient(circle at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,0.14) 0%, transparent 65%)`,
+          opacity:        captureWarmth ? 1 : 0,
+          transition:     captureWarmth
+            ? 'opacity 400ms ease-in'
+            : 'opacity 2000ms ease-out',
+        }}
+      />
+
+      {/* ── SIGNAL PULSE RING (environmental response — strong) ── */}
       {showSignalPulse && (
         <div
           style={{
@@ -1220,11 +1168,11 @@ export default function HomePage() {
             left:           sunCenterLeft,
             top:            sunCenterTop,
             transform:      'translate(-50%, -50%)',
-            width:          140,
-            height:         140,
+            width:          160,
+            height:         160,
             borderRadius:   '50%',
-            background:     'radial-gradient(circle, rgba(248,190,64,0.40), transparent 70%)',
-            animation:      'signalPulse 900ms ease-out forwards',
+            background:     'radial-gradient(circle, rgba(248,190,64,0.45), transparent 70%)',
+            animation:      'signalPulse 1800ms ease-out forwards',
             zIndex:         21,
             pointerEvents:  'none',
           }}
@@ -1628,37 +1576,7 @@ export default function HomePage() {
           <div style={{ flex: 1 }} />
         )}
 
-        {/* ── FEEDBACK BANNER (warm, subtle — secondary to zen overlay) ── */}
-        {feedbackText && (
-          <div
-            style={{
-              padding:    '0 22px',
-              marginBottom: 10,
-              opacity:    feedbackVisible ? 1 : 0,
-              transform:  feedbackVisible ? 'translateY(0)' : 'translateY(6px)',
-              transition: 'opacity 0.5s ease, transform 0.5s ease',
-            }}
-          >
-            <div style={{
-              background:     'rgba(248,200,80,0.06)',
-              backdropFilter: 'blur(16px)',
-              borderRadius:   12,
-              padding:        '10px 16px',
-              border:         '0.5px solid rgba(248,200,80,0.15)',
-              textAlign:      'center',
-            }}>
-              <div style={{
-                fontSize:   12,
-                fontWeight: 400,
-                color:      'rgba(248,200,80,0.7)',
-                lineHeight: 1.4,
-                letterSpacing: '0.01em',
-              }}>
-                {feedbackText}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* (Feedback banner removed — environmental response replaces it) */}
 
         {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
         {debriefMeeting && (
@@ -2014,13 +1932,17 @@ export default function HomePage() {
             setShowCapture(false);
             setCaptureInitialMode(null);
             setCaptureInitialText('');
+            // Fire environmental response after sheet closes and home scene is visible
+            if (captureCompletedRef.current) {
+              captureCompletedRef.current = false;
+              triggerEnvironmentalResponse();
+            }
           }}
           userId={data.user.id}
           activeDeals={data.allDeals ?? []}
           onCaptureComplete={() => {
-            // ── SAVE CONFIRMED: CaptureSheet shows "Got it." — no extra layers here ──
-            // Snapshot current signal count before re-fetch
-            preCaptureSignalCountRef.current = data?.signals.length ?? 0;
+            // Mark that a capture completed — environmental response fires on close
+            captureCompletedRef.current = true;
             // Clear pending pulse flag (prevent double-fire on next mount)
             localStorage.removeItem('jove_pulse_pending');
             // Delay re-fetch to give extraction time to complete
