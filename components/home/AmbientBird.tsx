@@ -28,7 +28,13 @@ const FLAP_BURST_CYCLES = 2;          // 2 flap cycles per burst
 const FLAP_BURST_MS = FLAP_CYCLE_MS * FLAP_BURST_CYCLES; // 720ms
 const FLAP_MIN_INTERVAL = 4000;       // min ms between bursts
 const FLAP_MAX_INTERVAL = 9000;       // max ms between bursts
-const FLAP_SCALE_MIN = 0.82;          // scaleY at max flap
+
+// SVG path control points for wing animation:
+// Rest:  M0,11 Q7,1  16,8  Q25,1  32,11  (wings up — normal M-shape)
+// Flap:  M0,11 Q7,10 16,8  Q25,10 32,11  (wings down — nearly flat)
+// The control point Y moves from 1 (up) to 10 (down)
+const WING_CP_REST = 1;
+const WING_CP_FLAP = 10;
 
 // Sky zone: from 8% to SCENE_HORIZON_PERCENT% of viewport
 const SKY_TOP_PERCENT = 8;
@@ -89,10 +95,6 @@ export default function AmbientBird({
   });
   const prevTriggerRef = useRef(reactionTrigger);
 
-  // ── PULSE STATE (bird scale pulse after capture) ──────
-  const pulseAnimRef = useRef({ active: false, startTime: 0 });
-  const prevPulseTriggerRef = useRef(pulseTrigger);
-
   // ── WING FLAP STATE ───────────────────────────────────
   const wingFlapRef = useRef({
     active: false,
@@ -134,6 +136,7 @@ export default function AmbientBird({
 
   const frameRef = useRef<number>(0);
   const birdElRef = useRef<HTMLDivElement>(null);
+  const pathElRef = useRef<SVGPathElement>(null);
 
   // ── INIT ────────────────────────────────────────────────
   const init = useCallback(() => {
@@ -345,45 +348,39 @@ export default function AmbientBird({
       positionRef.current.y = s.y;
     }
 
-    // ── WING FLAP ───────────────────────────────────────
+    // ── WING FLAP (SVG path animation) ────────────────
     const wf = wingFlapRef.current;
     if (!wf.active && now >= wf.nextBurstTime) {
       wf.active = true;
       wf.startTime = now;
     }
 
-    let wingScaleY = 1.0;
+    let wingCpY = WING_CP_REST;  // control point Y for wing arcs
     if (wf.active) {
       const flapElapsed = now - wf.startTime;
       if (flapElapsed >= FLAP_BURST_MS) {
         wf.active = false;
         wf.nextBurstTime = now + randomBetween(FLAP_MIN_INTERVAL, FLAP_MAX_INTERVAL);
-        wingScaleY = 1.0;
+        wingCpY = WING_CP_REST;
       } else {
-        // Sine oscillation within burst
+        // Sine oscillation: wings sweep from rest (up) to flap (down) and back
         const flapProgress = (flapElapsed % FLAP_CYCLE_MS) / FLAP_CYCLE_MS;
-        const sine = Math.sin(flapProgress * Math.PI * 2);
-        // sine goes -1 to 1; map so that 1 = rest (scaleY 1.0), -1 = max flap
-        wingScaleY = 1.0 - (1.0 - FLAP_SCALE_MIN) * ((1 - sine) / 2);
+        const sine = Math.sin(flapProgress * Math.PI);  // 0→1→0 per half-cycle
+        wingCpY = WING_CP_REST + (WING_CP_FLAP - WING_CP_REST) * sine;
       }
     }
 
-    // Pulse boost: 1 → 1.08 → 1 over 600ms (sine curve)
-    let pulseBoost = 1;
-    const pa = pulseAnimRef.current;
-    if (pa.active) {
-      const elapsed = now - pa.startTime;
-      const progress = Math.min(elapsed / 600, 1);
-      pulseBoost = 1 + 0.08 * Math.sin(progress * Math.PI);
-      if (progress >= 1) pa.active = false;
+    // Update SVG path d attribute for wing animation
+    const pathEl = pathElRef.current;
+    if (pathEl) {
+      pathEl.setAttribute('d', `M0,11 Q7,${wingCpY} 16,8 Q25,${wingCpY} 32,11`);
     }
 
     // Apply transform — bird faces direction of travel
     // SVG faces right by default; scaleX(-1) mirrors for leftward flight
-    // Wing flap applied as scaleY on the whole bird — compresses the M-shape
+    // No pulseBoost during soar to prevent weird size changes
     const scaleX = s.direction >= 0 ? 1 : -1;
-    const finalScale = g.scale * pulseBoost;
-    el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX}) scale(${finalScale}) scaleY(${wingScaleY})`;
+    el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX}) scale(${g.scale})`;
 
     frameRef.current = requestAnimationFrame(tick);
   }, []);
@@ -489,14 +486,6 @@ export default function AmbientBird({
     }
   }, [reactionTrigger, reactionSourceRef]);
 
-  // ── PULSE TRIGGER ───────────────────────────────────────
-  useEffect(() => {
-    if (pulseTrigger > prevPulseTriggerRef.current) {
-      pulseAnimRef.current = { active: true, startTime: performance.now() };
-    }
-    prevPulseTriggerRef.current = pulseTrigger;
-  }, [pulseTrigger]);
-
   return (
     <div
       ref={containerRef}
@@ -523,7 +512,9 @@ export default function AmbientBird({
           xmlns="http://www.w3.org/2000/svg"
         >
           {/* Minimal bird silhouette — M-shape, two gentle arcs */}
+          {/* Wing control points animated by rAF loop via pathElRef */}
           <path
+            ref={pathElRef}
             d="M0,11 Q7,1 16,8 Q25,1 32,11"
             stroke="rgba(247,243,236,0.6)"
             strokeWidth="1.8"
