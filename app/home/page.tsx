@@ -373,7 +373,7 @@ export default function HomePage() {
   const warmthOuter = isNight ? 'rgba(140,160,200,0.09)' : 'rgba(200,120,32,0.11)';
   const brightInner = isNight ? 'rgba(210,220,240,0.10)' : 'rgba(255,248,230,0.13)';
   const brightOuter = isNight ? 'rgba(210,220,240,0.05)' : 'rgba(255,248,230,0.065)';
-  const pulseColor  = isNight ? 'rgba(200,210,230,0.35)' : 'rgba(248,190,64,0.4)';
+
 
   // Text color adapts to sky brightness
   const textPrimary   = scene.lightText
@@ -980,11 +980,6 @@ export default function HomePage() {
     const diff = mt.getTime() - now.getTime();
     return diff > 0 && diff < 60 * 60 * 1000;
   });
-  const isInProgress = (data?.meetings ?? []).some(m => {
-    const mt = new Date(m.scheduled_at);
-    const end = new Date(mt.getTime() + 90 * 60 * 1000);
-    return now >= mt && now <= end;
-  });
   const firstName       = getFirstName(data?.user ?? null);
   const greeting        = getGreeting(h);
 
@@ -1125,10 +1120,6 @@ export default function HomePage() {
 
       {/* ── ACKNOWLEDGMENT + SUN KEYFRAMES ──────────── */}
       <style>{`
-        @keyframes sunPing {
-          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.6; }
-          100% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; }
-        }
         @keyframes ackWarmth {
           0% { opacity: 0; }
           12.5% { opacity: 1; }
@@ -1243,24 +1234,6 @@ export default function HomePage() {
           >
           </div>
 
-          {/* In-progress pulse ring — sunPing keyframes include translate(-50%,-50%), so safe */}
-          {isInProgress && (
-            <div
-              style={{
-                position:     'absolute',
-                left:         sunCenterLeft,
-                top:          sunCenterTop,
-                transform:    'translate(-50%, -50%)',
-                width:        90,
-                height:       90,
-                borderRadius: '50%',
-                border:       `1.5px solid ${pulseColor}`,
-                animation:    'sunPing 2s ease-out infinite',
-                zIndex:       14,
-                pointerEvents:'none',
-              }}
-            />
-          )}
         </>
       ) : null}
 
