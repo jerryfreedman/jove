@@ -238,8 +238,9 @@ export default function HomePage() {
   const birdHitboxRef = useRef<HTMLDivElement>(null);
   const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Session memory: deal IDs + meeting IDs already answered via bird this session.
-  // Prevents asking the same question while extraction is still in flight.
+  // Session memory: promptKeys already answered via bird this session.
+  // Primary logic: gap resolved in data → question disappears naturally.
+  // Safety net: answered this session → skip even if gap still shows in data.
   const birdAnsweredRef = useRef<Set<string>>(new Set());
   // Counter to force birdQuestion useMemo to recompute after a submit
   // (refs alone don't trigger re-render, so useMemo wouldn't see the ref change).
@@ -396,6 +397,18 @@ export default function HomePage() {
   useEffect(() => {
     const interval = setInterval(() => setTime(formatTime()), 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  // ── BIRD ANSWERED — HYDRATE FROM SESSION STORAGE ────────
+  useEffect(() => {
+    const stored = sessionStorage.getItem('jove_bird_answered');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as string[];
+        parsed.forEach(k => birdAnsweredRef.current.add(k));
+        if (parsed.length > 0) setBirdAnsweredCount(c => c + 1);
+      } catch { /* corrupt data — start fresh */ }
+    }
   }, []);
 
   // ── BIRD HITBOX TRACKING ────────────────────────────────
@@ -861,17 +874,13 @@ export default function HomePage() {
   //   3. Stale deal gap-fill    → targets specific missing signal (champion > next step > budget)
   //   4. Open fallback          → captures ideas, early-stage thinking
   const birdQuestion = useMemo(() => {
-    if (!data) return { text: "What's on your mind?", dealId: null as string | null };
+    if (!data) return { text: "What's on your mind?", dealId: null as string | null, promptKey: `fallback:${new Date().toDateString()}` };
 
     const answered = birdAnsweredRef.current;
     const now = new Date();
     const twoDaysOut = new Date(now);
     twoDaysOut.setDate(twoDaysOut.getDate() + 2);
     twoDaysOut.setHours(0, 0, 0, 0);
-
-    // Helper: build a candidate and check if already answered this session
-    const wasAnswered = (text: string, dealId: string | null) =>
-      answered.has(`q:${text}`) || (dealId && answered.has(`deal:${dealId}`));
 
     // ── P1: FUTURE MEETING INTENT ─────────────────────────
     // Upcoming meeting in next 48h — ask what they want from it.
@@ -882,11 +891,11 @@ export default function HomePage() {
     });
 
     for (const meeting of upcoming) {
+      const promptKey = `meeting_goal:${meeting.id}`;
+      if (answered.has(promptKey)) continue;
       const text = `What's your goal for ${meeting.title}?`;
       const dealId = meeting.deal_id ?? null;
-      if (!wasAnswered(text, dealId)) {
-        return { text, dealId };
-      }
+      return { text, dealId, promptKey };
     }
 
     // ── P2: POST-MEETING DEBRIEF ──────────────────────────
@@ -898,11 +907,11 @@ export default function HomePage() {
     });
 
     for (const meeting of recentUnDebriefed) {
+      const promptKey = `meeting_debrief:${meeting.id}`;
+      if (answered.has(promptKey)) continue;
       const text = `How did ${meeting.title} go?`;
       const dealId = meeting.deal_id ?? null;
-      if (!wasAnswered(text, dealId)) {
-        return { text, dealId };
-      }
+      return { text, dealId, promptKey };
     }
 
     // ── P3: STALE DEAL GAP-FILL ──────────────────────────
@@ -912,29 +921,43 @@ export default function HomePage() {
     );
 
     for (const deal of sortedDeals) {
-      if (answered.has(`deal:${deal.id}`)) continue;
-
       const name = deal.accounts?.name || deal.name;
       const dealSignals = data.signals.filter(s => s.deal_id === deal.id);
       const signalTypes = new Set(dealSignals.map(s => s.signal_type));
 
       // Target the highest-value missing signal for this deal
       if (!signalTypes.has('champion_identified')) {
-        return { text: `Who's your champion at ${name}?`, dealId: deal.id };
+        const promptKey = `deal_champion:${deal.id}`;
+        if (!answered.has(promptKey)) {
+          return { text: `Who's your champion at ${name}?`, dealId: deal.id, promptKey };
+        }
       }
       if (!deal.next_action) {
-        return { text: `What's the next step on ${name}?`, dealId: deal.id };
+        const promptKey = `deal_next_step:${deal.id}`;
+        if (!answered.has(promptKey)) {
+          return { text: `What's the next step on ${name}?`, dealId: deal.id, promptKey };
+        }
       }
       if (!signalTypes.has('budget_mentioned')) {
-        return { text: `Any budget context on ${name}?`, dealId: deal.id };
+        const promptKey = `deal_budget:${deal.id}`;
+        if (!answered.has(promptKey)) {
+          return { text: `Any budget context on ${name}?`, dealId: deal.id, promptKey };
+        }
       }
 
-      // All key signals present — just refresh activity
-      return { text: `Anything new on ${name}?`, dealId: deal.id };
+      // Check if deal is stale (overdue for touchpoint)
+      const userPulseThreshold = data.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
+      if (getDaysSinceActivity(deal) >= userPulseThreshold) {
+        const promptKey = `deal_stale:${deal.id}`;
+        if (!answered.has(promptKey)) {
+          return { text: `Anything new on ${name}?`, dealId: deal.id, promptKey };
+        }
+      }
     }
 
     // ── P4: OPEN FALLBACK ────────────────────────────────
-    return { text: "What's on your mind?", dealId: null as string | null };
+    const fallbackKey = `fallback:${new Date().toDateString()}`;
+    return { text: "What's on your mind?", dealId: null as string | null, promptKey: fallbackKey };
   }, [data, birdAnsweredCount]);
 
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
@@ -943,14 +966,8 @@ export default function HomePage() {
     if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
     setBirdModalSaving(true);
 
-    // Record this question's context so bird moves on to the next gap
-    if (finalDealId) {
-      birdAnsweredRef.current.add(`deal:${finalDealId}`);
-    }
-    // Also track by meeting ID if the question was meeting-derived
-    // (birdQuestion stores dealId, but we mark the meeting title to prevent re-ask)
-    birdAnsweredRef.current.add(`q:${birdQuestion.text}`);
-    setBirdAnsweredCount(c => c + 1);
+    // Capture the promptKey before any async work — useMemo may recompute
+    const currentPromptKey = birdQuestion.promptKey;
 
     try {
       const result = await saveInteraction(supabase, {
@@ -967,6 +984,14 @@ export default function HomePage() {
       }
 
       await updateStreak(supabase, data.user.id);
+
+      // ── PERSIST PROMPT KEY — only after save succeeds ──────
+      birdAnsweredRef.current.add(currentPromptKey);
+      sessionStorage.setItem(
+        'jove_bird_answered',
+        JSON.stringify(Array.from(birdAnsweredRef.current))
+      );
+      setBirdAnsweredCount(c => c + 1);
     } catch (err) {
       console.error('Bird capture error:', err);
     }
