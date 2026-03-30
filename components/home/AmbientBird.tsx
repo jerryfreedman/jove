@@ -18,7 +18,7 @@ const TURN_DURATION = 1400;           // ms for smooth direction transition
 // ── SOAR CONSTANTS ───────────────────────────────────────
 // Single smooth arc using sin²(πt) — zero velocity at takeoff, peak, and landing
 const SOAR_HEIGHT = 65;               // px upward
-const SOAR_DURATION_MS = 1800;        // total arc duration — unhurried
+const SOAR_DURATION_MS = 2200;        // total arc duration — unhurried, long glide down
 
 // ── WING FLAP CONSTANTS ─────────────────────────────────
 const FLAP_CYCLE_MS = 480;            // one full flap cycle — slower, calmer
@@ -297,14 +297,22 @@ export default function AmbientBird({
           rx.type = null;
         }
       } else if (rx.type === 'soar') {
-        // ── SMOOTH ARC: sin²(πt) — zero velocity at takeoff, apex, and landing ──
-        // This creates a single, perfectly smooth parabolic arc.
-        // No phases, no seams, no abrupt transitions.
+        // ── ASYMMETRIC SMOOTH ARC ──────────────────────────
+        // sin²(πt) but with time-warped so the bird reaches apex at 35%
+        // of duration, then drifts down slowly over the remaining 65%.
+        // This makes the ascent feel quick/purposeful and the descent
+        // feel like a gentle glide back into the drift.
         const t = elapsed / SOAR_DURATION_MS;
         if (t < 1) {
           const height = rx.soarStartY - rx.soarPeakY;
-          const sinT = Math.sin(Math.PI * t);
-          const arc = sinT * sinT; // sin²(πt): 0 → 1 → 0, smooth at all edges
+          // Time warp: remap t so apex occurs at t=0.35 instead of t=0.5
+          // Use a power curve to skew: t < apex maps to 0–0.5, t > apex maps to 0.5–1
+          const apex = 0.35;
+          const warped = t < apex
+            ? 0.5 * (t / apex)                       // fast rise to midpoint
+            : 0.5 + 0.5 * ((t - apex) / (1 - apex)); // slow descent from midpoint
+          const sinW = Math.sin(Math.PI * warped);
+          const arc = sinW * sinW;
           s.y = rx.soarStartY - height * arc;
         } else {
           // Return to drift: seamless handoff from current position
