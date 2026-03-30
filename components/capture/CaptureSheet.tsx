@@ -19,6 +19,7 @@ type CaptureMode =
   | 'draft_intent'
   | 'draft_output'
   | 'idea'
+  | 'deal_gate'
   | 'done';
 
 interface CaptureSheetProps {
@@ -109,6 +110,12 @@ export default function CaptureSheet({
   const [visible, setVisible] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
   const [sentConfirmed, setSentConfirmed] = useState(false);
+  const [pendingSave, setPendingSave] = useState<{
+    type: InteractionType;
+    content: string;
+    extraData?: { saveToIdeas?: boolean; finalSentContent?: string };
+    returnMode: CaptureMode;
+  } | null>(null);
 
   // Slide up on mount
   useEffect(() => {
@@ -198,6 +205,7 @@ export default function CaptureSheet({
       saveToIdeas?: boolean;
       finalSentContent?: string;
     },
+    dealIdOverride?: string | null,
   ) => {
     if (!content.trim()) return;
     setSaving(true);
@@ -211,7 +219,7 @@ export default function CaptureSheet({
 
       const insertPayload: Record<string, unknown> = {
         user_id: userId,
-        deal_id: selectedDealId,
+        deal_id: dealIdOverride !== undefined ? dealIdOverride : selectedDealId,
         contact_id: null,
         type,
         raw_content: enrichedContent,
@@ -282,6 +290,22 @@ export default function CaptureSheet({
     }
   };
 
+  // ── SOFT DEAL GATE ────────────────────────────────────────
+  const handleSubmitWithGate = (
+    type: InteractionType,
+    content: string,
+    extraData?: { saveToIdeas?: boolean; finalSentContent?: string },
+  ) => {
+    const shouldGate =
+      !selectedDealId && !initialDealId && activeDeals.length > 0;
+    if (shouldGate) {
+      setPendingSave({ type, content, extraData, returnMode: mode });
+      setMode('deal_gate');
+    } else {
+      saveCapture(type, content, extraData);
+    }
+  };
+
   // ── EMAIL DRAFT GENERATION ────────────────────────────────
   const generateDraft = async () => {
     if (!draftContext.trim() || !draftIntent.trim()) return;
@@ -346,19 +370,10 @@ export default function CaptureSheet({
     setTimeout(() => setCopyConfirmed(false), 2000);
   };
 
-  const handleConfirmSent = async () => {
-    await saveCapture('email_sent', draftContext, {
+  const handleConfirmSent = () => {
+    handleSubmitWithGate('email_sent', draftContext, {
       finalSentContent: draftOutput,
     });
-    // Also fire voice profile update after confirm sent
-    if (userId) {
-      fetch('/api/update-voice-profile', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ userId }),
-      }).catch(err => console.error('Voice profile update error:', err));
-    }
-    setSentConfirmed(true);
   };
 
   // ── DEAL SELECTOR ─────────────────────────────────────────
@@ -609,7 +624,7 @@ export default function CaptureSheet({
                 label="Send to Jove →"
                 disabled={!text.trim()}
                 onPress={() => {
-                  saveCapture('debrief', text);
+                  handleSubmitWithGate('debrief', text);
                 }}
               />
             </div>
@@ -750,7 +765,7 @@ export default function CaptureSheet({
                       : mode === 'email'
                         ? 'email_received'
                         : 'idea';
-                  saveCapture(type, text, {
+                  handleSubmitWithGate(type, text, {
                     saveToIdeas: mode === 'idea',
                   });
                 }}
@@ -1096,6 +1111,121 @@ export default function CaptureSheet({
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── DEAL ASSIGNMENT GATE ── */}
+        {!saved && mode === 'deal_gate' && pendingSave && (
+          <div style={{ padding: '16px 18px 0' }}>
+            <p
+              style={{
+                fontSize: 13,
+                fontWeight: 300,
+                color: COLORS.textMid,
+                marginBottom: 14,
+                fontFamily: FONTS.sans,
+              }}
+            >
+              Add to a deal?
+            </p>
+
+            <div
+              style={{
+                maxHeight: 220,
+                overflowY: 'auto',
+                marginBottom: 14,
+              }}
+            >
+              {activeDeals.map((d) => {
+                const accountName = (d as DealRow & { accounts?: { name: string } | null }).accounts?.name;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => {
+                      setSelectedDealId(d.id);
+                      saveCapture(pendingSave.type, pendingSave.content, pendingSave.extraData, d.id);
+                      setPendingSave(null);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'block',
+                      textAlign: 'left',
+                      background: COLORS.card,
+                      border: `0.5px solid ${COLORS.cardBorder}`,
+                      borderRadius: 10,
+                      padding: '11px 14px',
+                      marginBottom: 6,
+                      cursor: 'pointer',
+                      fontFamily: FONTS.sans,
+                      transition: 'border-color 0.15s',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 400,
+                        color: COLORS.textPrimary,
+                      }}
+                    >
+                      {d.name}
+                    </span>
+                    {accountName && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 300,
+                          color: COLORS.textMid,
+                          marginLeft: 6,
+                        }}
+                      >
+                        &middot; {accountName}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => {
+                saveCapture(pendingSave.type, pendingSave.content, pendingSave.extraData, null);
+                setPendingSave(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                background: 'none',
+                border: 'none',
+                color: COLORS.textLight,
+                fontSize: 12,
+                fontWeight: 400,
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+                marginBottom: 6,
+              }}
+            >
+              Skip &mdash; save without a deal
+            </button>
+
+            <button
+              onClick={() => {
+                setMode(pendingSave.returnMode);
+                setPendingSave(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 0',
+                background: 'none',
+                border: 'none',
+                color: COLORS.textLight,
+                fontSize: 12,
+                fontWeight: 300,
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+              }}
+            >
+              &lsaquo; Back
+            </button>
           </div>
         )}
       </div>

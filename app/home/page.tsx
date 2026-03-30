@@ -232,6 +232,7 @@ export default function HomePage() {
   const [birdModalOpen, setBirdModalOpen] = useState(false);
   const [birdModalInput, setBirdModalInput] = useState('');
   const [birdModalSaving, setBirdModalSaving] = useState(false);
+  const [birdDealGate, setBirdDealGate] = useState(false);
   const [birdPulseTrigger, setBirdPulseTrigger] = useState(0);
   const birdPositionRef = useRef({ x: 0, y: 0 });
   const birdHitboxRef = useRef<HTMLDivElement>(null);
@@ -937,13 +938,14 @@ export default function HomePage() {
   }, [data, birdAnsweredCount]);
 
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
-  const handleBirdSubmit = async () => {
+  // Core bird save logic — accepts explicit dealId
+  const executeBirdSave = async (finalDealId: string | null) => {
     if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
     setBirdModalSaving(true);
 
     // Record this question's context so bird moves on to the next gap
-    if (birdQuestion.dealId) {
-      birdAnsweredRef.current.add(`deal:${birdQuestion.dealId}`);
+    if (finalDealId) {
+      birdAnsweredRef.current.add(`deal:${finalDealId}`);
     }
     // Also track by meeting ID if the question was meeting-derived
     // (birdQuestion stores dealId, but we mark the meeting title to prevent re-ask)
@@ -953,7 +955,7 @@ export default function HomePage() {
     try {
       const result = await saveInteraction(supabase, {
         userId: data.user.id,
-        dealId: birdQuestion.dealId,
+        dealId: finalDealId,
         type: 'note',
         rawContent: (birdQuestion.text && birdModalInput.trim())
           ? '[Bird question: ' + birdQuestion.text + '] ' + birdModalInput.trim()
@@ -973,6 +975,7 @@ export default function HomePage() {
     setBirdModalOpen(false);
     setBirdModalInput('');
     setBirdModalSaving(false);
+    setBirdDealGate(false);
 
     // Clear pending pulse flag (prevent double-fire on next mount)
     localStorage.removeItem('jove_pulse_pending');
@@ -995,6 +998,18 @@ export default function HomePage() {
 
     // Delayed re-fetch to let extraction complete
     setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
+  };
+
+  const handleBirdSubmit = async () => {
+    if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
+
+    // Soft gate: no deal and active deals exist — ask before saving
+    if (!birdQuestion.dealId && data.allDeals.length > 0) {
+      setBirdDealGate(true);
+      return;
+    }
+
+    executeBirdSave(birdQuestion.dealId);
   };
 
   const pulseThreshold  = data?.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
@@ -2129,6 +2144,7 @@ export default function HomePage() {
             onClick={() => {
               setBirdModalOpen(false);
               setBirdModalInput('');
+              setBirdDealGate(false);
             }}
             style={{
               position:       'fixed',
@@ -2147,6 +2163,7 @@ export default function HomePage() {
               if (e.key === 'Escape') {
                 setBirdModalOpen(false);
                 setBirdModalInput('');
+                setBirdDealGate(false);
               }
             }}
             style={{
@@ -2176,65 +2193,153 @@ export default function HomePage() {
               {birdQuestion.text}
             </div>
 
-            {/* Input */}
-            <textarea
-              ref={birdModalInputRef}
-              value={birdModalInput}
-              onChange={(e) => setBirdModalInput(e.target.value)}
-              placeholder="Type anything..."
-              style={{
-                width:        '100%',
-                background:   'rgba(16,20,30,0.6)',
-                border:       '0.5px solid rgba(232,160,48,0.22)',
-                borderRadius: 12,
-                padding:      '12px 14px',
-                fontFamily:   "'DM Sans', sans-serif",
-                fontSize:     14,
-                fontWeight:   300,
-                color:        'rgba(252,246,234,0.92)',
-                outline:      'none',
-                resize:       'none',
-                minHeight:    80,
-                lineHeight:   1.6,
-                marginBottom: 12,
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = 'rgba(232,160,48,0.44)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(232,160,48,0.22)';
-              }}
-            />
+            {/* Input + Submit — hidden when deal gate is active */}
+            {!birdDealGate && (
+              <>
+                <textarea
+                  ref={birdModalInputRef}
+                  value={birdModalInput}
+                  onChange={(e) => setBirdModalInput(e.target.value)}
+                  placeholder="Type anything..."
+                  style={{
+                    width:        '100%',
+                    background:   'rgba(16,20,30,0.6)',
+                    border:       '0.5px solid rgba(232,160,48,0.22)',
+                    borderRadius: 12,
+                    padding:      '12px 14px',
+                    fontFamily:   "'DM Sans', sans-serif",
+                    fontSize:     14,
+                    fontWeight:   300,
+                    color:        'rgba(252,246,234,0.92)',
+                    outline:      'none',
+                    resize:       'none',
+                    minHeight:    80,
+                    lineHeight:   1.6,
+                    marginBottom: 12,
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = 'rgba(232,160,48,0.44)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = 'rgba(232,160,48,0.22)';
+                  }}
+                />
 
-            {/* Submit button */}
-            <button
-              onClick={handleBirdSubmit}
-              disabled={!birdModalInput.trim() || birdModalSaving}
-              style={{
-                width:           '100%',
-                padding:         '12px 0',
-                borderRadius:    10,
-                border:          'none',
-                background:      birdModalInput.trim() && !birdModalSaving
-                  ? 'linear-gradient(135deg, #C87820, #E09838)'
-                  : 'rgba(255,255,255,0.06)',
-                color:           birdModalInput.trim() && !birdModalSaving
-                  ? 'white'
-                  : 'rgba(240,235,224,0.36)',
-                fontSize:        12,
-                fontWeight:      600,
-                cursor:          birdModalInput.trim() && !birdModalSaving
-                  ? 'pointer'
-                  : 'default',
-                fontFamily:      "'DM Sans', sans-serif",
-                transition:      'all 0.2s ease',
-                boxShadow:       birdModalInput.trim() && !birdModalSaving
-                  ? '0 4px 14px rgba(200,120,32,0.28)'
-                  : 'none',
-              }}
-            >
-              {birdModalSaving ? 'Saving...' : 'Save \u2192'}
-            </button>
+                {/* Submit button */}
+                <button
+                  onClick={handleBirdSubmit}
+                  disabled={!birdModalInput.trim() || birdModalSaving}
+                  style={{
+                    width:           '100%',
+                    padding:         '12px 0',
+                    borderRadius:    10,
+                    border:          'none',
+                    background:      birdModalInput.trim() && !birdModalSaving
+                      ? 'linear-gradient(135deg, #C87820, #E09838)'
+                      : 'rgba(255,255,255,0.06)',
+                    color:           birdModalInput.trim() && !birdModalSaving
+                      ? 'white'
+                      : 'rgba(240,235,224,0.36)',
+                    fontSize:        12,
+                    fontWeight:      600,
+                    cursor:          birdModalInput.trim() && !birdModalSaving
+                      ? 'pointer'
+                      : 'default',
+                    fontFamily:      "'DM Sans', sans-serif",
+                    transition:      'all 0.2s ease',
+                    boxShadow:       birdModalInput.trim() && !birdModalSaving
+                      ? '0 4px 14px rgba(200,120,32,0.28)'
+                      : 'none',
+                  }}
+                >
+                  {birdModalSaving ? 'Saving...' : 'Save \u2192'}
+                </button>
+              </>
+            )}
+
+            {/* ── BIRD DEAL ASSIGNMENT GATE ── */}
+            {birdDealGate && data && (
+              <>
+                <p
+                  style={{
+                    fontSize:     13,
+                    fontWeight:   300,
+                    color:        'rgba(240,235,224,0.5)',
+                    marginBottom: 12,
+                    fontFamily:   "'DM Sans', sans-serif",
+                  }}
+                >
+                  Add to a deal?
+                </p>
+
+                <div
+                  style={{
+                    maxHeight:  180,
+                    overflowY:  'auto',
+                    marginBottom: 12,
+                  }}
+                >
+                  {data.allDeals.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => executeBirdSave(d.id)}
+                      style={{
+                        width:        '100%',
+                        display:      'block',
+                        textAlign:    'left',
+                        background:   'rgba(16,20,30,0.6)',
+                        border:       '0.5px solid rgba(232,160,48,0.15)',
+                        borderRadius: 10,
+                        padding:      '10px 14px',
+                        marginBottom: 5,
+                        cursor:       'pointer',
+                        fontFamily:   "'DM Sans', sans-serif",
+                        transition:   'border-color 0.15s',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize:   13,
+                          fontWeight: 400,
+                          color:      'rgba(252,246,234,0.88)',
+                        }}
+                      >
+                        {d.name}
+                      </span>
+                      {d.accounts?.name && (
+                        <span
+                          style={{
+                            fontSize:   12,
+                            fontWeight: 300,
+                            color:      'rgba(240,235,224,0.45)',
+                            marginLeft: 6,
+                          }}
+                        >
+                          &middot; {d.accounts.name}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => executeBirdSave(null)}
+                  style={{
+                    width:      '100%',
+                    padding:    '8px 0',
+                    background: 'none',
+                    border:     'none',
+                    color:      'rgba(240,235,224,0.36)',
+                    fontSize:   12,
+                    fontWeight: 400,
+                    cursor:     'pointer',
+                    fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  Skip &mdash; save without a deal
+                </button>
+              </>
+            )}
           </div>
         </>
       )}
