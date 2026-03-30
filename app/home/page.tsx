@@ -270,20 +270,15 @@ export default function HomePage() {
   const [actionAcknowledged, setActionAcknowledged] = useState(false);
   const actionInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // ── ENVIRONMENTAL RESPONSE STATE ─────────────────────
-  const [signalPulseToken, setSignalPulseToken] = useState(0);
-  const [warmthBoostToken, setWarmthBoostToken] = useState(0);
-  const environmentalResponseGuardRef = useRef<number>(0);
+  // ── ENVIRONMENTAL ACKNOWLEDGMENT STATE ─────────────────
+  const [ackToken, setAckToken] = useState(0);
+  const ackGuardRef = useRef<number>(0);
   const captureCompletedRef = useRef(false);
-  // Tracks the source of the most recent environmental response
-  const envResponseSourceRef = useRef<'bird' | 'capture' | 'meeting' | 'other'>('other');
 
   // ── BIRD REACTION TRIGGER ────────────────────────────
   const [birdReactionTrigger, setBirdReactionTrigger] = useState(0);
   // Stable ref: labels the source of the next reaction increment ('save' | 'ambient')
   const birdReactionSourceRef = useRef<'save' | 'ambient'>('ambient');
-
-  // (Zen capture moment removed — environmental response replaces per-path feedback)
 
   // Guard: track which interaction IDs have already been retried this session
   const retriedInteractionIdsRef = useRef<Set<string>>(new Set());
@@ -430,7 +425,7 @@ export default function HomePage() {
       const ts = parseInt(pending, 10);
       if (Date.now() - ts < 15000) {
         setTimeout(() => {
-          triggerEnvironmentalResponse({ source: 'other' });
+          triggerEnvironmentalAcknowledgment({ source: 'other' });
         }, 600);
       }
       localStorage.removeItem('jove_pulse_pending');
@@ -743,8 +738,6 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // (Post-capture feedback banner removed — environmental response replaces it)
-
   // ── SESSION ACKNOWLEDGMENT CHECK ──────────────────────────
   useEffect(() => {
     if (!doThisFirst.loaded || !doThisFirst.suggestion) return;
@@ -765,7 +758,7 @@ export default function HomePage() {
         setTimeout(() => setLogoBloom(false), 800);
         // Environmental response for cross-tab capture / Save to Jove
         // (Bird does NOT soar for non-bird captures — only sun pulse + warmth boost)
-        triggerEnvironmentalResponse({ source: 'other' });
+        triggerEnvironmentalAcknowledgment({ source: 'other' });
       }
       if (e.key === 'jove_milestone_trigger') {
         setLogoMilestone(true);
@@ -775,9 +768,6 @@ export default function HomePage() {
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
-
-  // ── BIRD/PULSE SIGNAL COUNT TRACKING ─────────────────
-  // (Bird/pulse signal count tracking removed — environmental response is the sole feedback path)
 
   // ── DERIVED VALUES ─────────────────────────────────────
   const streak = data ? calculateStreak(data.streakLogs) : null;
@@ -930,7 +920,7 @@ export default function HomePage() {
     // Double rAF ensures modal is visually gone and home has painted
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        triggerEnvironmentalResponse({ source: 'bird' });
+        triggerEnvironmentalAcknowledgment({ source: 'bird' });
       });
     });
 
@@ -957,24 +947,21 @@ export default function HomePage() {
   const intelLines      = data ? buildIntelLines(data, pulseThreshold) : [];
   const richnessLevel   = Math.min((data?.signals.length ?? 0) / 12, 1);
 
-  // ── ENVIRONMENTAL RESPONSE HELPER ──────────────────────
-  // One shared function for all post-capture environmental feedback.
+  // ── ENVIRONMENTAL ACKNOWLEDGMENT HELPER ──────────────────
+  // One shared function for ALL post-save homepage feedback.
+  // Every save path routes through this — no other helper may fire home feedback.
   // 1-second guard prevents double-firing from overlapping trigger paths.
-  const triggerEnvironmentalResponse = useCallback((options?: { source?: 'bird' | 'capture' | 'meeting' | 'other' }) => {
+  const triggerEnvironmentalAcknowledgment = useCallback((options?: { source?: 'bird' | 'capture' | 'meeting' | 'other' }) => {
     const now = Date.now();
-    if (now - environmentalResponseGuardRef.current < 1000) return;
-    environmentalResponseGuardRef.current = now;
+    if (now - ackGuardRef.current < 1000) return;
+    ackGuardRef.current = now;
 
     const source = options?.source ?? 'other';
-    envResponseSourceRef.current = source;
 
-    // Element 1: Strong sun pulse (persistent node — increment token to restart)
-    setSignalPulseToken(t => t + 1);
+    // Single coordinated acknowledgment: page-wide warmth + sun bloom + brightness
+    setAckToken(t => t + 1);
 
-    // Element 2: Temporary warmth boost (persistent node — increment token to restart)
-    setWarmthBoostToken(t => t + 1);
-
-    // Element 3: Bird soar — only for bird-originated saves
+    // Bird soar — only for bird-originated saves (strengthens the single moment)
     if (source === 'bird') {
       setBirdPulseTrigger(k => k + 1);
       birdReactionSourceRef.current = 'save';
@@ -1072,7 +1059,7 @@ export default function HomePage() {
     // Environmental response — sun pulse + warmth boost (double rAF for post-unmount)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        triggerEnvironmentalResponse({ source: 'other' });
+        triggerEnvironmentalAcknowledgment({ source: 'other' });
       });
     });
     // Clear pending pulse flag (prevent double-fire on next mount)
@@ -1132,20 +1119,28 @@ export default function HomePage() {
         aria-label="Tap bird to capture"
       />
 
-      {/* ── SUN PULSE KEYFRAMES ─────────────────────── */}
+      {/* ── ACKNOWLEDGMENT + SUN KEYFRAMES ──────────── */}
       <style>{`
         @keyframes sunPing {
           0% { transform: translate(-50%,-50%) scale(1); opacity: 0.6; }
           100% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; }
         }
-        @keyframes signalPulse {
-          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.65; }
-          100% { transform: translate(-50%,-50%) scale(1.5); opacity: 0; }
-        }
-        @keyframes warmthBoost {
+        @keyframes ackWarmth {
           0% { opacity: 0; }
-          11.8% { opacity: 1; }
-          41.2% { opacity: 1; }
+          12.5% { opacity: 1; }
+          37.5% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes ackSunBloom {
+          0% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
+          12.5% { transform: translate(-50%,-50%) scale(1.4); opacity: 0.85; }
+          37.5% { transform: translate(-50%,-50%) scale(1.6); opacity: 0.65; }
+          100% { transform: translate(-50%,-50%) scale(2.8); opacity: 0; }
+        }
+        @keyframes ackBrightness {
+          0% { opacity: 0; }
+          12.5% { opacity: 1; }
+          37.5% { opacity: 1; }
           100% { opacity: 0; }
         }
       `}</style>
@@ -1164,41 +1159,52 @@ export default function HomePage() {
         />
       )}
 
-      {/* ── CAPTURE WARMTH BOOST (temporary, additive, persistent node) ── */}
+      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: full-screen warmth radial ── */}
       <div
-        key={`warmth-${warmthBoostToken}`}
+        key={`ack-warmth-${ackToken}`}
         style={{
           position:       'fixed',
           inset:          0,
           pointerEvents:  'none',
           zIndex:         1,
-          background:     `radial-gradient(circle at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,0.14) 0%, transparent 65%)`,
-          animation:      warmthBoostToken > 0 ? 'warmthBoost 3400ms ease forwards' : 'none',
-          opacity:        warmthBoostToken > 0 ? undefined : 0,
+          background:     `radial-gradient(ellipse at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,0.22) 0%, rgba(200,120,32,0.08) 40%, transparent 75%)`,
+          animation:      ackToken > 0 ? 'ackWarmth 3200ms ease forwards' : 'none',
+          opacity:        ackToken > 0 ? undefined : 0,
         }}
       />
 
-      {/* ── SIGNAL PULSE RING (environmental response — persistent, always mounted) ── */}
+      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: page-wide brightness lift ── */}
       <div
-        key={`pulse-${signalPulseToken}`}
+        key={`ack-bright-${ackToken}`}
+        style={{
+          position:       'fixed',
+          inset:          0,
+          pointerEvents:  'none',
+          zIndex:         1,
+          background:     'linear-gradient(to bottom, rgba(255,248,230,0.07) 0%, rgba(255,248,230,0.035) 40%, transparent 80%)',
+          animation:      ackToken > 0 ? 'ackBrightness 3200ms ease forwards' : 'none',
+          opacity:        ackToken > 0 ? undefined : 0,
+        }}
+      />
+
+      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: sun bloom (visual anchor) ── */}
+      <div
+        key={`ack-bloom-${ackToken}`}
         style={{
           position:       'absolute',
           left:           sunCenterLeft,
           top:            sunCenterTop,
           transform:      'translate(-50%, -50%)',
-          width:          160,
-          height:         160,
+          width:          200,
+          height:         200,
           borderRadius:   '50%',
-          background:     'radial-gradient(circle, rgba(248,190,64,0.45), transparent 70%)',
-          animation:      signalPulseToken > 0 ? 'signalPulse 1800ms ease-out forwards' : 'none',
-          opacity:        signalPulseToken > 0 ? undefined : 0,
+          background:     'radial-gradient(circle, rgba(248,190,64,0.55), rgba(232,160,48,0.2) 50%, transparent 75%)',
+          animation:      ackToken > 0 ? 'ackSunBloom 3200ms ease-out forwards' : 'none',
+          opacity:        ackToken > 0 ? undefined : 0,
           zIndex:         21,
           pointerEvents:  'none',
         }}
       />
-
-      {/* (Zen capture overlay removed — save-confirmed is per-path,
-           system-learned uses feedback banner only) */}
 
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {scene.sun.opacity > 0 ? (
@@ -1594,8 +1600,6 @@ export default function HomePage() {
           <div style={{ flex: 1 }} />
         )}
 
-        {/* (Feedback banner removed — environmental response replaces it) */}
-
         {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
         {debriefMeeting && (
           <div style={{
@@ -1956,7 +1960,7 @@ export default function HomePage() {
             if (hadCapture) {
               requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                  triggerEnvironmentalResponse({ source: 'capture' });
+                  triggerEnvironmentalAcknowledgment({ source: 'capture' });
                 });
               });
             }
