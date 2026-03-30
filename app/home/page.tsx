@@ -271,17 +271,18 @@ export default function HomePage() {
   const actionInputRef = useRef<HTMLTextAreaElement>(null);
 
   // ── ENVIRONMENTAL RESPONSE STATE ─────────────────────
-  const [captureWarmth, setCaptureWarmth] = useState(false);
+  const [signalPulseToken, setSignalPulseToken] = useState(0);
+  const [warmthBoostToken, setWarmthBoostToken] = useState(0);
   const environmentalResponseGuardRef = useRef<number>(0);
   const captureCompletedRef = useRef(false);
+  // Tracks the source of the most recent environmental response
+  const envResponseSourceRef = useRef<'bird' | 'capture' | 'meeting' | 'other'>('other');
 
   // ── BIRD REACTION TRIGGER ────────────────────────────
   const [birdReactionTrigger, setBirdReactionTrigger] = useState(0);
   // Stable ref: labels the source of the next reaction increment ('save' | 'ambient')
   const birdReactionSourceRef = useRef<'save' | 'ambient'>('ambient');
 
-  // ── SIGNAL PULSE STATE ──────────────────────────────────
-  const [showSignalPulse, setShowSignalPulse] = useState(false);
   // (Zen capture moment removed — environmental response replaces per-path feedback)
 
   // Guard: track which interaction IDs have already been retried this session
@@ -429,7 +430,7 @@ export default function HomePage() {
       const ts = parseInt(pending, 10);
       if (Date.now() - ts < 15000) {
         setTimeout(() => {
-          triggerEnvironmentalResponse();
+          triggerEnvironmentalResponse({ source: 'other' });
         }, 600);
       }
       localStorage.removeItem('jove_pulse_pending');
@@ -764,7 +765,7 @@ export default function HomePage() {
         setTimeout(() => setLogoBloom(false), 800);
         // Environmental response for cross-tab capture / Save to Jove
         // (Bird does NOT soar for non-bird captures — only sun pulse + warmth boost)
-        triggerEnvironmentalResponse();
+        triggerEnvironmentalResponse({ source: 'other' });
       }
       if (e.key === 'jove_milestone_trigger') {
         setLogoMilestone(true);
@@ -926,11 +927,12 @@ export default function HomePage() {
     localStorage.removeItem('jove_pulse_pending');
 
     // ── SAVE CONFIRMED: environmental response + bird soar ──
-    triggerEnvironmentalResponse();
-    // Bird soar — only for bird captures
-    setBirdPulseTrigger(k => k + 1);
-    birdReactionSourceRef.current = 'save';
-    setBirdReactionTrigger(k => k + 1);
+    // Double rAF ensures modal is visually gone and home has painted
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        triggerEnvironmentalResponse({ source: 'bird' });
+      });
+    });
 
     // Delayed re-fetch to let extraction complete
     setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
@@ -958,18 +960,26 @@ export default function HomePage() {
   // ── ENVIRONMENTAL RESPONSE HELPER ──────────────────────
   // One shared function for all post-capture environmental feedback.
   // 1-second guard prevents double-firing from overlapping trigger paths.
-  const triggerEnvironmentalResponse = useCallback(() => {
+  const triggerEnvironmentalResponse = useCallback((options?: { source?: 'bird' | 'capture' | 'meeting' | 'other' }) => {
     const now = Date.now();
     if (now - environmentalResponseGuardRef.current < 1000) return;
     environmentalResponseGuardRef.current = now;
 
-    // Element 1: Strong sun pulse
-    setShowSignalPulse(true);
-    setTimeout(() => setShowSignalPulse(false), 1800);
+    const source = options?.source ?? 'other';
+    envResponseSourceRef.current = source;
 
-    // Element 2: Temporary warmth boost
-    setCaptureWarmth(true);
-    setTimeout(() => setCaptureWarmth(false), 3400);
+    // Element 1: Strong sun pulse (persistent node — increment token to restart)
+    setSignalPulseToken(t => t + 1);
+
+    // Element 2: Temporary warmth boost (persistent node — increment token to restart)
+    setWarmthBoostToken(t => t + 1);
+
+    // Element 3: Bird soar — only for bird-originated saves
+    if (source === 'bird') {
+      setBirdPulseTrigger(k => k + 1);
+      birdReactionSourceRef.current = 'save';
+      setBirdReactionTrigger(k => k + 1);
+    }
   }, []);
 
   // ── SUN IMMINENT / IN-PROGRESS STATE ─────────────────
@@ -1059,8 +1069,12 @@ export default function HomePage() {
     setActionOverlayOpen(false);
     acknowledgeAction();
 
-    // Environmental response — sun pulse + warmth boost
-    triggerEnvironmentalResponse();
+    // Environmental response — sun pulse + warmth boost (double rAF for post-unmount)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        triggerEnvironmentalResponse({ source: 'other' });
+      });
+    });
     // Clear pending pulse flag (prevent double-fire on next mount)
     localStorage.removeItem('jove_pulse_pending');
   };
@@ -1128,7 +1142,12 @@ export default function HomePage() {
           0% { transform: translate(-50%,-50%) scale(1); opacity: 0.65; }
           100% { transform: translate(-50%,-50%) scale(1.5); opacity: 0; }
         }
-        /* (Zen keyframes removed — overlay no longer used) */
+        @keyframes warmthBoost {
+          0% { opacity: 0; }
+          11.8% { opacity: 1; }
+          41.2% { opacity: 1; }
+          100% { opacity: 0; }
+        }
       `}</style>
 
       {/* ── WARM TINT LAYER (additive, gradient-based) ── */}
@@ -1145,39 +1164,38 @@ export default function HomePage() {
         />
       )}
 
-      {/* ── CAPTURE WARMTH BOOST (temporary, additive) ── */}
+      {/* ── CAPTURE WARMTH BOOST (temporary, additive, persistent node) ── */}
       <div
+        key={`warmth-${warmthBoostToken}`}
         style={{
           position:       'fixed',
           inset:          0,
           pointerEvents:  'none',
           zIndex:         1,
           background:     `radial-gradient(circle at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,0.14) 0%, transparent 65%)`,
-          opacity:        captureWarmth ? 1 : 0,
-          transition:     captureWarmth
-            ? 'opacity 400ms ease-in'
-            : 'opacity 2000ms ease-out',
+          animation:      warmthBoostToken > 0 ? 'warmthBoost 3400ms ease forwards' : 'none',
+          opacity:        warmthBoostToken > 0 ? undefined : 0,
         }}
       />
 
-      {/* ── SIGNAL PULSE RING (environmental response — strong) ── */}
-      {showSignalPulse && (
-        <div
-          style={{
-            position:       'absolute',
-            left:           sunCenterLeft,
-            top:            sunCenterTop,
-            transform:      'translate(-50%, -50%)',
-            width:          160,
-            height:         160,
-            borderRadius:   '50%',
-            background:     'radial-gradient(circle, rgba(248,190,64,0.45), transparent 70%)',
-            animation:      'signalPulse 1800ms ease-out forwards',
-            zIndex:         21,
-            pointerEvents:  'none',
-          }}
-        />
-      )}
+      {/* ── SIGNAL PULSE RING (environmental response — persistent, always mounted) ── */}
+      <div
+        key={`pulse-${signalPulseToken}`}
+        style={{
+          position:       'absolute',
+          left:           sunCenterLeft,
+          top:            sunCenterTop,
+          transform:      'translate(-50%, -50%)',
+          width:          160,
+          height:         160,
+          borderRadius:   '50%',
+          background:     'radial-gradient(circle, rgba(248,190,64,0.45), transparent 70%)',
+          animation:      signalPulseToken > 0 ? 'signalPulse 1800ms ease-out forwards' : 'none',
+          opacity:        signalPulseToken > 0 ? undefined : 0,
+          zIndex:         21,
+          pointerEvents:  'none',
+        }}
+      />
 
       {/* (Zen capture overlay removed — save-confirmed is per-path,
            system-learned uses feedback banner only) */}
@@ -1929,13 +1947,18 @@ export default function HomePage() {
       {showCapture && data?.user && (
         <CaptureSheet
           onClose={() => {
+            const hadCapture = captureCompletedRef.current;
+            captureCompletedRef.current = false;
             setShowCapture(false);
             setCaptureInitialMode(null);
             setCaptureInitialText('');
-            // Fire environmental response after sheet closes and home scene is visible
-            if (captureCompletedRef.current) {
-              captureCompletedRef.current = false;
-              triggerEnvironmentalResponse();
+            // Fire environmental response after sheet is visually gone
+            if (hadCapture) {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  triggerEnvironmentalResponse({ source: 'capture' });
+                });
+              });
             }
           }}
           userId={data.user.id}
