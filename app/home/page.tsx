@@ -989,6 +989,7 @@ export default function HomePage() {
 
     // ── SAVE CONFIRMED: bird reaction + one sun pulse ──
     setBirdPulseTrigger(k => k + 1);
+    setBirdReactionTrigger(k => k + 1);
     setShowSignalPulse(true);
     setTimeout(() => setShowSignalPulse(false), 900);
 
