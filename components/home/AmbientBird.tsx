@@ -134,8 +134,6 @@ export default function AmbientBird({
 
   const frameRef = useRef<number>(0);
   const birdElRef = useRef<HTMLDivElement>(null);
-  const leftWingRef = useRef<SVGPathElement>(null);
-  const rightWingRef = useRef<SVGPathElement>(null);
 
   // ── INIT ────────────────────────────────────────────────
   const init = useCallback(() => {
@@ -263,24 +261,28 @@ export default function AmbientBird({
       }
     }
 
-    // Vertical sine wave drift (with amplitude micro-randomness)
-    const effectiveAmplitude = g.sineAmplitude * dv.amplitudeMult;
-    const sineTime = (now + s.sineOffset) / SINE_PERIOD;
-    const sineY = Math.sin(sineTime * Math.PI * 2) * effectiveAmplitude;
-    s.y = s.baseY + sineY;
-
-    // Clamp to sky zone
-    if (s.y < s.skyTopPx) {
-      s.y = s.skyTopPx;
-      s.baseY = s.skyTopPx + effectiveAmplitude;
-    }
-    if (s.y > s.skyBottomPx) {
-      s.y = s.skyBottomPx;
-      s.baseY = s.skyBottomPx - effectiveAmplitude;
-    }
-
     // ── REACTION OVERLAY ─────────────────────────────────
     const rx = reactionRef.current;
+    const isSoaring = rx.active && rx.type === 'soar';
+
+    // Vertical sine wave drift — SKIP during soar to prevent fighting
+    if (!isSoaring) {
+      const effectiveAmplitude = g.sineAmplitude * dv.amplitudeMult;
+      const sineTime = (now + s.sineOffset) / SINE_PERIOD;
+      const sineY = Math.sin(sineTime * Math.PI * 2) * effectiveAmplitude;
+      s.y = s.baseY + sineY;
+
+      // Clamp to sky zone
+      if (s.y < s.skyTopPx) {
+        s.y = s.skyTopPx;
+        s.baseY = s.skyTopPx + effectiveAmplitude;
+      }
+      if (s.y > s.skyBottomPx) {
+        s.y = s.skyBottomPx;
+        s.baseY = s.skyBottomPx - effectiveAmplitude;
+      }
+    }
+
     if (rx.active) {
       const elapsed = now - rx.startTime;
 
@@ -312,8 +314,11 @@ export default function AmbientBird({
           s.y = rx.soarPeakY + height * easeIn;
         } else {
           // Phase 4 — Return to drift: seamless handoff
+          // Set baseY to where bird landed so drift continues from here
           s.baseY = rx.soarStartY;
           s.y = rx.soarStartY;
+          // Reset sine offset so drift picks up smoothly from current position
+          s.sineOffset = -now;
           rx.active = false;
           rx.type = null;
         }
@@ -363,12 +368,6 @@ export default function AmbientBird({
       }
     }
 
-    // Apply wing transforms
-    const lw = leftWingRef.current;
-    const rw = rightWingRef.current;
-    if (lw) lw.style.transform = `scaleY(${wingScaleY})`;
-    if (rw) rw.style.transform = `scaleY(${wingScaleY})`;
-
     // Pulse boost: 1 → 1.08 → 1 over 600ms (sine curve)
     let pulseBoost = 1;
     const pa = pulseAnimRef.current;
@@ -381,8 +380,10 @@ export default function AmbientBird({
 
     // Apply transform — bird faces direction of travel
     // SVG faces right by default; scaleX(-1) mirrors for leftward flight
+    // Wing flap applied as scaleY on the whole bird — compresses the M-shape
     const scaleX = s.direction >= 0 ? 1 : -1;
-    el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX}) scale(${g.scale * pulseBoost})`;
+    const finalScale = g.scale * pulseBoost;
+    el.style.transform = `translate(${s.x}px, ${s.y}px) scaleX(${scaleX}) scale(${finalScale}) scaleY(${wingScaleY})`;
 
     frameRef.current = requestAnimationFrame(tick);
   }, []);
@@ -521,25 +522,13 @@ export default function AmbientBird({
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* Left wing — transforms from center-body anchor */}
+          {/* Minimal bird silhouette — M-shape, two gentle arcs */}
           <path
-            ref={leftWingRef}
-            d="M0,11 Q7,1 16,8"
+            d="M0,11 Q7,1 16,8 Q25,1 32,11"
             stroke="rgba(247,243,236,0.6)"
             strokeWidth="1.8"
             fill="none"
             strokeLinecap="round"
-            style={{ transformOrigin: '16px 8px' }}
-          />
-          {/* Right wing — transforms from center-body anchor */}
-          <path
-            ref={rightWingRef}
-            d="M16,8 Q25,1 32,11"
-            stroke="rgba(247,243,236,0.6)"
-            strokeWidth="1.8"
-            fill="none"
-            strokeLinecap="round"
-            style={{ transformOrigin: '16px 8px' }}
           />
         </svg>
       </div>
