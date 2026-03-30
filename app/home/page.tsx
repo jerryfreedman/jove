@@ -955,7 +955,9 @@ export default function HomePage() {
         userId: data.user.id,
         dealId: birdQuestion.dealId,
         type: 'note',
-        rawContent: birdModalInput,
+        rawContent: (birdQuestion.text && birdModalInput.trim())
+          ? '[Bird question: ' + birdQuestion.text + '] ' + birdModalInput.trim()
+          : birdModalInput,
       });
 
       if (result?.id) {

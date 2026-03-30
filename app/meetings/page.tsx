@@ -58,6 +58,7 @@ function MeetingsPageInner() {
 
   // Capture bridge state
   const [captureMeeting, setCaptureMeeting] = useState<MeetingRow | null>(null);
+  const [contextAddedIds, setContextAddedIds] = useState<Set<string>>(new Set());
 
   // Screenshot import
   const [importing, setImporting]     = useState(false);
@@ -227,6 +228,7 @@ function MeetingsPageInner() {
 
   const MeetingCard = ({ meeting, onTap, onAddContext }: { meeting: MeetingRow; onTap: () => void; onAddContext: () => void }) => {
     const linkedDeal = deals.find(d => d.id === meeting.deal_id);
+    const hasContext = contextAddedIds.has(meeting.id);
     return (
       <div
         onClick={onTap}
@@ -248,6 +250,17 @@ function MeetingsPageInner() {
         }}>
           {meeting.title}
         </div>
+        {hasContext && (
+          <div style={{
+            fontSize:   11,
+            fontWeight: 500,
+            color:      COLORS.amber,
+            opacity:    0.7,
+            marginBottom: 4,
+          }}>
+            Context added &#10003;
+          </div>
+        )}
         <div style={{
           fontSize:     11,
           fontWeight:   500,
@@ -713,12 +726,18 @@ function MeetingsPageInner() {
     {/* Capture Sheet — opened from meeting card "Add context" */}
     {captureMeeting && userId && (
       <CaptureSheet
-        onClose={() => setCaptureMeeting(null)}
+        onClose={() => {
+          setCaptureMeeting(null);
+        }}
         userId={userId}
         activeDeals={deals}
-        onCaptureComplete={() => fetchData()}
+        onCaptureComplete={() => {
+          setContextAddedIds(prev => new Set(prev).add(captureMeeting!.id));
+          fetchData();
+        }}
         initialDealId={captureMeeting.deal_id}
         meetingContext={captureMeeting.title}
+        meetingId={captureMeeting.id}
       />
     )}
 

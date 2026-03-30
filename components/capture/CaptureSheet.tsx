@@ -30,6 +30,7 @@ interface CaptureSheetProps {
   initialText?: string;
   initialDealId?: string | null;
   meetingContext?: string | null;
+  meetingId?: string;
 }
 
 // ── EMAIL PATTERN DETECTION ───────────────────────────────
@@ -87,6 +88,7 @@ export default function CaptureSheet({
   initialText,
   initialDealId,
   meetingContext,
+  meetingId,
 }: CaptureSheetProps) {
   const supabase = createClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -202,17 +204,29 @@ export default function CaptureSheet({
     setError('');
 
     try {
+      // Enrich raw_content with meeting context when present
+      const enrichedContent = meetingContext
+        ? `[Meeting: ${meetingContext}] ${content.trim()}`
+        : content.trim();
+
+      const insertPayload: Record<string, unknown> = {
+        user_id: userId,
+        deal_id: selectedDealId,
+        contact_id: null,
+        type,
+        raw_content: enrichedContent,
+        final_sent_content: extraData?.finalSentContent ?? null,
+        extraction_status: 'pending',
+      };
+
+      // Link interaction to meeting when meetingId is provided
+      if (meetingId) {
+        insertPayload.meeting_id = meetingId;
+      }
+
       const { data: interactionData, error: interactionError } = await supabase
         .from('interactions')
-        .insert({
-          user_id: userId,
-          deal_id: selectedDealId,
-          contact_id: null,
-          type,
-          raw_content: content.trim(),
-          final_sent_content: extraData?.finalSentContent ?? null,
-          extraction_status: 'pending',
-        })
+        .insert(insertPayload)
         .select('id')
         .single();
 
