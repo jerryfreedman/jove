@@ -122,10 +122,12 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
         size: clipSunSize,
       };
     } else if (isInSky && skySunSize > 0) {
-      // In-sky sun — center is at (50%, scene.sun.top%)
+      // In-sky sun — breath animation overrides translate(-50%,-50%) with scale(),
+      // so the div's top-left anchors at (50%, sun.top%). The actual visual center
+      // is offset right and down by half the sun's pixel size.
       pos = {
-        x: '50%',
-        y: `${sc.sun.top}%`,
+        x: `calc(50% + ${skySunSize / 2}px)`,
+        y: `calc(${sc.sun.top}% + ${skySunSize / 2}px)`,
         isMoon: false,
         size: skySunSize,
       };
