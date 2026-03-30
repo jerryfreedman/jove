@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import { getSceneForHour } from '@/lib/design-system';
 import { SCENE_HORIZON_PERCENT } from '@/lib/constants';
 
@@ -13,7 +13,23 @@ const STARS = Array.from({ length: 26 }, (_, i) => ({
   d: (i % 5) * 0.9,
 }));
 
-export default function SceneBackground() {
+// ── CELESTIAL POSITION TYPE ──────────────────────────────
+export type CelestialPosition = {
+  /** Center X as CSS percentage string, e.g. "50%" */
+  x: string;
+  /** Center Y as CSS percentage string, e.g. "40%" */
+  y: string;
+  /** Whether the active scene shows the moon (not sun) */
+  isMoon: boolean;
+  /** Diameter of the rendered celestial object in px */
+  size: number;
+};
+
+interface SceneBackgroundProps {
+  onCelestialPosition?: (pos: CelestialPosition) => void;
+}
+
+export default function SceneBackground({ onCelestialPosition }: SceneBackgroundProps) {
   const h  = new Date().getHours();
   const sc = useMemo(() => getSceneForHour(h), [h]);
 
@@ -62,6 +78,75 @@ export default function SceneBackground() {
     }
   }
 
+  // ── Compute actual rendered celestial center ────────────────
+  // Moon: rendered at left:68% top:12% as top-left anchor, size 26px.
+  //   Actual visual center = (68% + 13px, 12% + 13px).
+  //   We report this as percentage offsets; the 13px correction is handled
+  //   by the consumer since CSS calc() can mix units.
+  //
+  // Clipped sun: rendered inside a container of height SCENE_HORIZON_PERCENT%,
+  //   positioned at bottom:-clipHalf, left:calc(50%-clipHalf).
+  //   Its visual center is at the horizon line (SCENE_HORIZON_PERCENT%).
+  //   Horizontal center: 50%.
+  //
+  // In-sky sun: rendered at left:50%, top:scene.sun.top% with translate(-50%,-50%).
+  //   Visual center = (50%, scene.sun.top%).
+
+  const MOON_SIZE = 26;
+
+  // Use a ref to avoid re-calling callback with same values
+  const lastReportedRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!onCelestialPosition) return;
+
+    let pos: CelestialPosition;
+
+    if (sc.moon) {
+      // Moon scene — report the visual center of the moon
+      // The moon div is positioned at left:68% top:12% as top-left corner
+      // Visual center needs +13px offset. We use a calc()-friendly format
+      // so the consumer can use these directly in CSS.
+      pos = {
+        x: `calc(68% + ${MOON_SIZE / 2}px)`,
+        y: `calc(12% + ${MOON_SIZE / 2}px)`,
+        isMoon: true,
+        size: MOON_SIZE,
+      };
+    } else if (isClipped && clipSunSize > 0) {
+      // Clipped sun — center is at the horizon, horizontally centered
+      pos = {
+        x: '50%',
+        y: `${SCENE_HORIZON_PERCENT}%`,
+        isMoon: false,
+        size: clipSunSize,
+      };
+    } else if (isInSky && skySunSize > 0) {
+      // In-sky sun — center is at (50%, scene.sun.top%)
+      pos = {
+        x: '50%',
+        y: `${sc.sun.top}%`,
+        isMoon: false,
+        size: skySunSize,
+      };
+    } else {
+      // Fallback (sun below horizon, no moon) — not visible but report a sane default
+      pos = {
+        x: '50%',
+        y: `${SCENE_HORIZON_PERCENT}%`,
+        isMoon: false,
+        size: 0,
+      };
+    }
+
+    // Only fire callback if position actually changed
+    const key = `${pos.x}|${pos.y}|${pos.isMoon}|${pos.size}`;
+    if (key !== lastReportedRef.current) {
+      lastReportedRef.current = key;
+      onCelestialPosition(pos);
+    }
+  }, [sc, isClipped, isInSky, clipSunSize, skySunSize, onCelestialPosition]);
+
   return (
     <div className="fixed inset-0 overflow-hidden" aria-hidden="true">
 
@@ -108,8 +193,8 @@ export default function SceneBackground() {
         >
           <div
             style={{
-              width: 26,
-              height: 26,
+              width: MOON_SIZE,
+              height: MOON_SIZE,
               borderRadius: '50%',
               background: 'radial-gradient(circle at 38% 36%, #f8f4e8, #d8ccb0)',
               boxShadow: '0 0 16px 6px rgba(220,200,160,0.18), 0 0 38px 12px rgba(180,160,120,0.09)',

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'r
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
+import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import Logo from '@/components/ui/Logo';
 import StreakBadge from '@/components/ui/StreakBadge';
@@ -22,7 +23,7 @@ import {
   formatTime,
   COLORS,
 } from '@/lib/design-system';
-import { PULSE_CHECK_DEFAULT_DAYS, SCENE_HORIZON_PERCENT } from '@/lib/constants';
+import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import type {
   DealRow,
   MeetingRow,
@@ -228,6 +229,11 @@ export default function HomePage() {
   const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
 
+  // ── CELESTIAL POSITION (single source of truth from SceneBackground) ──
+  const [celestialPos, setCelestialPos] = useState<CelestialPosition>({
+    x: '50%', y: '50%', isMoon: false, size: 0,
+  });
+
   // ── BIRD INTERACTION STATE ──────────────────────────────────
   const [birdModalOpen, setBirdModalOpen] = useState(false);
   const [birdModalInput, setBirdModalInput] = useState('');
@@ -352,24 +358,28 @@ export default function HomePage() {
     };
   }, [scene]);
 
-  // Sun/moon tap target: centered on the actual visual center of the sun or moon.
-  //
-  // Clipped suns (pre-dawn/sunrise/golden-hour/dusk): sun center is exactly
-  //   at SCENE_HORIZON_PERCENT (62%) from top, horizontally centered at 50%.
-  // In-sky suns (morning/midday): sun center is at scene.sun.top%, left 50%.
-  // Night (deep night/night): moon is at top 12%, left 68%.
-  //
-  // The tap target uses translate(-50%, -50%) to center itself on these points.
-  const isNight = scene.moon;
-  const isClippedSun = scene.sun.top >= 60 && scene.sun.opacity > 0;
+  // ── CELESTIAL CENTER — derived from SceneBackground callback ──
+  // This is the single source of truth for all celestial-dependent UI.
+  // No independent position derivation lives here anymore.
+  const sunCenterLeft = celestialPos.x;
+  const sunCenterTop  = celestialPos.y;
+  const isNight       = celestialPos.isMoon;
 
-  const sunCenterTop = isNight
-    ? '12%'
-    : isClippedSun
-      ? `${SCENE_HORIZON_PERCENT}%`
-      : `${scene.sun.top}%`;
+  // Proportional orbGlow: scales with the rendered celestial size.
+  // Glow diameter = ~3× the object size, with sane floor/ceiling.
+  const orbGlowSize = celestialPos.size > 0
+    ? Math.max(60, Math.min(celestialPos.size * 3, 160))
+    : 110;
 
-  const sunCenterLeft = isNight ? '68%' : '50%';
+  // Moon vs sun color families — used by glow, bloom, warmth
+  const glowColor   = isNight ? 'rgba(200,210,230,0.10)'  : 'rgba(248,190,64,0.08)';
+  const bloomColor  = isNight
+    ? 'radial-gradient(circle, rgba(200,210,230,0.50), rgba(180,190,210,0.18) 50%, transparent 75%)'
+    : 'radial-gradient(circle, rgba(248,190,64,0.55), rgba(232,160,48,0.2) 50%, transparent 75%)';
+  const warmthInner = isNight ? 'rgba(180,200,230,0.18)' : 'rgba(232,160,48,0.22)';
+  const warmthOuter = isNight ? 'rgba(140,160,200,0.06)' : 'rgba(200,120,32,0.08)';
+  const pulseColor  = isNight ? 'rgba(200,210,230,0.35)' : 'rgba(248,190,64,0.4)';
+  const richGlow    = isNight ? 'rgba(180,200,230,0.03)'  : 'rgba(232,160,48,0.03)';
 
   // Text color adapts to sky brightness
   const textPrimary   = scene.lightText
@@ -1090,7 +1100,7 @@ export default function HomePage() {
         overflow:  'hidden',
       }}
     >
-      <SceneBackground />
+      <SceneBackground onCelestialPosition={setCelestialPos} />
       <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
@@ -1153,7 +1163,7 @@ export default function HomePage() {
             inset:          0,
             pointerEvents:  'none',
             zIndex:         1,
-            background:     `radial-gradient(circle at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,${richnessLevel * 0.03}) 0%, transparent 60%)`,
+            background:     `radial-gradient(circle at ${sunCenterLeft} ${sunCenterTop}, ${isNight ? `rgba(180,200,230,${richnessLevel * 0.03})` : `rgba(232,160,48,${richnessLevel * 0.03})`} 0%, transparent 60%)`,
             transition:     'opacity 1.2s ease',
           }}
         />
@@ -1167,7 +1177,7 @@ export default function HomePage() {
           inset:          0,
           pointerEvents:  'none',
           zIndex:         19,
-          background:     `radial-gradient(ellipse at ${sunCenterLeft} ${sunCenterTop}, rgba(232,160,48,0.22) 0%, rgba(200,120,32,0.08) 40%, transparent 75%)`,
+          background:     `radial-gradient(ellipse at ${sunCenterLeft} ${sunCenterTop}, ${warmthInner} 0%, ${warmthOuter} 40%, transparent 75%)`,
           animation:      ackToken > 0 ? 'ackWarmth 3200ms ease forwards' : 'none',
           opacity:        ackToken > 0 ? undefined : 0,
         }}
@@ -1198,7 +1208,7 @@ export default function HomePage() {
           width:          200,
           height:         200,
           borderRadius:   '50%',
-          background:     'radial-gradient(circle, rgba(248,190,64,0.55), rgba(232,160,48,0.2) 50%, transparent 75%)',
+          background:     bloomColor,
           animation:      ackToken > 0 ? 'ackSunBloom 3200ms ease-out forwards' : 'none',
           opacity:        ackToken > 0 ? undefined : 0,
           zIndex:         22,
@@ -1207,26 +1217,26 @@ export default function HomePage() {
       />
 
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
-      {scene.sun.opacity > 0 ? (
+      {(scene.sun.opacity > 0 || isNight) ? (
         <>
-          {/* Breathing glow behind sun — orbGlow only animates opacity, so translate is safe */}
+          {/* Breathing glow behind celestial object — proportional to rendered size */}
           <div
             style={{
               position:     'absolute',
               left:         sunCenterLeft,
               top:          sunCenterTop,
               transform:    'translate(-50%, -50%)',
-              width:        110,
-              height:       110,
+              width:        orbGlowSize,
+              height:       orbGlowSize,
               borderRadius: '50%',
-              background:   'radial-gradient(circle, rgba(248,190,64,0.08), transparent 68%)',
-              animation:    'orbGlow 5s ease-in-out infinite',
+              background:   `radial-gradient(circle, ${glowColor}, transparent 68%)`,
+              animation:    `orbGlow ${isNight ? '8' : '5'}s ease-in-out infinite`,
               zIndex:       14,
               pointerEvents:'none',
             }}
           />
 
-          {/* Clickable sun overlay — uses calc() for centering because the
+          {/* Clickable celestial overlay — uses calc() for centering because the
               breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div
             ref={sunRef}
@@ -1245,10 +1255,14 @@ export default function HomePage() {
               justifyContent:'center',
               animation:    isImminent
                 ? 'breath 2.5s ease-in-out infinite'
-                : 'breath 5s ease-in-out infinite',
+                : isNight
+                  ? 'breath 12s ease-in-out infinite'
+                  : 'breath 5s ease-in-out infinite',
               WebkitTapHighlightColor: 'transparent',
             }}
-            aria-label={`${todayMeetingCount} meeting${todayMeetingCount !== 1 ? 's' : ''} today. Tap for briefing.`}
+            aria-label={isNight
+              ? 'Tap for briefing.'
+              : `${todayMeetingCount} meeting${todayMeetingCount !== 1 ? 's' : ''} today. Tap for briefing.`}
           >
           </div>
 
@@ -1263,7 +1277,7 @@ export default function HomePage() {
                 width:        90,
                 height:       90,
                 borderRadius: '50%',
-                border:       '1.5px solid rgba(248,190,64,0.4)',
+                border:       `1.5px solid ${pulseColor}`,
                 animation:    'sunPing 2s ease-out infinite',
                 zIndex:       14,
                 pointerEvents:'none',
@@ -1271,26 +1285,7 @@ export default function HomePage() {
             />
           )}
         </>
-      ) : (
-        /* ── NIGHT FALLBACK TAP TARGET (matches moon at 68%/12%) ──
-           No breath animation here, so translate(-50%,-50%) is safe. */
-        <div
-          ref={sunRef}
-          onClick={() => router.push('/briefing')}
-          style={{
-            position:     'absolute',
-            left:         `calc(${sunCenterLeft} - 40px)`,
-            top:          `calc(${sunCenterTop} - 40px)`,
-            width:        80,
-            height:       80,
-            borderRadius: '50%',
-            cursor:       'pointer',
-            zIndex:       15,
-            WebkitTapHighlightColor: 'transparent',
-          }}
-          aria-label="Tap for briefing"
-        />
-      )}
+      ) : null}
 
       {/* ── OFFLINE BANNER ─────────────────────────── */}
       <div style={{
