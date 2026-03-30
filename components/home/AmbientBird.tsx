@@ -15,6 +15,21 @@ const DIR_CHANGE_MIN = 10000;         // min ms before direction change
 const DIR_CHANGE_MAX = 18000;         // max ms before direction change
 const TURN_DURATION = 1400;           // ms for smooth direction transition
 
+// ── SOAR CONSTANTS ───────────────────────────────────────
+const SOAR_HEIGHT = 65;               // px upward
+const SOAR_ASCENT_MS = 600;
+const SOAR_PEAK_MS = 120;
+const SOAR_DESCENT_MS = 700;
+const SOAR_TOTAL_MS = SOAR_ASCENT_MS + SOAR_PEAK_MS + SOAR_DESCENT_MS;
+
+// ── WING FLAP CONSTANTS ─────────────────────────────────
+const FLAP_CYCLE_MS = 360;            // one full flap cycle
+const FLAP_BURST_CYCLES = 2;          // 2 flap cycles per burst
+const FLAP_BURST_MS = FLAP_CYCLE_MS * FLAP_BURST_CYCLES; // 720ms
+const FLAP_MIN_INTERVAL = 4000;       // min ms between bursts
+const FLAP_MAX_INTERVAL = 9000;       // max ms between bursts
+const FLAP_SCALE_MIN = 0.82;          // scaleY at max flap
+
 // Sky zone: from 8% to SCENE_HORIZON_PERCENT% of viewport
 const SKY_TOP_PERCENT = 8;
 const SKY_BOTTOM_PERCENT = SCENE_HORIZON_PERCENT; // 62%
@@ -78,6 +93,27 @@ export default function AmbientBird({
   const pulseAnimRef = useRef({ active: false, startTime: 0 });
   const prevPulseTriggerRef = useRef(pulseTrigger);
 
+  // ── WING FLAP STATE ───────────────────────────────────
+  const wingFlapRef = useRef({
+    active: false,
+    startTime: 0,
+    nextBurstTime: performance.now() + randomBetween(FLAP_MIN_INTERVAL, FLAP_MAX_INTERVAL),
+  });
+
+  // ── DRIFT MICRO-RANDOMNESS STATE ──────────────────────
+  const driftVarianceRef = useRef({
+    amplitudeMult: 1.0,
+    targetAmplitudeMult: 1.0,
+    amplitudeTransitionStart: 0,
+    amplitudeTransitionDuration: 2000,
+    nextAmplitudeChange: performance.now() + randomBetween(15000, 25000),
+    speedMult: 1.0,
+    targetSpeedMult: 1.0,
+    speedTransitionStart: 0,
+    speedTransitionDuration: 2000,
+    nextSpeedChange: performance.now() + randomBetween(20000, 35000),
+  });
+
   // Internal animation state (not React state — no re-renders)
   const stateRef = useRef({
     x: 0,
@@ -98,6 +134,8 @@ export default function AmbientBird({
 
   const frameRef = useRef<number>(0);
   const birdElRef = useRef<HTMLDivElement>(null);
+  const leftWingRef = useRef<SVGPathElement>(null);
+  const rightWingRef = useRef<SVGPathElement>(null);
 
   // ── INIT ────────────────────────────────────────────────
   const init = useCallback(() => {
@@ -192,48 +230,107 @@ export default function AmbientBird({
       s.x = s.viewW + BIRD_WIDTH;
     }
 
-    // Vertical sine wave drift
+    // ── DRIFT MICRO-RANDOMNESS ────────────────────────────
+    const dv = driftVarianceRef.current;
+
+    // Amplitude variation
+    if (now >= dv.nextAmplitudeChange) {
+      dv.targetAmplitudeMult = 0.85 + Math.random() * 0.3; // 0.85–1.15
+      dv.amplitudeTransitionStart = now;
+      dv.amplitudeTransitionDuration = 2000;
+      dv.nextAmplitudeChange = now + randomBetween(15000, 25000);
+    }
+    if (dv.amplitudeMult !== dv.targetAmplitudeMult) {
+      const t = Math.min((now - dv.amplitudeTransitionStart) / dv.amplitudeTransitionDuration, 1);
+      dv.amplitudeMult += (dv.targetAmplitudeMult - dv.amplitudeMult) * Math.min(t * 0.05, 1);
+      if (Math.abs(dv.amplitudeMult - dv.targetAmplitudeMult) < 0.001) {
+        dv.amplitudeMult = dv.targetAmplitudeMult;
+      }
+    }
+
+    // Speed variation
+    if (now >= dv.nextSpeedChange) {
+      dv.targetSpeedMult = 0.88 + Math.random() * 0.24; // 0.88–1.12
+      dv.speedTransitionStart = now;
+      dv.speedTransitionDuration = 2000;
+      dv.nextSpeedChange = now + randomBetween(20000, 35000);
+    }
+    if (dv.speedMult !== dv.targetSpeedMult) {
+      const t = Math.min((now - dv.speedTransitionStart) / dv.speedTransitionDuration, 1);
+      dv.speedMult += (dv.targetSpeedMult - dv.speedMult) * Math.min(t * 0.05, 1);
+      if (Math.abs(dv.speedMult - dv.targetSpeedMult) < 0.001) {
+        dv.speedMult = dv.targetSpeedMult;
+      }
+    }
+
+    // Vertical sine wave drift (with amplitude micro-randomness)
+    const effectiveAmplitude = g.sineAmplitude * dv.amplitudeMult;
     const sineTime = (now + s.sineOffset) / SINE_PERIOD;
-    const sineY = Math.sin(sineTime * Math.PI * 2) * g.sineAmplitude;
+    const sineY = Math.sin(sineTime * Math.PI * 2) * effectiveAmplitude;
     s.y = s.baseY + sineY;
 
     // Clamp to sky zone
     if (s.y < s.skyTopPx) {
       s.y = s.skyTopPx;
-      s.baseY = s.skyTopPx + g.sineAmplitude;
+      s.baseY = s.skyTopPx + effectiveAmplitude;
     }
     if (s.y > s.skyBottomPx) {
       s.y = s.skyBottomPx;
-      s.baseY = s.skyBottomPx - g.sineAmplitude;
+      s.baseY = s.skyBottomPx - effectiveAmplitude;
     }
 
     // ── REACTION OVERLAY ─────────────────────────────────
     const rx = reactionRef.current;
     if (rx.active) {
       const elapsed = now - rx.startTime;
-      const progress = Math.min(elapsed / rx.duration, 1);
 
       if (rx.type === 'acceleration') {
+        const progress = Math.min(elapsed / rx.duration, 1);
         // Brief speed boost — sine curve peaks mid-reaction
         const boost = Math.sin(progress * Math.PI);
         s.x += g.speed * s.direction * boost * 1.8;
-      } else if (rx.type === 'soar') {
-        // Gentle upward arc within sky zone
-        const arc = Math.sin(progress * Math.PI);
-        const height = rx.soarStartY - rx.soarPeakY;
-        s.y = rx.soarStartY - height * arc;
-      }
-      // 'turn' reaction handled by existing direction transition system
-
-      if (progress >= 1) {
-        if (rx.type === 'soar') {
-          s.y = rx.soarStartY;
-          s.baseY = rx.soarStartY;
+        if (progress >= 1) {
+          rx.active = false;
+          rx.type = null;
         }
-        rx.active = false;
-        rx.type = null;
+      } else if (rx.type === 'soar') {
+        // ── SMOOTH PHYSICAL ARC: ease-out ascent → peak pause → ease-in descent ──
+        const height = rx.soarStartY - rx.soarPeakY;
+
+        if (elapsed < SOAR_ASCENT_MS) {
+          // Phase 1 — Ascent (ease-out: fast start, decelerate)
+          const t = elapsed / SOAR_ASCENT_MS;
+          const easeOut = 1 - (1 - t) * (1 - t);
+          s.y = rx.soarStartY - height * easeOut;
+        } else if (elapsed < SOAR_ASCENT_MS + SOAR_PEAK_MS) {
+          // Phase 2 — Peak pause (hold at top)
+          s.y = rx.soarPeakY;
+        } else if (elapsed < SOAR_TOTAL_MS) {
+          // Phase 3 — Descent (ease-in: slow start, accelerate)
+          const t = (elapsed - SOAR_ASCENT_MS - SOAR_PEAK_MS) / SOAR_DESCENT_MS;
+          const easeIn = t * t;
+          s.y = rx.soarPeakY + height * easeIn;
+        } else {
+          // Phase 4 — Return to drift: seamless handoff
+          s.baseY = rx.soarStartY;
+          s.y = rx.soarStartY;
+          rx.active = false;
+          rx.type = null;
+        }
+      } else {
+        // 'turn' reaction handled by existing direction transition system
+        const progress = Math.min(elapsed / rx.duration, 1);
+        if (progress >= 1) {
+          rx.active = false;
+          rx.type = null;
+        }
       }
     }
+
+    // Apply speed micro-randomness to horizontal movement
+    // (override the earlier s.x += g.speed * s.direction with variance)
+    // Already applied above, but we add the variance delta here
+    s.x += g.speed * s.direction * (dv.speedMult - 1);
 
     // Update position refs
     birdPositionRef.current.x = s.x;
@@ -242,6 +339,35 @@ export default function AmbientBird({
       positionRef.current.x = s.x;
       positionRef.current.y = s.y;
     }
+
+    // ── WING FLAP ───────────────────────────────────────
+    const wf = wingFlapRef.current;
+    if (!wf.active && now >= wf.nextBurstTime) {
+      wf.active = true;
+      wf.startTime = now;
+    }
+
+    let wingScaleY = 1.0;
+    if (wf.active) {
+      const flapElapsed = now - wf.startTime;
+      if (flapElapsed >= FLAP_BURST_MS) {
+        wf.active = false;
+        wf.nextBurstTime = now + randomBetween(FLAP_MIN_INTERVAL, FLAP_MAX_INTERVAL);
+        wingScaleY = 1.0;
+      } else {
+        // Sine oscillation within burst
+        const flapProgress = (flapElapsed % FLAP_CYCLE_MS) / FLAP_CYCLE_MS;
+        const sine = Math.sin(flapProgress * Math.PI * 2);
+        // sine goes -1 to 1; map so that 1 = rest (scaleY 1.0), -1 = max flap
+        wingScaleY = 1.0 - (1.0 - FLAP_SCALE_MIN) * ((1 - sine) / 2);
+      }
+    }
+
+    // Apply wing transforms
+    const lw = leftWingRef.current;
+    const rw = rightWingRef.current;
+    if (lw) lw.style.transform = `scaleY(${wingScaleY})`;
+    if (rw) rw.style.transform = `scaleY(${wingScaleY})`;
 
     // Pulse boost: 1 → 1.08 → 1 over 600ms (sine curve)
     let pulseBoost = 1;
@@ -301,16 +427,19 @@ export default function AmbientBird({
     const now = performance.now();
 
     if (source === 'save') {
-      // ── SAVE-CONFIRMED: deterministic soar (65px arc, 1000ms) ──
-      const peakY = Math.max(s.skyTopPx, s.y - 65);
+      // ── SAVE-CONFIRMED: deterministic soar (65px arc, smooth 3-phase) ──
+      const peakY = Math.max(s.skyTopPx, s.y - SOAR_HEIGHT);
       reactionRef.current = {
         active: true,
         type: 'soar',
         startTime: now,
-        duration: 1000,
+        duration: SOAR_TOTAL_MS,
         soarStartY: s.y,
         soarPeakY: peakY,
       };
+      // Trigger wing flap burst at start of soar
+      wingFlapRef.current.active = true;
+      wingFlapRef.current.startTime = now;
     } else {
       // ── AMBIENT: weighted random A=50%, B=35%, C=15% ──
       const roll = Math.random();
@@ -342,16 +471,19 @@ export default function AmbientBird({
         s.nextDirChange = now + randomBetween(DIR_CHANGE_MIN, DIR_CHANGE_MAX);
       } else {
         // Reaction C — Soar (~15%, rare, special)
-        // Rise higher within sky zone, ~40px upward arc
+        // Rise higher within sky zone, ~40px upward arc, smooth 3-phase
         const peakY = Math.max(s.skyTopPx, s.y - 40);
         reactionRef.current = {
           active: true,
           type: 'soar',
           startTime: now,
-          duration: 800,
+          duration: SOAR_TOTAL_MS,
           soarStartY: s.y,
           soarPeakY: peakY,
         };
+        // Trigger wing flap burst at start of soar
+        wingFlapRef.current.active = true;
+        wingFlapRef.current.startTime = now;
       }
     }
   }, [reactionTrigger, reactionSourceRef]);
@@ -389,13 +521,25 @@ export default function AmbientBird({
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* Minimal bird silhouette — M-shape, two gentle arcs */}
+          {/* Left wing — transforms from center-body anchor */}
           <path
-            d="M0,11 Q7,1 16,8 Q25,1 32,11"
+            ref={leftWingRef}
+            d="M0,11 Q7,1 16,8"
             stroke="rgba(247,243,236,0.6)"
             strokeWidth="1.8"
             fill="none"
             strokeLinecap="round"
+            style={{ transformOrigin: '16px 8px' }}
+          />
+          {/* Right wing — transforms from center-body anchor */}
+          <path
+            ref={rightWingRef}
+            d="M16,8 Q25,1 32,11"
+            stroke="rgba(247,243,236,0.6)"
+            strokeWidth="1.8"
+            fill="none"
+            strokeLinecap="round"
+            style={{ transformOrigin: '16px 8px' }}
           />
         </svg>
       </div>
