@@ -280,8 +280,7 @@ export default function HomePage() {
 
   // ── SIGNAL PULSE STATE ──────────────────────────────────
   const [showSignalPulse, setShowSignalPulse] = useState(false);
-  // ── ZEN CAPTURE MOMENT ──────────────────────────────────
-  const [zenCapture, setZenCapture] = useState<{ visible: boolean; text: string | null }>({ visible: false, text: null });
+  // (Zen capture moment removed — save-confirmed feedback is per-path only)
   const prevSignalCountForPulseRef = useRef<number | null>(null);
 
   // Track signal count before capture to diff after re-fetch
@@ -788,15 +787,11 @@ export default function HomePage() {
           : `${newSignals.length} signals captured — deal updated`;
       }
 
+      // ── SYSTEM LEARNED: feedback banner only ──
       setFeedbackText(fb);
       setFeedbackVisible(true);
       setTimeout(() => setFeedbackVisible(false), 3500);
       setTimeout(() => setFeedbackText(null), 4100);
-
-      // Also update zen overlay text if it's still showing
-      setZenCapture(prev => prev.visible || prev.text !== null
-        ? { ...prev, text: fb }
-        : prev);
     } else {
       // No new signals extracted — graceful fallback
       setFeedbackText('Intelligence sharpening');
@@ -836,23 +831,13 @@ export default function HomePage() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // ── BIRD REACTION ON SIGNAL COUNT INCREASE ─────────────
+  // ── BIRD/PULSE SIGNAL COUNT TRACKING ─────────────────
+  // (Second bird reaction and second signal pulse removed —
+  //  save-confirmed moment handles these; system-learned moment
+  //  uses feedback banner only.)
   useEffect(() => {
-    const currentCount = data?.signals.length ?? 0;
-    if (currentCount > prevSignalCountForBirdRef.current && prevSignalCountForBirdRef.current > 0) {
-      setBirdReactionTrigger(k => k + 1);
-    }
-    prevSignalCountForBirdRef.current = currentCount;
-  }, [data?.signals.length]);
-
-  // ── SIGNAL PULSE ON SIGNAL COUNT INCREASE ──────────────
-  useEffect(() => {
-    const currentCount = data?.signals.length ?? 0;
-    if (prevSignalCountForPulseRef.current !== null && currentCount > prevSignalCountForPulseRef.current) {
-      setShowSignalPulse(true);
-      setTimeout(() => setShowSignalPulse(false), 900);
-    }
-    prevSignalCountForPulseRef.current = currentCount;
+    prevSignalCountForBirdRef.current = data?.signals.length ?? 0;
+    prevSignalCountForPulseRef.current = data?.signals.length ?? 0;
   }, [data?.signals.length]);
 
   // ── DERIVED VALUES ─────────────────────────────────────
@@ -1002,18 +987,10 @@ export default function HomePage() {
     // Clear pending pulse flag (prevent double-fire on next mount)
     localStorage.removeItem('jove_pulse_pending');
 
-    // Bird pulse + sun pulse — simultaneous
+    // ── SAVE CONFIRMED: bird reaction + one sun pulse ──
     setBirdPulseTrigger(k => k + 1);
     setShowSignalPulse(true);
     setTimeout(() => setShowSignalPulse(false), 900);
-
-    // ── ZEN CAPTURE MOMENT ──────────────────────────────
-    // Immediate warm confirmation — addictive micro-reward
-    setZenCapture({ visible: true, text: null });
-    // After 2s, begin fade-out
-    setTimeout(() => setZenCapture(prev => ({ ...prev, visible: false })), 2000);
-    // Clean up after fade animation
-    setTimeout(() => setZenCapture({ visible: false, text: null }), 2600);
 
     // Snapshot signal count for post-capture feedback
     preCaptureSignalCountRef.current = data?.signals.length ?? 0;
@@ -1219,25 +1196,7 @@ export default function HomePage() {
           0% { transform: translate(-50%,-50%) scale(1); opacity: 0.22; }
           100% { transform: translate(-50%,-50%) scale(1.15); opacity: 0; }
         }
-        @keyframes zenCheckIn {
-          0% { transform: scale(0.5); opacity: 0; }
-          40% { transform: scale(1.08); opacity: 1; }
-          60% { transform: scale(0.96); opacity: 1; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes zenGlow {
-          0% { transform: scale(0.3); opacity: 0; }
-          50% { opacity: 0.18; }
-          100% { transform: scale(3); opacity: 0; }
-        }
-        @keyframes zenTextIn {
-          0% { opacity: 0; transform: translateY(6px); }
-          100% { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes zenCheckStroke {
-          0% { stroke-dashoffset: 24; }
-          100% { stroke-dashoffset: 0; }
-        }
+        /* (Zen keyframes removed — overlay no longer used) */
       `}</style>
 
       {/* ── WARM TINT LAYER (additive, gradient-based) ── */}
@@ -1273,83 +1232,8 @@ export default function HomePage() {
         />
       )}
 
-      {/* ── ZEN CAPTURE MOMENT ──────────────────────── */}
-      {(zenCapture.visible || zenCapture.text !== null) && (
-        <div
-          style={{
-            position:     'fixed',
-            inset:        0,
-            zIndex:       50,
-            pointerEvents:'none',
-            display:      'flex',
-            flexDirection:'column',
-            alignItems:   'center',
-            justifyContent:'center',
-            opacity:      zenCapture.visible ? 1 : 0,
-            transition:   'opacity 0.6s ease',
-          }}
-        >
-          {/* Expanding warm glow behind checkmark */}
-          <div
-            style={{
-              position:     'absolute',
-              width:        120,
-              height:       120,
-              borderRadius: '50%',
-              background:   'radial-gradient(circle, rgba(248,200,80,0.22), rgba(248,180,60,0.06) 60%, transparent 100%)',
-              animation:    'zenGlow 1.8s ease-out forwards',
-            }}
-          />
-          {/* Breathing checkmark circle */}
-          <div
-            style={{
-              width:        56,
-              height:       56,
-              borderRadius: '50%',
-              background:   'rgba(0,0,0,0.45)',
-              backdropFilter:'blur(20px)',
-              border:       '1px solid rgba(248,200,80,0.25)',
-              display:      'flex',
-              alignItems:   'center',
-              justifyContent:'center',
-              animation:    'zenCheckIn 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards',
-              boxShadow:    '0 0 30px 8px rgba(248,190,64,0.08)',
-            }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M5 13l4 4L19 7"
-                stroke="rgba(248,200,80,0.9)"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{
-                  strokeDasharray: 24,
-                  strokeDashoffset: 0,
-                  animation: 'zenCheckStroke 0.5s ease-out 0.3s both',
-                }}
-              />
-            </svg>
-          </div>
-          {/* Subtle text below — only if extraction produced feedback */}
-          {zenCapture.text && (
-            <div
-              style={{
-                marginTop:  14,
-                fontSize:   13,
-                fontWeight: 400,
-                color:      'rgba(247,243,236,0.65)',
-                letterSpacing: '0.01em',
-                animation:  'zenTextIn 0.4s ease-out 0.5s both',
-                textAlign:  'center',
-                maxWidth:   260,
-              }}
-            >
-              {zenCapture.text}
-            </div>
-          )}
-        </div>
-      )}
+      {/* (Zen capture overlay removed — save-confirmed is per-path,
+           system-learned uses feedback banner only) */}
 
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {scene.sun.opacity > 0 ? (
@@ -2135,17 +2019,9 @@ export default function HomePage() {
           userId={data.user.id}
           activeDeals={data.allDeals ?? []}
           onCaptureComplete={() => {
+            // ── SAVE CONFIRMED: CaptureSheet shows "Got it." — no extra layers here ──
             // Snapshot current signal count before re-fetch
             preCaptureSignalCountRef.current = data?.signals.length ?? 0;
-            // Bird reacts immediately to capture submission
-            setBirdReactionTrigger(k => k + 1);
-            // Signal pulse — immediate environment feedback on capture
-            setShowSignalPulse(true);
-            setTimeout(() => setShowSignalPulse(false), 900);
-            // Zen capture moment — warm breathing checkmark
-            setZenCapture({ visible: true, text: null });
-            setTimeout(() => setZenCapture(prev => ({ ...prev, visible: false })), 2000);
-            setTimeout(() => setZenCapture({ visible: false, text: null }), 2600);
             // Clear pending pulse flag (prevent double-fire on next mount)
             localStorage.removeItem('jove_pulse_pending');
             // Delay re-fetch to give extraction time to complete
