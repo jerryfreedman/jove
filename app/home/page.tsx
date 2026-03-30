@@ -278,6 +278,8 @@ export default function HomePage() {
 
   // ── ENVIRONMENTAL ACKNOWLEDGMENT STATE ─────────────────
   const [ackToken, setAckToken] = useState(0);
+  const [shimmerActive, setShimmerActive] = useState(false);
+  const [shimmerOpacity, setShimmerOpacity] = useState(1);
   const ackGuardRef = useRef<number>(0);
   const captureCompletedRef = useRef(false);
 
@@ -962,8 +964,14 @@ export default function HomePage() {
 
     const source = options?.source ?? 'other';
 
-    // Single coordinated acknowledgment: page-wide warmth + sun bloom + brightness
+    // Single coordinated acknowledgment: page-wide warmth + sun bloom + brightness + shimmer
     setAckToken(t => t + 1);
+
+    // Water shimmer — fires once, 1.2s total
+    setShimmerActive(true);
+    setShimmerOpacity(1);
+    setTimeout(() => setShimmerOpacity(0), 800);
+    setTimeout(() => setShimmerActive(false), 1200);
 
     // Bird soar — only for bird-originated saves (strengthens the single moment)
     if (source === 'bird') {
@@ -1200,6 +1208,29 @@ export default function HomePage() {
           pointerEvents:  'none',
         }}
       />
+
+      {/* ── WATER SHIMMER ON CAPTURE ─────────────── */}
+      {shimmerActive && (
+        <div style={{
+          position:      'absolute',
+          top:           '65%',
+          left:          0,
+          right:         0,
+          height:        '2px',
+          overflow:      'hidden',
+          zIndex:        8,
+          opacity:       shimmerOpacity,
+          transition:    'opacity 0.2s ease',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            width:      '100%',
+            height:     '100%',
+            background: 'linear-gradient(to right, transparent 0%, rgba(255,248,220,0.18) 30%, rgba(255,255,240,0.28) 50%, rgba(255,248,220,0.18) 70%, transparent 100%)',
+            animation:  'waterShimmer 1.2s ease-in-out both',
+          }} />
+        </div>
+      )}
 
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {(scene.sun.opacity > 0 || isNight) ? (
