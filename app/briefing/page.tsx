@@ -38,21 +38,23 @@ function getDaysSince(dateStr: string): number {
   );
 }
 
-function formatMeetingTime(dateStr: string): string {
-  const d    = new Date(dateStr);
-  const now  = new Date();
+function formatMeetingTime(meeting: MeetingRow): string {
+  const d    = new Date(meeting.scheduled_at);
   const h    = d.getHours();
   const m    = d.getMinutes().toString().padStart(2, '0');
   const h12  = h % 12 || 12;
   const ap   = h < 12 ? 'am' : 'pm';
   const time = `${h12}:${m} ${ap}`;
 
-  const diffMs   = d.getTime() - now.getTime();
-  const diffMins = Math.round(diffMs / 60000);
+  const state = getMeetingState(meeting);
 
-  if (diffMins < -60)  return `${time} · Completed`;
-  if (diffMins < 0)    return `${time} · In progress`;
-  if (diffMins < 60)   return `${time} · In ${diffMins} min`;
+  if (state === 'completed')   return `${time} · Completed`;
+  if (state === 'in_progress') return `${time} · In progress`;
+
+  // upcoming — show relative time
+  const diffMs   = d.getTime() - Date.now();
+  const diffMins = Math.round(diffMs / 60000);
+  if (diffMins < 60) return `${time} · In ${diffMins} min`;
   const diffHrs = Math.round(diffMins / 60);
   return `${time} · In ${diffHrs}h`;
 }
@@ -69,7 +71,7 @@ function buildBriefingText(
   if (meetings.length > 0) {
     lines.push('MEETINGS');
     for (const m of meetings) {
-      lines.push(`• ${m.title} — ${formatMeetingTime(m.scheduled_at)}`);
+      lines.push(`• ${m.title} — ${formatMeetingTime(m)}`);
     }
     lines.push('');
   }
@@ -128,6 +130,9 @@ export default function BriefingPage() {
   const [inlineBriefs, setInlineBriefs] = useState<Record<string, string>>({});
   const [briefLoading, setBriefLoading] = useState<Record<string, boolean>>({});
   const [showCompleted, setShowCompleted] = useState(false);
+
+  // Tick counter — forces meeting-state re-derivation every 60s
+  const [tick, setTick] = useState(0);
 
   // Hero brief state (auto-fetched on page load for next meeting only)
   const [heroBrief, setHeroBrief] = useState<string | null>(null);
@@ -234,7 +239,7 @@ export default function BriefingPage() {
     // Init meeting time displays
     const times: Record<string, string> = {};
     for (const m of fetchedMeetings) {
-      times[m.id] = formatMeetingTime(m.scheduled_at);
+      times[m.id] = formatMeetingTime(m);
     }
     setMeetingTimes(times);
 
@@ -260,16 +265,18 @@ export default function BriefingPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  // ── CLOCK — update meeting times every 60s ────────────
+  // ── CLOCK — update meeting times + re-derive state every 60s ──
   useEffect(() => {
     const interval = setInterval(() => {
       setMeetingTimes(() => {
         const updated: Record<string, string> = {};
         for (const meeting of meetings) {
-          updated[meeting.id] = formatMeetingTime(meeting.scheduled_at);
+          updated[meeting.id] = formatMeetingTime(meeting);
         }
         return updated;
       });
+      // Bump tick to re-derive meeting groups from scheduled_at
+      setTick(t => t + 1);
     }, 60000);
     return () => clearInterval(interval);
   }, [meetings]);
@@ -356,7 +363,7 @@ export default function BriefingPage() {
           context += `Most urgent deal: "${topDeal.name}" at ${account} — ${days} days inactive, stage: ${topDeal.stage}. `;
         }
         if (topMeeting) {
-          context += `Next meeting: "${topMeeting.title}" at ${formatMeetingTime(topMeeting.scheduled_at)}. `;
+          context += `Next meeting: "${topMeeting.title}" at ${formatMeetingTime(topMeeting)}. `;
         }
         if (!context) {
           context = `${allActiveDeals.length} active deals in pipeline.`;
@@ -639,7 +646,8 @@ export default function BriefingPage() {
       upcomingMeetings: rest,
       completedMeetings: completed,
     };
-  }, [meetings]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, tick]);
 
   // ── SECTION CARD STYLE ───────────────────────────────
   const sectionLabel: React.CSSProperties = {
@@ -811,7 +819,7 @@ export default function BriefingPage() {
                     ? 'rgba(72,200,120,0.82)'
                     : 'rgba(56,184,200,0.82)',
                 }}>
-                  {meetingTimes[nextMeeting.id] ?? formatMeetingTime(nextMeeting.scheduled_at)}
+                  {meetingTimes[nextMeeting.id] ?? formatMeetingTime(nextMeeting)}
                 </span>
                 {nextMeeting.deal_id && (
                   <span style={{
@@ -987,7 +995,7 @@ export default function BriefingPage() {
                         ? 'rgba(72,200,120,0.82)'
                         : 'rgba(56,184,200,0.82)',
                     }}>
-                      {meetingTimes[meeting.id] ?? formatMeetingTime(meeting.scheduled_at)}
+                      {meetingTimes[meeting.id] ?? formatMeetingTime(meeting)}
                     </span>
                     {meeting.deal_id && (
                       <span style={{
@@ -1389,7 +1397,7 @@ export default function BriefingPage() {
                       textTransform: 'uppercase',
                       color:         'rgba(26,20,16,0.3)',
                     }}>
-                      {meetingTimes[meeting.id] ?? formatMeetingTime(meeting.scheduled_at)}
+                      {meetingTimes[meeting.id] ?? formatMeetingTime(meeting)}
                     </span>
                   </div>
 
@@ -1421,27 +1429,51 @@ export default function BriefingPage() {
                           {meeting.attendees}
                         </div>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAddContext(meeting);
-                        }}
-                        style={{
-                          padding:       '8px 16px',
-                          borderRadius:  9,
-                          border:        '0.5px solid rgba(200,160,80,0.2)',
-                          background:    'rgba(200,160,80,0.04)',
-                          color:         'rgba(200,160,80,0.7)',
-                          fontSize:      10,
-                          fontWeight:    700,
-                          letterSpacing: '1.5px',
-                          textTransform: 'uppercase',
-                          cursor:        'pointer',
-                          fontFamily:    "'DM Sans', sans-serif",
-                        }}
-                      >
-                        Add Context
-                      </button>
+                      {meeting.debrief_completed ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAddContext(meeting);
+                          }}
+                          style={{
+                            padding:       '8px 16px',
+                            borderRadius:  9,
+                            border:        '0.5px solid rgba(26,20,16,0.08)',
+                            background:    'transparent',
+                            color:         'rgba(26,20,16,0.36)',
+                            fontSize:      10,
+                            fontWeight:    500,
+                            letterSpacing: '1.5px',
+                            textTransform: 'uppercase',
+                            cursor:        'pointer',
+                            fontFamily:    "'DM Sans', sans-serif",
+                          }}
+                        >
+                          View Context
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAddContext(meeting);
+                          }}
+                          style={{
+                            padding:       '8px 16px',
+                            borderRadius:  9,
+                            border:        '0.5px solid rgba(200,160,80,0.2)',
+                            background:    'rgba(200,160,80,0.04)',
+                            color:         'rgba(200,160,80,0.7)',
+                            fontSize:      10,
+                            fontWeight:    700,
+                            letterSpacing: '1.5px',
+                            textTransform: 'uppercase',
+                            cursor:        'pointer',
+                            fontFamily:    "'DM Sans', sans-serif",
+                          }}
+                        >
+                          Add Context
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
