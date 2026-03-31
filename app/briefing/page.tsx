@@ -197,7 +197,7 @@ export default function BriefingPage() {
   const [dealInteractions, setDealInteractions] = useState<InteractionRow[]>([]);
 
   // Tour refs
-  const doThisFirstRef    = useRef<HTMLDivElement>(null);
+  // Session 6: doThisFirstRef removed — no independent rendering
   const needsAttentionRef = useRef<HTMLDivElement>(null);
   const [showBriefingTour, setShowBriefingTour] = useState(false);
 

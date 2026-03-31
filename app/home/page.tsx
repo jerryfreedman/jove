@@ -21,6 +21,11 @@ import {
   COLORS,
 } from '@/lib/design-system';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
+import {
+  evaluateAssistantTrigger,
+  markTriggerSeen,
+  type AssistantTrigger,
+} from '@/lib/assistant-trigger';
 import type {
   DealRow,
   MeetingRow,
@@ -99,13 +104,6 @@ function getFirstName(user: UserRow | null): string {
   return '';
 }
 
-// ── HELPERS ───────────────────────────────────────────────
-function getDaysSinceActivity(deal: DealRow): number {
-  return Math.floor(
-    (Date.now() - new Date(deal.last_activity_at).getTime()) / (1000 * 60 * 60 * 24)
-  );
-}
-
 // ── COMPONENT ─────────────────────────────────────────────
 export default function HomePage() {
   const router   = useRouter();
@@ -136,9 +134,8 @@ export default function HomePage() {
   const birdHitboxRef = useRef<HTMLDivElement>(null);
   const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Counter to force birdQuestion useMemo to recompute after a bird submit.
-  // Actual persistence uses localStorage keys: curiosity_asked_{targetId}
-  const [birdAnsweredCount, setBirdAnsweredCount] = useState(0);
+  // Session 6: birdAnsweredCount removed — birdQuestion now derives from
+  // assistantTrigger which re-evaluates when data changes via homeRefreshKey.
   // Ref for cross-system curiosity resolution (chat → homepage/bird)
   const birdQuestionRef = useRef<{
     text: string;
@@ -302,7 +299,7 @@ export default function HomePage() {
         const activeQ = birdQuestionRef.current;
         if (activeQ && dealId && dealId === activeQ.dealId) {
           localStorage.setItem(`curiosity_asked_${activeQ.targetId}`, 'true');
-          setBirdAnsweredCount(c => c + 1);
+          // Session 6: birdAnsweredCount removed — homeRefreshKey handles recompute
         }
         // Delayed re-fetch for extraction
         setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
@@ -1167,15 +1164,23 @@ export default function HomePage() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // ── BIRD QUESTION GENERATION (SYSTEM CURIOSITY) ─────────
-  // The bird is a delivery surface for system curiosity.
-  // ONE question at a time. Deterministic. No randomness. No fallback.
-  // Priority:
-  //   1. Upcoming meeting with weak context
-  //   2. In-progress meeting needing context
-  //   3. Recently completed meeting needing debrief
-  //   4. Active deal with no signals OR stale (>14 days no activity)
-  //   5. null → bird remains passive
+  // ── SESSION 6: UNIFIED ASSISTANT TRIGGER ──────────────────
+  // ONE evaluation. Every surface (homepage line, bird, chat injection)
+  // reads from this single result. Priority: clarify > prep > nudge > none.
+  const assistantTrigger = useMemo((): AssistantTrigger => {
+    if (!data) return { type: 'none', message: '', chatPrompt: '', triggerId: '' };
+    return evaluateAssistantTrigger({
+      meetings: data.meetings,
+      allDeals: data.allDeals,
+      urgentDeals: data.urgentDeals,
+      signals: data.signals,
+    });
+  }, [data]);
+
+  // ── SESSION 6: BIRD QUESTION — derives from unified trigger ──
+  // The bird uses the SAME evaluateAssistantTrigger result.
+  // When trigger type is 'clarify' or 'nudge', the bird has a question.
+  // Otherwise the bird remains passive.
   const birdQuestion = useMemo((): {
     text: string;
     dealId: string | null;
@@ -1184,107 +1189,19 @@ export default function HomePage() {
   } | null => {
     if (!data) return null;
 
-    const nowMs = Date.now();
-    const todayStr = new Date().toDateString();
-
-    // Helper: already asked on any surface (bird or briefing)
-    const isAsked = (id: string) =>
-      localStorage.getItem(`curiosity_asked_${id}`) === 'true' ||
-      localStorage.getItem(`question_answered_${id}`) === 'true';
-
-    // Helper: weak context — same definition as briefing page
-    const hasWeakContext = (meeting: MeetingRow): boolean => {
-      if (!meeting.deal_id) return true;
-      const dealSignals = data.signals.filter(s => s.deal_id === meeting.deal_id);
-      return dealSignals.length === 0;
-    };
-
-    // ── P1: UPCOMING MEETING WITH WEAK CONTEXT ────────────
-    const upcoming = data.meetings
-      .filter(m => {
-        const mt = new Date(m.scheduled_at);
-        return mt.getTime() > nowMs && mt.toDateString() === todayStr;
-      })
-      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
-
-    for (const meeting of upcoming) {
-      if (isAsked(meeting.id)) continue;
-      if (!hasWeakContext(meeting)) continue;
-
-      if (!meeting.attendees) {
-        return {
-          text: "Who's joining this call?",
-          dealId: meeting.deal_id ?? null,
-          meetingId: meeting.id,
-          targetId: meeting.id,
-        };
-      }
+    // Bird surfaces clarify and nudge triggers as interactive questions.
+    // Prep triggers are informational (no answer needed), so bird stays passive.
+    if (assistantTrigger.type === 'clarify' || assistantTrigger.type === 'nudge') {
       return {
-        text: "What's the goal for this meeting?",
-        dealId: meeting.deal_id ?? null,
-        meetingId: meeting.id,
-        targetId: meeting.id,
+        text: assistantTrigger.message,
+        dealId: assistantTrigger.context?.dealId ?? null,
+        meetingId: assistantTrigger.context?.meetingId ?? null,
+        targetId: assistantTrigger.triggerId,
       };
     }
 
-    // ── P2: IN-PROGRESS MEETING NEEDING CONTEXT ──────────
-    for (const meeting of data.meetings) {
-      const start = new Date(meeting.scheduled_at).getTime();
-      const end = start + 60 * 60 * 1000;
-      if (nowMs >= start && nowMs <= end) {
-        if (isAsked(meeting.id)) continue;
-        return {
-          text: "Anything important happening right now?",
-          dealId: meeting.deal_id ?? null,
-          meetingId: meeting.id,
-          targetId: meeting.id,
-        };
-      }
-    }
-
-    // ── P3: RECENTLY COMPLETED MEETING NEEDING DEBRIEF ───
-    const twoHoursAgo = nowMs - 2 * 60 * 60 * 1000;
-    const recentCompleted = data.meetings
-      .filter(m => {
-        const start = new Date(m.scheduled_at).getTime();
-        const end = start + 60 * 60 * 1000;
-        if (nowMs <= end || start <= twoHoursAgo) return false;
-        if (m.debrief_completed) return false;
-        if (localStorage.getItem(`meeting_prompt_ack_${m.id}`)) return false;
-        return true;
-      })
-      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
-
-    for (const meeting of recentCompleted) {
-      if (isAsked(meeting.id)) continue;
-      return {
-        text: "How did the meeting go?",
-        dealId: meeting.deal_id ?? null,
-        meetingId: meeting.id,
-        targetId: meeting.id,
-      };
-    }
-
-    // ── P4: ACTIVE DEAL — NO SIGNALS OR STALE (>14 DAYS) ─
-    for (const deal of data.allDeals) {
-      if (isAsked(deal.id)) continue;
-      const dealSignals = data.signals.filter(s => s.deal_id === deal.id);
-      const daysSince = getDaysSinceActivity(deal);
-
-      if (dealSignals.length === 0 || daysSince > 14) {
-        const name = deal.accounts?.name || deal.name;
-        return {
-          text: `Any updates on ${name}?`,
-          dealId: deal.id,
-          meetingId: null,
-          targetId: deal.id,
-        };
-      }
-    }
-
-    // ── NO VALID TARGET → bird remains passive ───────────
     return null;
-  }, [data, birdAnsweredCount]);
+  }, [data, assistantTrigger]);
   birdQuestionRef.current = birdQuestion;
 
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
@@ -1317,7 +1234,8 @@ export default function HomePage() {
 
       // ── PERSIST: mark this target as asked — never ask again ──
       localStorage.setItem(`curiosity_asked_${currentTargetId}`, 'true');
-      setBirdAnsweredCount(c => c + 1);
+      // Session 6: also mark trigger cooldown so unified trigger doesn't re-surface
+      markTriggerSeen(currentTargetId);
     } catch (err) {
       console.error('Bird capture error:', err);
     }
@@ -1395,34 +1313,26 @@ export default function HomePage() {
   const firstName       = getFirstName(data?.user ?? null);
   const greeting        = getGreeting(h);
 
-  // ── HOMEPAGE INTELLIGENCE LINE (single source — curiosity > brief > fallback) ──
-  // Exactly ONE line under the greeting. Priority order:
-  //   1. Curiosity question (valid + unsatisfied) — same source as bird
-  //   2. Auto-brief for next meeting (read from briefing page cache)
-  //   3. Soft time-of-day fallback
+  // ── HOMEPAGE INTELLIGENCE LINE (unified trigger > brief cache > fallback) ──
+  // Exactly ONE line under the greeting. Reads from assistantTrigger first,
+  // then falls back to cached brief or time-of-day message.
   const homepageIntelligenceLine = useMemo((): {
-    type: 'curiosity' | 'brief' | 'fallback';
+    type: 'trigger' | 'brief' | 'fallback';
     text: string;
-    targetId?: string;
+    trigger?: AssistantTrigger;
   } => {
     if (!data) return { type: 'fallback', text: '' };
 
-    // ── P1: CURIOSITY QUESTION ────────────────────
-    // Uses the same birdQuestion source — one mind, one question.
-    // Homepage displays the question; bird provides the answer surface.
-    if (birdQuestion) {
+    // ── P1: UNIFIED TRIGGER ───────────────────────
+    if (assistantTrigger.type !== 'none') {
       return {
-        type: 'curiosity',
-        text: birdQuestion.text,
-        targetId: birdQuestion.targetId,
+        type: 'trigger',
+        text: assistantTrigger.message,
+        trigger: assistantTrigger,
       };
     }
 
     // ── P2: AUTO-BRIEF FROM CACHE ─────────────────
-    // Read the briefing page's cached micro brief for the next meeting.
-    // Read-only — does NOT regenerate or call any API.
-    // Phase 3 (Session 6): optionally append one short second sentence
-    // from locally available deal/signal context, if non-duplicative.
     if (typeof window !== 'undefined') {
       const nowMs = Date.now();
       const today = new Date().toISOString().split('T')[0];
@@ -1434,14 +1344,11 @@ export default function HomePage() {
           if (key?.startsWith(prefix)) {
             const cached = localStorage.getItem(key);
             if (cached) {
-              // Safe second sentence: append one short line from local signal context
-              // if it adds new info without repeating the brief.
               let enriched = cached;
               if (nextMeeting.deal_id) {
                 const dealSignals = data.signals.filter(s => s.deal_id === nextMeeting.deal_id);
-                const recentSignal = dealSignals[0]; // already sorted desc by created_at
+                const recentSignal = dealSignals[0];
                 if (recentSignal?.content) {
-                  // Extract a short phrase — first sentence, max ~60 chars
                   const snippet = recentSignal.content.split(/[.!?]/)[0]?.trim();
                   if (
                     snippet &&
@@ -1469,7 +1376,7 @@ export default function HomePage() {
     else fallback = "Rest well.";
 
     return { type: 'fallback', text: fallback };
-  }, [data, birdQuestion]);
+  }, [data, assistantTrigger]);
 
   // Entrance animation values
   const anim = (delay: number) => ({
@@ -1786,13 +1693,26 @@ export default function HomePage() {
         </div>
 
         {/* ── HOMEPAGE INTELLIGENCE LINE (exactly one) ──── */}
+        {/* Session 6: Tappable when trigger exists — opens chat with injected prompt */}
         {!loading && homepageIntelligenceLine.text && (
           <div
+            onClick={homepageIntelligenceLine.trigger ? () => {
+              // Mark this trigger as seen (cooldown)
+              markTriggerSeen(homepageIntelligenceLine.trigger!.triggerId);
+              // Open chat and inject the prompt
+              openChat();
+              // Small delay to let chat mount, then inject message
+              setTimeout(() => {
+                setChatInput(homepageIntelligenceLine.trigger!.chatPrompt);
+              }, 350);
+            } : undefined}
             style={{
               textAlign:  'center',
               padding:    '0 32px',
               marginTop:  14,
               maxWidth:   360,
+              pointerEvents: homepageIntelligenceLine.trigger ? 'auto' : 'none',
+              cursor:     homepageIntelligenceLine.trigger ? 'pointer' : 'default',
               ...anim(0.22),
             }}
           >
