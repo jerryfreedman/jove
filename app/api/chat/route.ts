@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Fetch deal context, voice profile, and signals in parallel
+      // Session 5: fetch more interactions for prioritization (8 → pick best 5)
       const [dealRes, interactionsRes, voiceRes, kbRes, signalsRes] = await Promise.all([
         supabase
           .from('deals')
@@ -58,11 +59,11 @@ export async function POST(request: NextRequest) {
           .single(),
         supabase
           .from('interactions')
-          .select('type, raw_content, created_at')
+          .select('type, raw_content, created_at, origin, source_surface')
           .eq('deal_id', dealId)
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
-          .limit(5),
+          .limit(8),
         supabase
           .from('voice_profile')
           .select('*')
@@ -89,11 +90,50 @@ export async function POST(request: NextRequest) {
         relationship_summary: string | null;
       }> } | null;
       const contacts = (account?.contacts ?? []);
-      const interactions = interactionsRes.data ?? [];
       const voice = voiceRes.data;
-      const signals = (signalsRes.data ?? []).filter(
+
+      // ── Session 5: Prioritize interactions ──
+      // Boost user-confirmed and recent interactions; deprioritize old/system-extracted
+      const rawInteractions = (interactionsRes.data ?? []) as Array<{
+        type: string; raw_content: string | null; created_at: string;
+        origin?: string | null; source_surface?: string | null;
+      }>;
+      const prioritizedInteractions = rawInteractions
+        .map(i => {
+          let priority = 0;
+          const ageHours = (Date.now() - new Date(i.created_at).getTime()) / (1000 * 60 * 60);
+          // Recency boost: last 24h = +3, last 72h = +2, last week = +1
+          if (ageHours < 24) priority += 3;
+          else if (ageHours < 72) priority += 2;
+          else if (ageHours < 168) priority += 1;
+          // Origin boost: user-confirmed > user > system_extracted
+          if (i.origin === 'user_confirmed') priority += 2;
+          else if (i.origin === 'user') priority += 1;
+          return { ...i, priority };
+        })
+        .sort((a, b) => b.priority - a.priority)
+        .slice(0, 5);
+
+      // ── Session 5: Prioritize signals ──
+      // High confidence + recent first; deduplicate by content
+      const rawSignals = (signalsRes.data ?? []).filter(
         (s: { confidence_score: number }) => s.confidence_score >= 0.6
-      );
+      ) as Array<{ signal_type: string; content: string; confidence_score: number; created_at: string }>;
+      const seenSignalContent = new Set<string>();
+      const prioritizedSignals = rawSignals
+        .filter(s => {
+          const key = `${s.signal_type}:${s.content.slice(0, 60).toLowerCase()}`;
+          if (seenSignalContent.has(key)) return false;
+          seenSignalContent.add(key);
+          return true;
+        })
+        .sort((a, b) => {
+          // Sort by confidence desc, then recency
+          const confDiff = b.confidence_score - a.confidence_score;
+          if (Math.abs(confDiff) > 0.1) return confDiff;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        })
+        .slice(0, 10);
 
       const days = deal ? Math.floor(
         (Date.now() - new Date(deal.last_activity_at).getTime()) /
@@ -108,8 +148,8 @@ export async function POST(request: NextRequest) {
           ).join('\n')
         : 'No contacts logged yet.';
 
-      const interactionsText = interactions.length > 0
-        ? interactions.map(i => {
+      const interactionsText = prioritizedInteractions.length > 0
+        ? prioritizedInteractions.map(i => {
             const d = new Date(i.created_at).toLocaleDateString('en-US', {
               month: 'short', day: 'numeric',
             });
@@ -121,8 +161,8 @@ export async function POST(request: NextRequest) {
         ? `Opening: ${voice.opening_style}. Closing: ${voice.closing_style ?? 'varies'}. Formality: ${voice.formality_level ?? 'moderate'}.`
         : 'No voice profile yet — learning from your emails.';
 
-      const signalsText = signals.length > 0
-        ? signals.map((s: { signal_type: string; content: string; confidence_score: number }) =>
+      const signalsText = prioritizedSignals.length > 0
+        ? prioritizedSignals.map(s =>
             `- ${s.signal_type}: ${s.content} (${s.confidence_score})`
           ).join('\n')
         : '';
@@ -141,12 +181,18 @@ export async function POST(request: NextRequest) {
           }).join('\n\n')
         : 'Not specified';
 
+      // ── Session 5: Tightened system prompt with response discipline ──
       systemPrompt = `You are Jove — an expert sales intelligence assistant for a senior sales professional.
-Be direct. Be specific to this deal.
-Never give generic sales advice.
-Never use filler phrases like "Great question!" or "Certainly!".
-Match the user's energy — brief if they're brief, detailed if they want depth.
-When drafting emails, always format as:
+
+RESPONSE RULES:
+- Be direct. Be specific to this deal. Never give generic sales advice.
+- Never use filler phrases like "Great question!" or "Certainly!" or "Based on the context provided...".
+- Match the user's energy — brief if they're brief, detailed if they want depth.
+- Do NOT restate deal facts the user already knows (stage, value, contacts) unless specifically asked.
+- Do NOT list context back to the user. Use it to inform your answer, not to prove you have it.
+- If the user asks a follow-up or short question, answer directly. Do not re-anchor or reintroduce context.
+- When you lack context on something, say so briefly. Do not fabricate or speculate about deal details you don't have.
+- When drafting emails, format as:
 Subject: [subject line]
 
 [email body]
