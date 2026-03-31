@@ -212,6 +212,45 @@ function extractEntityName(text: string): string | null {
   return null;
 }
 
+// ── FOLLOW-UP DETECTION ──────────────────────────────────────
+// Detects when a user message is a continuation of the previous turn.
+// Signals: short length, no new subject, implicit references to prior context.
+// When detected, the UI should route to the question/streaming path
+// so the assistant can continue naturally without re-classifying.
+
+const FOLLOW_UP_PATTERNS = [
+  /^(yeah|yep|yes|yea|right|ok|okay|sure|exactly|agreed|correct|definitely|absolutely|totally|got it|makes sense|that works|go ahead|do it|let's do it|sounds good|perfect|great|nice|cool|good call|fair|true|hmm|hm|interesting|noted)\b/i,
+  /^(and |but |also |what about |how about |what if |could you |can you |should i |would that |does that |is that |so |then )\b/i,
+  /^(tell me more|go on|keep going|elaborate|expand on that|say more|more detail|why|how so|how come|really|seriously)\b/i,
+];
+
+export function isFollowUp(
+  text: string,
+  previousMessages: Array<{ role: 'user' | 'assistant'; content: string }>,
+): boolean {
+  // Need at least one prior exchange (user + assistant) to be a follow-up
+  if (previousMessages.length < 2) return false;
+
+  const trimmed = text.trim();
+
+  // Very short messages (< 40 chars) with no explicit new-subject signals → likely follow-up
+  if (trimmed.length < 40) {
+    // Check for follow-up patterns
+    for (const pattern of FOLLOW_UP_PATTERNS) {
+      if (pattern.test(trimmed)) return true;
+    }
+    // Short messages that end with ? are likely follow-up questions
+    if (trimmed.endsWith('?') && trimmed.length < 60) return true;
+  }
+
+  // If the message has explicit new-subject signals, it's NOT a follow-up
+  // (new deal, email draft, meeting debrief, etc. should go through classification)
+  if (isNewDealSignal(trimmed)) return false;
+  if (isEmailIntent(trimmed)) return false;
+
+  return false;
+}
+
 // ── MAIN CLASSIFIER ──────────────────────────────────────────
 
 export function classifyMessage(

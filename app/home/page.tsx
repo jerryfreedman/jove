@@ -28,10 +28,12 @@ import type {
 } from '@/lib/types';
 import {
   classifyMessage,
+  isFollowUp,
   getAcknowledgment,
   type ClassificationResult,
   type MessageBucket,
 } from '@/lib/chat-intelligence';
+import { renderMarkdown } from '@/lib/renderMarkdown';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -454,6 +456,23 @@ export default function HomePage() {
     }
 
     try {
+      // ── FOLLOW-UP DETECTION ─────────────────────────────────
+      // If the message is a short continuation of the previous turn,
+      // skip classification and route directly to the assistant.
+      // This prevents context-reset framing and keeps conversation natural.
+      const previousMessages = chatMessages
+        .filter(m => !m.uiMode)
+        .map(m => ({ role: m.role, content: m.content }));
+
+      if (isFollowUp(text, previousMessages)) {
+        const history = [...previousMessages, { role: 'user' as const, content: text }];
+        // Infer deal context from the last classified message, if any
+        const lastClassified = [...chatMessages].reverse().find(m => m.classification?.matchedDealId);
+        await streamAssistantResponse(history, lastClassified?.classification?.matchedDealId ?? null);
+        setChatProcessing(false);
+        return;
+      }
+
       // Phase 1: Classify message
       const classification = classifyMessage(
         text,
@@ -1163,6 +1182,8 @@ export default function HomePage() {
     // ── P2: AUTO-BRIEF FROM CACHE ─────────────────
     // Read the briefing page's cached micro brief for the next meeting.
     // Read-only — does NOT regenerate or call any API.
+    // Phase 3 (Session 6): optionally append one short second sentence
+    // from locally available deal/signal context, if non-duplicative.
     if (typeof window !== 'undefined') {
       const nowMs = Date.now();
       const today = new Date().toISOString().split('T')[0];
@@ -1174,7 +1195,26 @@ export default function HomePage() {
           if (key?.startsWith(prefix)) {
             const cached = localStorage.getItem(key);
             if (cached) {
-              return { type: 'brief', text: cached };
+              // Safe second sentence: append one short line from local signal context
+              // if it adds new info without repeating the brief.
+              let enriched = cached;
+              if (nextMeeting.deal_id) {
+                const dealSignals = data.signals.filter(s => s.deal_id === nextMeeting.deal_id);
+                const recentSignal = dealSignals[0]; // already sorted desc by created_at
+                if (recentSignal?.content) {
+                  // Extract a short phrase — first sentence, max ~60 chars
+                  const snippet = recentSignal.content.split(/[.!?]/)[0]?.trim();
+                  if (
+                    snippet &&
+                    snippet.length >= 10 &&
+                    snippet.length <= 60 &&
+                    !cached.toLowerCase().includes(snippet.toLowerCase().slice(0, 20))
+                  ) {
+                    enriched = `${cached} ${snippet}.`;
+                  }
+                }
+              }
+              return { type: 'brief', text: enriched };
             }
           }
         }
@@ -1745,7 +1785,7 @@ export default function HomePage() {
                           : 'rgba(240,235,224,0.72)',
                       }}
                     >
-                      {msg.content}
+                      {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
                     </div>
                   </div>
 

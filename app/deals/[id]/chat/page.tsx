@@ -554,18 +554,6 @@ export default function DealChatPage() {
                   padding: '11px 14px',
                   position: 'relative',
                 }}>
-                  {/* Label */}
-                  {!isUser && (
-                    <div style={{
-                      fontSize: 8, fontWeight: 700,
-                      letterSpacing: '1.5px', textTransform: 'uppercase',
-                      color: COLORS.textLight,
-                      marginBottom: 6,
-                    }}>
-                      Jove
-                    </div>
-                  )}
-
                   {/* Content */}
                   <div style={{
                     fontSize: 14, fontWeight: 300,
