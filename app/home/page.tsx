@@ -131,42 +131,35 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
         route: staleDealRoute,
       });
     }
-  } else {
-    lines.push({
-      dot:   'rgba(240,235,224,0.2)',
-      text:  'Capture your first signal with the + button below.',
-      blink: false,
-      glow:  false,
-      route: '/deals',
-    });
   }
+  // If no active deals, omit line 1 — silence over empty state
 
-  // Line 2 — Positive signal or pipeline context
-  const positiveTypes = ['positive_sentiment', 'next_step_agreed', 'champion_identified', 'budget_mentioned'];
-  const positiveSignal = data.signals.find(s => positiveTypes.includes(s.signal_type));
+  // Line 2 — Strongest recent signal or pipeline context
+  const meaningfulTypes = ['champion_identified', 'budget_mentioned', 'next_step_agreed', 'competitor_mentioned'];
+  const meaningfulSignal = data.signals.find(s => meaningfulTypes.includes(s.signal_type));
 
-  if (positiveSignal) {
+  if (meaningfulSignal) {
     const signalLabels: Record<string, string> = {
-      positive_sentiment:  'positive signal',
-      next_step_agreed:    'next step agreed',
-      champion_identified: 'champion identified',
-      budget_mentioned:    'budget mentioned',
+      champion_identified:  'champion identified',
+      budget_mentioned:     'budget mentioned',
+      next_step_agreed:     'next step agreed',
+      competitor_mentioned: 'competitor mentioned',
     };
-    const label = signalLabels[positiveSignal.signal_type] || positiveSignal.signal_type;
-    const matchedDeal = positiveSignal.deal_id
-      ? allActive.find(d => d.id === positiveSignal.deal_id)
+    const label = signalLabels[meaningfulSignal.signal_type] || meaningfulSignal.signal_type;
+    const matchedDeal = meaningfulSignal.deal_id
+      ? allActive.find(d => d.id === meaningfulSignal.deal_id)
       : null;
     const dealLabel = matchedDeal
       ? (matchedDeal.accounts?.name || matchedDeal.name)
       : null;
 
-    const signalDealRoute = positiveSignal.deal_id ? `/deals/${positiveSignal.deal_id}` : '/deals';
+    const signalDealRoute = meaningfulSignal.deal_id ? `/deals/${meaningfulSignal.deal_id}` : '/deals';
 
     lines.push({
       dot:   COLORS.green,
       text:  dealLabel
-        ? `${dealLabel} — ${label}, momentum increasing`
-        : `${label} — momentum increasing`,
+        ? `${dealLabel} — ${label}, momentum building`
+        : `${label} — momentum building`,
       blink: false,
       glow:  false,
       route: signalDealRoute,
@@ -182,29 +175,35 @@ function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
     });
   }
 
-  // Line 3 — Meetings or capture prompt
+  // Line 3 — Meeting context (omit entirely if no meeting today)
+  const nowForMeetings = new Date();
   const todayMeetings = data.meetings.filter(m => {
     const mt = new Date(m.scheduled_at);
-    return mt.toDateString() === new Date().toDateString();
+    return mt.toDateString() === nowForMeetings.toDateString();
   });
 
   if (todayMeetings.length > 0) {
-    lines.push({
-      dot:   'rgba(240,235,224,0.26)',
-      text:  `${todayMeetings.length} meeting${todayMeetings.length !== 1 ? 's' : ''} today — tap sun to prep`,
-      blink: false,
-      glow:  false,
-      route: '/briefing',
-    });
-  } else {
-    lines.push({
-      dot:   'rgba(240,235,224,0.26)',
-      text:  'No meetings today — good time to capture',
-      blink: false,
-      glow:  false,
-      route: '/briefing',
-    });
+    // Find the next upcoming or in-progress meeting (not yet ended)
+    const relevantMeeting = todayMeetings
+      .filter(m => {
+        const start = new Date(m.scheduled_at).getTime();
+        const end = start + 60 * 60 * 1000;
+        return nowForMeetings.getTime() <= end;
+      })
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
+
+    if (relevantMeeting) {
+      lines.push({
+        dot:   'rgba(240,235,224,0.26)',
+        text:  `Meeting with ${relevantMeeting.title} today`,
+        blink: false,
+        glow:  false,
+        route: '/briefing',
+      });
+    }
+    // If all meetings already ended, omit this line
   }
+  // If no meetings today, omit this line entirely — silence is better
 
   return lines;
 }
@@ -783,6 +782,42 @@ export default function HomePage() {
     const tod = new Date();
     return mt.toDateString() === tod.toDateString();
   }).length ?? 0;
+
+  // ── NEXT MOMENT — immediate context line under greeting ──
+  const nextMoment = useMemo(() => {
+    if (!data) return null;
+    const nowMs = Date.now();
+    const todayStr = new Date().toDateString();
+
+    const todayMeetings = data.meetings.filter(m => {
+      const mt = new Date(m.scheduled_at);
+      return mt.toDateString() === todayStr;
+    });
+
+    // Priority 1: In progress (now is between scheduled_at and scheduled_at + 60min)
+    for (const m of todayMeetings) {
+      const start = new Date(m.scheduled_at).getTime();
+      const end = start + 60 * 60 * 1000;
+      if (nowMs >= start && nowMs <= end) {
+        return { text: `In progress: ${m.title}`, route: '/briefing' };
+      }
+    }
+
+    // Priority 2: Upcoming today (scheduled_at > now)
+    const upcoming = todayMeetings
+      .filter(m => new Date(m.scheduled_at).getTime() > nowMs)
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+
+    if (upcoming.length > 0) {
+      const next = upcoming[0];
+      const rawMin = (new Date(next.scheduled_at).getTime() - nowMs) / (1000 * 60);
+      const rounded = Math.round(rawMin / 5) * 5 || 5; // minimum 5
+      return { text: `Next: ${next.title} in ${rounded}min`, route: '/briefing' };
+    }
+
+    // No meeting today or all past — silence
+    return null;
+  }, [data]);
 
   // ── BIRD QUESTION GENERATION ────────────────────────────
   // Priority hierarchy targets the gap whose answer compounds the most:
@@ -1382,7 +1417,7 @@ export default function HomePage() {
           style={{
             textAlign:  'center',
             padding:    '0 32px',
-            marginTop:  28,
+            marginTop:  24,
             ...anim(0.14),
           }}
         >
@@ -1416,6 +1451,32 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        {/* ── NEXT MOMENT LINE ──────────────────────── */}
+        {!loading && nextMoment && (
+          <div
+            onClick={() => router.push(nextMoment.route)}
+            style={{
+              textAlign:     'center',
+              padding:       '0 32px',
+              marginTop:     6,
+              cursor:        'pointer',
+              pointerEvents: 'auto',
+              WebkitTapHighlightColor: 'transparent',
+              ...anim(0.20),
+            }}
+          >
+            <span style={{
+              fontFamily:    "'Cormorant Garamond', serif",
+              fontSize:      16,
+              fontWeight:    300,
+              color:         textSecondary,
+              letterSpacing: '0.2px',
+            }}>
+              {nextMoment.text}
+            </span>
+          </div>
+        )}
 
         {/* ── DO THIS FIRST HERO CARD ────────────────── */}
         {!loading && doThisFirst.loaded && doThisFirst.suggestion && !actionAcknowledged && (
@@ -1485,46 +1546,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* ── DO THIS FIRST EMPTY STATE ─────────────────── */}
-        {!loading && doThisFirst.loaded && !doThisFirst.suggestion && !actionAcknowledged && heroGatePassed && data && (
-          <div
-            style={{
-              padding:   '0 22px',
-              marginTop: 14,
-              pointerEvents: 'auto',
-              ...anim(0.28),
-            }}
-          >
-            <div
-              style={{
-                background:     'rgba(0,0,0,0.14)',
-                backdropFilter: 'blur(16px)',
-                borderRadius:   16,
-                padding:        '14px 16px',
-                border:         '0.5px solid rgba(240,235,224,0.05)',
-                opacity:        0.45,
-              }}
-            >
-              <div style={{
-                fontSize:      9,
-                fontWeight:    700,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                color:         'rgba(240,235,224,0.36)',
-                marginBottom:  8,
-              }}>
-                Do this first
-              </div>
-              <div style={{
-                fontSize:   13,
-                fontWeight: 300,
-                color:      'rgba(240,235,224,0.44)',
-              }}>
-                Capture something to generate your first priority.
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Empty state removed — silence is better than placeholder */}
 
         {/* ── ERROR STATE ─────────────────────────── */}
         {fetchError && !data && (
@@ -1585,11 +1607,11 @@ export default function HomePage() {
             ...anim(0.30),
           }}>
             <div style={{
-              background:     'rgba(0,0,0,0.36)',
+              background:     'rgba(0,0,0,0.22)',
               backdropFilter: 'blur(16px)',
               borderRadius:   16,
               padding:        '14px 16px',
-              border:         '0.5px solid rgba(240,235,224,0.1)',
+              border:         '0.5px solid rgba(240,235,224,0.08)',
               position:       'relative',
             }}>
               {/* Dismiss button */}
@@ -1676,8 +1698,8 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* ── THREE INTELLIGENCE LINES ─────────────── */}
-        <div style={{ padding: '0 26px', pointerEvents: 'auto', ...anim(0.34) }}>
+        {/* ── CONTEXT STRIP (max 3 lines) ────────────── */}
+        <div style={{ padding: '0 26px', marginTop: 4, pointerEvents: 'auto', ...anim(0.34) }}>
           {loading
             ? Array.from({ length: 3 }).map((_, i) => (
                 <div
@@ -1755,7 +1777,7 @@ export default function HomePage() {
         </div>
 
         {/* Bottom row spacer */}
-        <div style={{ height: 122, flexShrink: 0 }} />
+        <div style={{ height: 118, flexShrink: 0 }} />
 
       </div>
 
