@@ -7,11 +7,7 @@ import SceneBackground from '@/components/home/SceneBackground';
 import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import Logo from '@/components/ui/Logo';
-import StreakBadge from '@/components/ui/StreakBadge';
 import CaptureSheet from '@/components/capture/CaptureSheet';
-import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
-import CalendarImportPrompt from '@/components/onboarding/CalendarImportPrompt';
-import { calculateStreak } from '@/lib/streak';
 import {
   saveInteraction,
   triggerExtraction,
@@ -87,137 +83,6 @@ function getMeetingLifecycle(meeting: MeetingRow): 'upcoming' | 'in_progress' | 
   return 'completed';
 }
 
-// ── INTELLIGENCE LINES ───────────────────────────────────
-interface IntelLine {
-  dot:   string;
-  text:  string;
-  blink: boolean;
-  glow:  boolean;
-  route: string;
-}
-
-function buildIntelLines(data: HomeData, pulseThreshold: number): IntelLine[] {
-  const lines: IntelLine[] = [];
-  const allActive = data.allDeals;
-
-  // Line 1 — Urgency signal: most stale active deal
-  if (allActive.length > 0) {
-    let stalestDeal = allActive[0];
-    let stalestDays = getDaysSinceActivity(allActive[0]);
-    for (const d of allActive) {
-      const days = getDaysSinceActivity(d);
-      if (days > stalestDays) {
-        stalestDays = days;
-        stalestDeal = d;
-      }
-    }
-    const accountLabel = stalestDeal.accounts?.name || stalestDeal.name;
-    const daysUntil = pulseThreshold - stalestDays;
-
-    const staleDealRoute = stalestDeal.id ? `/deals/${stalestDeal.id}` : '/deals';
-
-    if (stalestDays >= pulseThreshold) {
-      lines.push({
-        dot:   COLORS.red,
-        text:  `${accountLabel} — overdue for a touchpoint`,
-        blink: true,
-        glow:  true,
-        route: staleDealRoute,
-      });
-    } else if (daysUntil <= 3) {
-      lines.push({
-        dot:   COLORS.red,
-        text:  `${accountLabel} — at risk in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
-        blink: true,
-        glow:  true,
-        route: staleDealRoute,
-      });
-    } else {
-      lines.push({
-        dot:   'rgba(240,235,224,0.26)',
-        text:  `${accountLabel} — ${stalestDays} days since last activity`,
-        blink: false,
-        glow:  false,
-        route: staleDealRoute,
-      });
-    }
-  }
-  // If no active deals, omit line 1 — silence over empty state
-
-  // Line 2 — Strongest recent signal or pipeline context
-  const meaningfulTypes = ['champion_identified', 'budget_mentioned', 'next_step_agreed', 'competitor_mentioned'];
-  const meaningfulSignal = data.signals.find(s => meaningfulTypes.includes(s.signal_type));
-
-  if (meaningfulSignal) {
-    const signalLabels: Record<string, string> = {
-      champion_identified:  'champion identified',
-      budget_mentioned:     'budget mentioned',
-      next_step_agreed:     'next step agreed',
-      competitor_mentioned: 'competitor mentioned',
-    };
-    const label = signalLabels[meaningfulSignal.signal_type] || meaningfulSignal.signal_type;
-    const matchedDeal = meaningfulSignal.deal_id
-      ? allActive.find(d => d.id === meaningfulSignal.deal_id)
-      : null;
-    const dealLabel = matchedDeal
-      ? (matchedDeal.accounts?.name || matchedDeal.name)
-      : null;
-
-    const signalDealRoute = meaningfulSignal.deal_id ? `/deals/${meaningfulSignal.deal_id}` : '/deals';
-
-    lines.push({
-      dot:   COLORS.green,
-      text:  dealLabel
-        ? `${dealLabel} — ${label}, momentum building`
-        : `${label} — momentum building`,
-      blink: false,
-      glow:  false,
-      route: signalDealRoute,
-    });
-  } else {
-    const dealCount = allActive.length;
-    lines.push({
-      dot:   'rgba(240,235,224,0.26)',
-      text:  `${dealCount} active deal${dealCount !== 1 ? 's' : ''} in pipeline`,
-      blink: false,
-      glow:  false,
-      route: '/deals',
-    });
-  }
-
-  // Line 3 — Meeting context (omit entirely if no meeting today)
-  const nowForMeetings = new Date();
-  const todayMeetings = data.meetings.filter(m => {
-    const mt = new Date(m.scheduled_at);
-    return mt.toDateString() === nowForMeetings.toDateString();
-  });
-
-  if (todayMeetings.length > 0) {
-    // Find the next upcoming or in-progress meeting (not yet ended)
-    const relevantMeeting = todayMeetings
-      .filter(m => {
-        const start = new Date(m.scheduled_at).getTime();
-        const end = start + 60 * 60 * 1000;
-        return nowForMeetings.getTime() <= end;
-      })
-      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
-
-    if (relevantMeeting) {
-      lines.push({
-        dot:   'rgba(240,235,224,0.26)',
-        text:  `Meeting with ${relevantMeeting.title} today`,
-        blink: false,
-        glow:  false,
-        route: '/briefing',
-      });
-    }
-    // If all meetings already ended, omit this line
-  }
-  // If no meetings today, omit this line entirely — silence is better
-
-  return lines;
-}
-
 // ── COMPONENT ─────────────────────────────────────────────
 export default function HomePage() {
   const router   = useRouter();
@@ -257,22 +122,6 @@ export default function HomePage() {
   // Actual persistence uses localStorage keys: curiosity_asked_{targetId}
   const [birdAnsweredCount, setBirdAnsweredCount] = useState(0);
 
-  // ── DO THIS FIRST STATE ────────────────────────────────────
-  const [doThisFirst, setDoThisFirst] = useState<{
-    loading: boolean;
-    loaded: boolean;
-    suggestion: string | null;
-    dealLabel: string | null;
-    dealId: string | null;
-  }>({ loading: false, loaded: false, suggestion: null, dealLabel: null, dealId: null });
-
-  // ── ACTION OVERLAY STATE ────────────────────────────────
-  const [actionOverlayOpen, setActionOverlayOpen] = useState(false);
-  const [actionInput, setActionInput] = useState('');
-  const [actionSubmitting, setActionSubmitting] = useState(false);
-  const [actionAcknowledged, setActionAcknowledged] = useState(false);
-  const actionInputRef = useRef<HTMLTextAreaElement>(null);
-
   // ── ENVIRONMENTAL ACKNOWLEDGMENT STATE ─────────────────
   const [ackToken, setAckToken] = useState(0);
   const [shimmerActive, setShimmerActive] = useState(false);
@@ -296,14 +145,8 @@ export default function HomePage() {
   );
   const [firstVisitOpacity, setFirstVisitOpacity] = useState(1);
 
-  // ── TOUR & CALENDAR PROMPT STATE ─────────────────────────
-  const [showTour, setShowTour] = useState(false);
-  const [showCalendarPrompt, setShowCalendarPrompt] = useState(false);
-
   // ── TOUR REFS ────────────────────────────────────────────
   const sunRef     = useRef<HTMLDivElement>(null);
-  const captureRef = useRef<HTMLButtonElement>(null);
-  const dealsRef   = useRef<HTMLButtonElement>(null);
   const logoRef    = useRef<HTMLDivElement>(null);
 
   const h     = new Date().getHours();
@@ -320,12 +163,6 @@ export default function HomePage() {
     const hideTimer = setTimeout(() => {
       setFirstVisitVisible(false);
       localStorage.setItem('jove_first_visit_shown', 'true');
-      // Fire tour directly from here — do NOT use a separate
-      // useEffect that checks the flag, because the flag is not
-      // set yet when that useEffect runs on mount.
-      if (localStorage.getItem('jove_tour_complete') !== 'true') {
-        setTimeout(() => setShowTour(true), 1400);
-      }
     }, 900);
 
     return () => {
@@ -333,14 +170,6 @@ export default function HomePage() {
       clearTimeout(hideTimer);
     };
   }, [firstVisitVisible]);
-
-  // ── RETURNING USER TOUR (overlay already shown, tour not complete) ──
-  useEffect(() => {
-    if (localStorage.getItem('jove_first_visit_shown') !== 'true') return;
-    if (localStorage.getItem('jove_tour_complete') === 'true') return;
-    const timer = setTimeout(() => setShowTour(true), 1400);
-    return () => clearTimeout(timer);
-  }, []);
 
   // Sync body background with sky top color so the area behind
   // the iOS status bar shows the correct color.
@@ -606,151 +435,6 @@ export default function HomePage() {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
 
-  // ── HERO GATE STATE — tracks whether pre-fetch gate passed ──
-  const [heroGatePassed, setHeroGatePassed] = useState(false);
-
-  // ── DO THIS FIRST — INDEPENDENT ASYNC FETCH ─────────────
-  useEffect(() => {
-    if (!data) return;
-    const activeDeals = data.allDeals;
-
-    if (activeDeals.length === 0) {
-      setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
-      setHeroGatePassed(false);
-      return;
-    }
-
-    // ── LAYER 1: PRE-FETCH GATE (importance only) ──────────
-    const userPulseThreshold = data.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
-
-    // Condition A — Overdue deal
-    const conditionA = activeDeals.some(
-      d => getDaysSinceActivity(d) >= userPulseThreshold
-    );
-
-    // Condition B — Recent meaningful signal on active deal
-    const meaningfulTypes = new Set([
-      'champion_identified', 'budget_mentioned', 'next_step_agreed',
-      'competitor_mentioned', 'timeline_mentioned', 'risk_identified',
-    ]);
-    const lastHeroShownRaw = localStorage.getItem('jove_last_hero_shown');
-    const lastHeroShownTs = lastHeroShownRaw ? parseInt(lastHeroShownRaw, 10) : 0;
-    const activeDealIds = new Set(activeDeals.map(d => d.id));
-
-    const conditionB = data.signals.some(s => {
-      if (!meaningfulTypes.has(s.signal_type)) return false;
-      if (!s.deal_id || !activeDealIds.has(s.deal_id)) return false;
-      const signalTs = new Date(s.created_at).getTime();
-      return lastHeroShownTs === 0 || signalTs > lastHeroShownTs;
-    });
-
-    // Condition C — Upcoming meeting today (not already ended)
-    const nowMs = Date.now();
-    const oneHourAgo = nowMs - 60 * 60 * 1000;
-    const conditionC = data.meetings.some(m => {
-      const mt = new Date(m.scheduled_at);
-      if (mt.toDateString() !== new Date().toDateString()) return false;
-      return mt.getTime() > oneHourAgo;
-    });
-
-    // Cooldown override: block if last shown < 4 hours ago AND Condition B is false
-    const fourHoursMs = 4 * 60 * 60 * 1000;
-    const cooldownActive = lastHeroShownTs > 0 && (nowMs - lastHeroShownTs) < fourHoursMs;
-    const blockedByCooldown = cooldownActive && !conditionB;
-
-    const anyConditionMet = conditionA || conditionB || conditionC;
-    const gateOpen = anyConditionMet && !blockedByCooldown;
-
-    if (!gateOpen) {
-      // Gate blocks — do not fetch, do not render hero or empty state
-      setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
-      setHeroGatePassed(false);
-      return;
-    }
-
-    setHeroGatePassed(true);
-    // ── END LAYER 1 ────────────────────────────────────────
-
-    let cancelled = false;
-    const fetchDoThisFirst = async () => {
-      setDoThisFirst(prev => ({ ...prev, loading: true }));
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (!authUser || cancelled) return;
-
-        const dtfContext = activeDeals.map(d => {
-          const acct = d.accounts?.name;
-          const days = getDaysSinceActivity(d);
-          const base = acct ? `${d.name} at ${acct}` : d.name;
-          return `${base} (${d.stage}, ${days}d since activity)`;
-        }).join('; ');
-
-        const dtfRes = await fetch('/api/do-this-first', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ context: dtfContext, userId: authUser.id }),
-        });
-        if (cancelled) return;
-        const dtfJson = await dtfRes.json();
-        const suggestion = dtfJson.suggestion;
-
-        if (suggestion && typeof suggestion === 'string' && suggestion.trim()) {
-          // ── LAYER 2: POST-FETCH SUPPRESSION (repetition only) ──
-          const normalizedSuggestion = suggestion.trim().toLowerCase();
-          const acknowledged = sessionStorage.getItem('jove_action_acknowledged');
-          if (acknowledged === normalizedSuggestion) {
-            // User already acted on this exact suggestion this session
-            if (!cancelled) {
-              setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
-            }
-            return;
-          }
-          // ── END LAYER 2 ──────────────────────────────────────
-
-          const lowerSuggestion = suggestion.toLowerCase();
-          const matchedDeal = activeDeals.find(d => {
-            if (d.name && lowerSuggestion.includes(d.name.toLowerCase())) return true;
-            const accountName = d.accounts?.name;
-            if (accountName && lowerSuggestion.includes(accountName.toLowerCase())) return true;
-            return false;
-          });
-          if (!cancelled) {
-            setDoThisFirst({
-              loading: false,
-              loaded: true,
-              suggestion: suggestion.trim(),
-              dealLabel: matchedDeal ? (matchedDeal.accounts?.name || matchedDeal.name) : null,
-              dealId: matchedDeal ? matchedDeal.id : null,
-            });
-            // Update localStorage timestamps after successful render decision
-            localStorage.setItem('jove_last_hero_shown', Date.now().toString());
-            localStorage.setItem('jove_last_hero_suggestion', suggestion.trim().toLowerCase());
-          }
-        } else if (!cancelled) {
-          setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
-        }
-      } catch {
-        if (!cancelled) {
-          setDoThisFirst({ loading: false, loaded: true, suggestion: null, dealLabel: null, dealId: null });
-        }
-      }
-    };
-
-    fetchDoThisFirst();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
-
-  // ── SESSION ACKNOWLEDGMENT CHECK ──────────────────────────
-  useEffect(() => {
-    if (!doThisFirst.loaded || !doThisFirst.suggestion) return;
-    const stored = sessionStorage.getItem('jove_action_acknowledged');
-    const key = doThisFirst.suggestion.trim().toLowerCase();
-    if (stored === key) {
-      setActionAcknowledged(true);
-    }
-  }, [doThisFirst.loaded, doThisFirst.suggestion]);
-
   // ── LOGO BLOOM + MILESTONE LISTENER ──────────────────────
   const [logoMilestone, setLogoMilestone] = useState(false);
 
@@ -760,7 +444,6 @@ export default function HomePage() {
         setLogoBloom(true);
         setTimeout(() => setLogoBloom(false), 800);
         // Environmental response for cross-tab capture / Save to Jove
-        // (Bird does NOT soar for non-bird captures — only sun pulse + warmth boost)
         triggerEnvironmentalAcknowledgment({ source: 'other' });
       }
       if (e.key === 'jove_milestone_trigger') {
@@ -771,64 +454,6 @@ export default function HomePage() {
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
-
-  // ── DERIVED VALUES ─────────────────────────────────────
-  const streak = data ? calculateStreak(data.streakLogs) : null;
-
-  const todayMeetingCount = data?.meetings.filter(m => {
-    const mt  = new Date(m.scheduled_at);
-    const tod = new Date();
-    return mt.toDateString() === tod.toDateString();
-  }).length ?? 0;
-
-  // ── NEXT MOMENT — immediate context line under greeting ──
-  const nextMoment = useMemo(() => {
-    if (!data) return null;
-    const nowMs = Date.now();
-    const todayStr = new Date().toDateString();
-
-    const todayMeetings = data.meetings.filter(m => {
-      const mt = new Date(m.scheduled_at);
-      return mt.toDateString() === todayStr;
-    });
-
-    // Priority 1: In progress (now is between scheduled_at and scheduled_at + 60min)
-    for (const m of todayMeetings) {
-      const start = new Date(m.scheduled_at).getTime();
-      const end = start + 60 * 60 * 1000;
-      if (nowMs >= start && nowMs <= end) {
-        return { text: `In progress: ${m.title}`, route: '/briefing' };
-      }
-    }
-
-    // Priority 2: Upcoming today (scheduled_at > now)
-    const upcoming = todayMeetings
-      .filter(m => new Date(m.scheduled_at).getTime() > nowMs)
-      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
-
-    if (upcoming.length > 0) {
-      const next = upcoming[0];
-      const rawMin = (new Date(next.scheduled_at).getTime() - nowMs) / (1000 * 60);
-      const rounded = Math.round(rawMin / 5) * 5 || 5; // minimum 5
-      return { text: `Next: ${next.title} in ${rounded}min`, route: '/briefing' };
-    }
-
-    // Priority 3: Recently completed meeting needing debrief
-    const recentCompleted = todayMeetings
-      .filter(m => {
-        const start = new Date(m.scheduled_at).getTime();
-        const end = start + 60 * 60 * 1000;
-        return nowMs > end && !m.debrief_completed;
-      })
-      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
-
-    if (recentCompleted.length > 0 && !localStorage.getItem(`meeting_prompt_ack_${recentCompleted[0].id}`)) {
-      return { text: `Debrief: ${recentCompleted[0].title}`, route: '/briefing' };
-    }
-
-    // No meeting context — silence
-    return null;
-  }, [data]);
 
   // ── BIRD QUESTION GENERATION (SYSTEM CURIOSITY) ─────────
   // The bird is a delivery surface for system curiosity.
@@ -1013,11 +638,6 @@ export default function HomePage() {
     executeBirdSave(birdQuestion.dealId);
   };
 
-  const pulseThreshold  = data?.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
-  const atRiskCount     = data
-    ? data.allDeals.filter(d => getDaysSinceActivity(d) >= pulseThreshold).length
-    : 0;
-  const intelLines      = data ? buildIntelLines(data, pulseThreshold) : [];
   const richnessLevel   = Math.min((data?.signals.length ?? 0) / 12, 1);
 
   // ── ENVIRONMENTAL ACKNOWLEDGMENT HELPER ──────────────────
@@ -1058,94 +678,15 @@ export default function HomePage() {
   const firstName       = getFirstName(data?.user ?? null);
   const greeting        = getGreeting(h);
 
-  // ── DEBRIEF HANDLERS ──────────────────────────────────────
-  const debriefMeeting = (!debriefDismissed && debriefMeetings.length > 0)
-    ? debriefMeetings.find(m => !localStorage.getItem(`meeting_prompt_ack_${m.id}`)) ?? null
-    : null;
-
-  const handleDebriefNow = async (meeting: MeetingRow) => {
-    await supabase
-      .from('meetings')
-      .update({ debrief_prompted_at: new Date().toISOString() })
-      .eq('id', meeting.id);
-    localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, 'true');
-    setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
-    setCaptureInitialMode('debrief');
-    setCaptureInitialText(
-      `Meeting: ${meeting.title}\nAttendees: ${meeting.attendees ?? ''}\n`
-    );
-    setShowCapture(true);
-  };
-
-  const handleDebriefDismiss = async (meeting: MeetingRow) => {
-    await supabase
-      .from('meetings')
-      .update({ debrief_prompted_at: new Date().toISOString() })
-      .eq('id', meeting.id);
-    localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, 'true');
-    setDebriefDismissed(true);
-    setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
-  };
-
-  // ── ACTION OVERLAY HELPERS ──────────────────────────────
-  const matchedDeal = doThisFirst.dealId
-    ? data?.allDeals.find(d => d.id === doThisFirst.dealId) ?? null
-    : null;
-
-  const handleActionOverlayOpen = () => {
-    if (!doThisFirst.suggestion || actionOverlayOpen) return;
-    setActionInput('');
-    setActionSubmitting(false);
-    setActionOverlayOpen(true);
-    setTimeout(() => actionInputRef.current?.focus(), 250);
-  };
-
-  const acknowledgeAction = () => {
-    if (!doThisFirst.suggestion) return;
-    const key = doThisFirst.suggestion.trim().toLowerCase();
-    sessionStorage.setItem('jove_action_acknowledged', key);
-    setActionAcknowledged(true);
-  };
-
-  const handleActionSubmit = async () => {
-    if (!actionInput.trim() || actionSubmitting || !data?.user) return;
-    setActionSubmitting(true);
-
-    try {
-      const result = await saveInteraction(supabase, {
-        userId: data.user.id,
-        dealId: doThisFirst.dealId,
-        type: 'debrief',
-        rawContent: actionInput,
-      });
-
-      if (result?.id) {
-        triggerExtraction(result.id, data.user.id);
-      }
-
-      await updateStreak(supabase, data.user.id);
-    } catch (err) {
-      console.error('Action capture error:', err);
-    }
-
-    // Always close overlay + acknowledge regardless of extraction outcome
-    setActionOverlayOpen(false);
-    acknowledgeAction();
-
-    // Environmental response — sun pulse + warmth boost (double rAF for post-unmount)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        triggerEnvironmentalAcknowledgment({ source: 'other' });
-      });
-    });
-    // Clear pending pulse flag (prevent double-fire on next mount)
-    localStorage.removeItem('jove_pulse_pending');
-  };
-
-  const handleActionSkip = () => {
-    setActionOverlayOpen(false);
-    acknowledgeAction();
-  };
+  // ── ASSISTANT PRESENCE LINE (subtle, calm, single line) ──
+  const assistantLine = useMemo(() => {
+    if (!data) return '';
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "Whenever you\u2019re ready.";
+    if (hour >= 12 && hour < 17) return "You\u2019re set for the day.";
+    if (hour >= 17 && hour < 21) return "Nothing urgent right now.";
+    return "Rest well.";
+  }, [data]);
 
   // Entrance animation values
   const anim = (delay: number) => ({
@@ -1331,7 +872,7 @@ export default function HomePage() {
             }}
             aria-label={isNight
               ? 'Tap for briefing.'
-              : `${todayMeetingCount} meeting${todayMeetingCount !== 1 ? 's' : ''} today. Tap for briefing.`}
+              : 'Tap for briefing.'}
           >
           </div>
 
@@ -1408,51 +949,18 @@ export default function HomePage() {
           >
             <Logo light={scene.lightText} showWordmark size={30} />
           </div>
-
-          {/* Time + weather pill */}
-          <div
-            style={{
-              background:     'rgba(0,0,0,0.18)',
-              backdropFilter: 'blur(6px)',
-              borderRadius:   12,
-              padding:        '5px 10px',
-              textAlign:      'right',
-            }}
-          >
-            <div style={{
-              fontSize:   10,
-              fontWeight: 300,
-              color:      'rgba(255,248,230,0.48)',
-            }}>
-              {time}
-            </div>
-            {weather && data?.user?.weather_enabled !== false && (
-              <div style={{
-                fontSize:   11,
-                fontWeight: 300,
-                color:      'rgba(255,248,230,0.52)',
-                marginTop:  2,
-              }}>
-                {weather.emoji}  {weather.temp}°F · {weather.condition}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
       <div
-        className="absolute inset-0 flex flex-col"
+        className="absolute inset-0 flex flex-col items-center justify-center"
         style={{ zIndex: 20, pointerEvents: 'none' }}
       >
-        {/* Top bar spacer */}
-        <div style={{ paddingTop: 'calc(env(safe-area-inset-top) + 44px)' }} />
-
-        {/* ── GREETING ─────────────────────────────── */}
+        {/* ── GREETING + NAME (centered) ────────────── */}
         <div
           style={{
             textAlign:  'center',
             padding:    '0 32px',
-            marginTop:  24,
             ...anim(0.14),
           }}
         >
@@ -1487,113 +995,39 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* ── NEXT MOMENT LINE ──────────────────────── */}
-        {!loading && nextMoment && (
+        {/* ── ASSISTANT PRESENCE LINE ─────────────────── */}
+        {!loading && assistantLine && (
           <div
-            onClick={() => router.push(nextMoment.route)}
             style={{
-              textAlign:     'center',
-              padding:       '0 32px',
-              marginTop:     6,
-              cursor:        'pointer',
-              pointerEvents: 'auto',
-              WebkitTapHighlightColor: 'transparent',
-              ...anim(0.20),
+              textAlign:  'center',
+              padding:    '0 32px',
+              marginTop:  14,
+              ...anim(0.22),
             }}
           >
             <span style={{
               fontFamily:    "'Cormorant Garamond', serif",
-              fontSize:      16,
+              fontSize:      15,
               fontWeight:    300,
               color:         textSecondary,
               letterSpacing: '0.2px',
             }}>
-              {nextMoment.text}
+              {assistantLine}
             </span>
           </div>
         )}
-
-        {/* ── DO THIS FIRST HERO CARD ────────────────── */}
-        {!loading && doThisFirst.loaded && doThisFirst.suggestion && !actionAcknowledged && (
-          <div
-            style={{
-              padding:   '0 22px',
-              marginTop: 14,
-              pointerEvents: 'auto',
-              ...anim(0.28),
-            }}
-          >
-            <div
-              onClick={handleActionOverlayOpen}
-              style={{
-                background:     'rgba(232,160,48,0.06)',
-                backdropFilter: 'blur(16px)',
-                borderRadius:   16,
-                padding:        '14px 16px',
-                border:         '0.5px solid rgba(232,160,48,0.22)',
-                cursor:         'pointer',
-                WebkitTapHighlightColor: 'transparent',
-              }}
-            >
-              <div style={{
-                fontSize:      9,
-                fontWeight:    700,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                color:         COLORS.amber,
-                marginBottom:  8,
-              }}>
-                Do this first
-              </div>
-              <div style={{
-                fontFamily:   "'Cormorant Garamond', serif",
-                fontSize:     18,
-                fontWeight:   400,
-                color:        'rgba(252,246,234,0.88)',
-                lineHeight:   1.4,
-                marginBottom: doThisFirst.dealLabel ? 10 : 4,
-              }}>
-                {doThisFirst.suggestion}
-              </div>
-              {doThisFirst.dealLabel && (
-                <div style={{
-                  display:      'inline-block',
-                  fontSize:     10,
-                  fontWeight:   500,
-                  color:        COLORS.amber,
-                  background:   'rgba(232,160,48,0.10)',
-                  borderRadius: 6,
-                  padding:      '3px 8px',
-                  marginBottom: 4,
-                }}>
-                  {doThisFirst.dealLabel}
-                </div>
-              )}
-              <div style={{
-                fontSize:   11,
-                fontWeight: 300,
-                color:      'rgba(240,235,224,0.32)',
-                marginTop:  4,
-              }}>
-                Tap to act →
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Empty state removed — silence is better than placeholder */}
 
         {/* ── ERROR STATE ─────────────────────────── */}
         {fetchError && !data && (
           <div
             style={{
-              flex:           1,
               display:        'flex',
               flexDirection:  'column',
               alignItems:     'center',
               justifyContent: 'center',
               gap:            12,
               pointerEvents:  'auto',
+              marginTop:      32,
               ...anim(0.23),
             }}
           >
@@ -1627,340 +1061,7 @@ export default function HomePage() {
             </button>
           </div>
         )}
-
-        {/* ── SPACER — replaces the old flex:1 orb container */}
-        {!(fetchError && !data) && (
-          <div style={{ flex: 1 }} />
-        )}
-
-        {/* ── DEBRIEF PROMPT CARD ──────────────────── */}
-        {debriefMeeting && (
-          <div style={{
-            padding:    '0 22px',
-            marginBottom: 10,
-            pointerEvents: 'auto',
-            ...anim(0.30),
-          }}>
-            <div style={{
-              background:     'rgba(0,0,0,0.22)',
-              backdropFilter: 'blur(16px)',
-              borderRadius:   16,
-              padding:        '14px 16px',
-              border:         '0.5px solid rgba(240,235,224,0.08)',
-              position:       'relative',
-            }}>
-              {/* Dismiss button */}
-              <button
-                onClick={() => handleDebriefDismiss(debriefMeeting)}
-                style={{
-                  position:   'absolute',
-                  top:        10,
-                  right:      12,
-                  background: 'none',
-                  border:     'none',
-                  color:      'rgba(240,235,224,0.36)',
-                  fontSize:   16,
-                  cursor:     'pointer',
-                  padding:    0,
-                  lineHeight: 1,
-                }}
-              >
-                ×
-              </button>
-              {/* Status dot + label */}
-              <div style={{
-                display:    'flex',
-                alignItems: 'center',
-                gap:        7,
-                marginBottom: 8,
-              }}>
-                <div style={{
-                  width:        6,
-                  height:       6,
-                  borderRadius: '50%',
-                  background:   COLORS.amber,
-                  flexShrink:   0,
-                }} />
-                <span style={{
-                  fontSize:      9,
-                  fontWeight:    700,
-                  letterSpacing: '2px',
-                  textTransform: 'uppercase',
-                  color:         COLORS.amber,
-                }}>
-                  Debrief ready
-                </span>
-              </div>
-              {/* Meeting title */}
-              <div style={{
-                fontFamily:   "'Cormorant Garamond', serif",
-                fontSize:     18,
-                fontWeight:   400,
-                color:        'rgba(252,246,234,0.92)',
-                marginBottom: 4,
-              }}>
-                {debriefMeeting.title}
-              </div>
-              {/* How did it go */}
-              <div style={{
-                fontSize:     13,
-                fontWeight:   300,
-                color:        'rgba(240,235,224,0.44)',
-                marginBottom: 12,
-              }}>
-                How did it go?
-              </div>
-              {/* Debrief Now button */}
-              <button
-                onClick={() => handleDebriefNow(debriefMeeting)}
-                style={{
-                  padding:       '9px 18px',
-                  borderRadius:  9,
-                  border:        '0.5px solid rgba(232,160,48,0.5)',
-                  background:    'rgba(232,160,48,0.15)',
-                  color:         COLORS.amber,
-                  fontSize:      10,
-                  fontWeight:    700,
-                  letterSpacing: '1.5px',
-                  textTransform: 'uppercase',
-                  cursor:        'pointer',
-                  fontFamily:    "'DM Sans', sans-serif",
-                }}
-              >
-                Debrief Now →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── CONTEXT STRIP (max 3 lines) ────────────── */}
-        <div style={{ padding: '0 26px', marginTop: 4, pointerEvents: 'auto', ...anim(0.34) }}>
-          {loading
-            ? Array.from({ length: 3 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    height:       14,
-                    borderRadius: 7,
-                    background:   'rgba(240,235,224,0.08)',
-                    marginBottom: 12,
-                    width:        i === 2 ? '60%' : '90%',
-                  }}
-                />
-              ))
-            : intelLines.map((line, i) => (
-                <div
-                  key={i}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(line.route)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') router.push(line.route); }}
-                  style={{
-                    display:      'flex',
-                    alignItems:   'flex-start',
-                    gap:          10,
-                    marginBottom: 1,
-                    minHeight:    44,
-                    paddingTop:   4,
-                    paddingBottom:4,
-                    cursor:       'pointer',
-                    WebkitTapHighlightColor: 'transparent',
-                    transition:   'opacity 0.12s ease, transform 0.12s ease',
-                  }}
-                  onPointerDown={(e) => {
-                    const el = e.currentTarget;
-                    el.style.opacity = '0.7';
-                    el.style.transform = 'scale(0.98)';
-                  }}
-                  onPointerUp={(e) => {
-                    const el = e.currentTarget;
-                    el.style.opacity = '1';
-                    el.style.transform = 'scale(1)';
-                  }}
-                  onPointerCancel={(e) => {
-                    const el = e.currentTarget;
-                    el.style.opacity = '1';
-                    el.style.transform = 'scale(1)';
-                  }}
-                >
-                  <div style={{
-                    width:        6,
-                    height:       6,
-                    borderRadius: '50%',
-                    background:   line.dot,
-                    flexShrink:   0,
-                    marginTop:    5,
-                    animation:    line.blink
-                      ? 'dotBlink 3s ease-in-out infinite'
-                      : 'none',
-                    boxShadow:    line.glow
-                      ? `0 0 6px 2px ${line.dot}`
-                      : 'none',
-                  }} />
-                  <div style={{
-                    fontSize:   13,
-                    fontWeight: 300,
-                    color:      'rgba(240,235,224,0.72)',
-                    lineHeight: 1.46,
-                    textShadow: '0 1px 4px rgba(0,0,0,0.28)',
-                  }}>
-                    {line.text}
-                  </div>
-                </div>
-              ))
-          }
-        </div>
-
-        {/* Bottom row spacer */}
-        <div style={{ height: 118, flexShrink: 0 }} />
-
       </div>
-
-      {/* ── BOTTOM ROW (z:30 — above bird) ─────── */}
-      <div
-        style={{
-          position:      'absolute',
-          bottom:        0,
-          left:          0,
-          right:         0,
-          zIndex:        30,
-          pointerEvents: 'none',
-        }}
-      >
-        <div
-          style={{
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'space-between',
-            padding:        '20px 26px 44px',
-            pointerEvents:  'auto',
-            ...anim(0.42),
-          }}
-        >
-          {/* Capture button — amber circle */}
-          <button
-            ref={captureRef}
-            onClick={() => setShowCapture(true)}
-            style={{
-              width:        58,
-              height:       58,
-              borderRadius: '50%',
-              background:   'linear-gradient(135deg, #C87820, #E09838)',
-              border:       'none',
-              display:      'flex',
-              alignItems:   'center',
-              justifyContent:'center',
-              cursor:       'pointer',
-              boxShadow:    '0 6px 26px rgba(200,120,32,0.36), 0 2px 0 rgba(255,220,140,0.18) inset',
-              animation:    'breath 4s ease-in-out infinite',
-              flexShrink:   0,
-            }}
-            aria-label="Capture"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <line x1="10" y1="3" x2="10" y2="17"
-                stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-              <line x1="3" y1="10" x2="17" y2="10"
-                stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-            </svg>
-          </button>
-
-          {/* Deals pill */}
-          <button
-            ref={dealsRef}
-            onClick={() => router.push('/deals')}
-            style={{
-              display:        'flex',
-              alignItems:     'center',
-              gap:            8,
-              cursor:         'pointer',
-              background:     'rgba(240,235,224,0.1)',
-              border:         '0.5px solid rgba(240,235,224,0.18)',
-              borderRadius:   26,
-              padding:        '11px 20px',
-              backdropFilter: 'blur(12px)',
-              boxShadow:      '0 2px 12px rgba(0,0,0,0.18)',
-            }}
-            aria-label="Open deals"
-          >
-            {atRiskCount > 0 && (
-              <div style={{
-                width:        6,
-                height:       6,
-                borderRadius: '50%',
-                background:   COLORS.red,
-                boxShadow:    `0 0 6px 2px ${COLORS.red}`,
-                flexShrink:   0,
-              }} />
-            )}
-            <span style={{
-              fontFamily: "'Cormorant Garamond', serif",
-              fontSize:   15,
-              fontWeight: 400,
-              color:      'rgba(240,235,224,0.78)',
-            }}>
-              {atRiskCount > 0 ? `Deals · ${atRiskCount} at risk` : 'Deals'}
-            </span>
-            <span style={{
-              fontSize: 14,
-              color:    'rgba(240,235,224,0.36)',
-            }}>
-              ›
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── SPOTLIGHT TOUR ─────────────────────── */}
-      {showTour && (
-        <SpotlightTour
-          stops={[
-            {
-              ref:      sunRef as React.RefObject<HTMLElement>,
-              copy:     'What to do first. Tap every morning.',
-              position: 'below',
-            },
-            {
-              ref:      captureRef as React.RefObject<HTMLElement>,
-              copy:     'Feed the system. Every capture makes your intelligence sharper.',
-              position: 'above',
-            },
-            {
-              ref:      dealsRef as React.RefObject<HTMLElement>,
-              copy:     'Risk and leverage. See what needs your attention now.',
-              position: 'above',
-            },
-            {
-              ref:      logoRef as React.RefObject<HTMLElement>,
-              copy:     'Profile and preferences.',
-              position: 'below',
-            },
-          ]}
-          storageKey="jove_tour_complete"
-          onComplete={() => {
-            setShowTour(false);
-            if (localStorage.getItem('jove_calendar_prompted') !== 'true') {
-              setShowCalendarPrompt(true);
-            }
-          }}
-          delayMs={0}
-        />
-      )}
-
-      {/* ── CALENDAR IMPORT PROMPT ────────────── */}
-      {showCalendarPrompt && (
-        <CalendarImportPrompt
-          onImport={() => {
-            localStorage.setItem('jove_calendar_prompted', 'true');
-            setShowCalendarPrompt(false);
-            router.push('/meetings?import=true');
-          }}
-          onSkip={() => {
-            localStorage.setItem('jove_calendar_prompted', 'true');
-            setShowCalendarPrompt(false);
-          }}
-        />
-      )}
 
       {/* ── FIRST VISIT OVERLAY ───────────────── */}
       {firstVisitVisible && (
@@ -1980,7 +1081,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── CAPTURE SHEET ────────────────────────── */}
+      {/* ── CAPTURE SHEET (logic preserved, not visually triggered) ── */}
       {showCapture && data?.user && (
         <CaptureSheet
           onClose={() => {
@@ -2219,211 +1320,6 @@ export default function HomePage() {
                 </button>
               </>
             )}
-          </div>
-        </>
-      )}
-
-      {/* ── ACTION CAPTURE OVERLAY ────────────────── */}
-      {actionOverlayOpen && (
-        <>
-          {/* Backdrop */}
-          <div
-            onClick={handleActionSkip}
-            style={{
-              position:     'fixed',
-              inset:        0,
-              zIndex:       290,
-              background:   'rgba(4,8,14,0.72)',
-              backdropFilter: 'blur(10px)',
-              transition:   'opacity 0.2s ease',
-            }}
-          />
-
-          {/* Sheet */}
-          <div
-            style={{
-              position:     'fixed',
-              bottom:       0,
-              left:         '50%',
-              transform:    'translateX(-50%) translateY(0)',
-              transition:   'transform 0.32s cubic-bezier(.32,.72,0,1)',
-              zIndex:       300,
-              width:        '100%',
-              maxWidth:     '100%',
-              background:   '#0f1420',
-              borderTop:    '0.5px solid rgba(232,160,48,0.2)',
-              borderRadius: '22px 22px 0 0',
-              paddingBottom: 44,
-              fontFamily:   "'DM Sans', sans-serif",
-            }}
-          >
-            {/* Handle */}
-            <div style={{
-              width:        36,
-              height:       4,
-              borderRadius: 2,
-              background:   'rgba(240,235,224,0.15)',
-              margin:       '14px auto 0',
-            }} />
-
-            <div style={{ padding: '16px 18px 0' }}>
-              {/* Action context — read-only */}
-              <div style={{
-                fontSize:      9,
-                fontWeight:    700,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                color:         COLORS.amber,
-                marginBottom:  8,
-              }}>
-                Do this first
-              </div>
-              <div style={{
-                fontFamily:   "'Cormorant Garamond', serif",
-                fontSize:     18,
-                fontWeight:   400,
-                color:        'rgba(252,246,234,0.92)',
-                lineHeight:   1.4,
-                marginBottom: 10,
-              }}>
-                {doThisFirst.suggestion}
-              </div>
-
-              {/* Deal context if matched */}
-              {matchedDeal && (
-                <div style={{
-                  background:   'rgba(240,235,224,0.04)',
-                  borderRadius: 10,
-                  padding:      '10px 12px',
-                  marginBottom: 14,
-                  borderLeft:   `2px solid rgba(232,160,48,0.3)`,
-                }}>
-                  <div style={{
-                    fontSize:     11,
-                    fontWeight:   500,
-                    color:        COLORS.amber,
-                    marginBottom: 4,
-                  }}>
-                    {matchedDeal.accounts?.name || matchedDeal.name} · {matchedDeal.stage}
-                  </div>
-                  {matchedDeal.next_action && (
-                    <div style={{
-                      fontSize:     12,
-                      fontWeight:   300,
-                      color:        'rgba(240,235,224,0.56)',
-                      lineHeight:   1.4,
-                      marginBottom: data?.signals.find(s => s.deal_id === matchedDeal.id) ? 4 : 0,
-                    }}>
-                      Next: {matchedDeal.next_action}
-                    </div>
-                  )}
-                  {(() => {
-                    const recentSignal = data?.signals.find(s => s.deal_id === matchedDeal.id);
-                    if (!recentSignal) return null;
-                    const signalTypeLabels: Record<string, string> = {
-                      champion_identified: 'Champion identified',
-                      budget_mentioned:    'Budget mentioned',
-                      positive_sentiment:  'Positive signal',
-                      next_step_agreed:    'Next step agreed',
-                      risk_flag:           'Risk flag',
-                      competitor_mentioned:'Competitor mentioned',
-                    };
-                    const label = signalTypeLabels[recentSignal.signal_type] || recentSignal.signal_type;
-                    return (
-                      <div style={{
-                        fontSize:   11,
-                        fontWeight: 300,
-                        color:      'rgba(240,235,224,0.40)',
-                        lineHeight: 1.4,
-                      }}>
-                        Latest: {label}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {/* Input */}
-              <textarea
-                ref={actionInputRef}
-                value={actionInput}
-                onChange={(e) => setActionInput(e.target.value)}
-                placeholder="What happened or what did you do?"
-                style={{
-                  width:        '100%',
-                  background:   'rgba(16,20,30,0.6)',
-                  border:       '0.5px solid rgba(232,160,48,0.22)',
-                  borderRadius: 14,
-                  padding:      '14px 16px',
-                  fontFamily:   "'DM Sans', sans-serif",
-                  fontSize:     14,
-                  fontWeight:   300,
-                  color:        'rgba(252,246,234,0.92)',
-                  outline:      'none',
-                  resize:       'none',
-                  minHeight:    100,
-                  lineHeight:   1.65,
-                  marginBottom: 12,
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = 'rgba(232,160,48,0.44)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = 'rgba(232,160,48,0.22)';
-                }}
-              />
-
-              {/* Submit button */}
-              <button
-                onClick={handleActionSubmit}
-                disabled={!actionInput.trim() || actionSubmitting}
-                style={{
-                  width:           '100%',
-                  padding:         '14px 0',
-                  borderRadius:    12,
-                  border:          'none',
-                  background:      actionInput.trim() && !actionSubmitting
-                    ? 'linear-gradient(135deg, #C87820, #E09838)'
-                    : 'rgba(255,255,255,0.06)',
-                  color:           actionInput.trim() && !actionSubmitting
-                    ? 'white'
-                    : 'rgba(240,235,224,0.36)',
-                  fontSize:        11,
-                  fontWeight:      700,
-                  letterSpacing:   '2px',
-                  textTransform:   'uppercase',
-                  cursor:          actionInput.trim() && !actionSubmitting
-                    ? 'pointer'
-                    : 'default',
-                  fontFamily:      "'DM Sans', sans-serif",
-                  transition:      'all 0.2s ease',
-                  boxShadow:       actionInput.trim() && !actionSubmitting
-                    ? '0 4px 18px rgba(200,120,32,0.3)'
-                    : 'none',
-                  marginBottom:    10,
-                }}
-              >
-                {actionSubmitting ? 'Saving...' : 'Log it →'}
-              </button>
-
-              {/* Skip */}
-              <button
-                onClick={handleActionSkip}
-                style={{
-                  width:      '100%',
-                  padding:    '10px 0',
-                  background: 'none',
-                  border:     'none',
-                  color:      'rgba(240,235,224,0.36)',
-                  fontSize:   12,
-                  fontWeight: 400,
-                  cursor:     'pointer',
-                  fontFamily: "'DM Sans', sans-serif",
-                }}
-              >
-                Skip for now
-              </button>
-            </div>
           </div>
         </>
       )}
