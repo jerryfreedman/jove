@@ -27,6 +27,12 @@ import type {
   StreakLogRow,
   UserRow,
 } from '@/lib/types';
+import {
+  classifyMessage,
+  getAcknowledgment,
+  type ClassificationResult,
+  type MessageBucket,
+} from '@/lib/chat-intelligence';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -35,7 +41,20 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** Classification result attached to user messages after processing */
+  classification?: ClassificationResult;
+  /** Whether this message resulted in a saved interaction */
+  saved?: boolean;
+  /** Inline UI mode for special flows (new deal form, clarification, deal picker) */
+  uiMode?: 'clarification' | 'new_deal_confirm' | 'new_deal_form' | 'deal_picker';
+  /** For clarification: the original message ID being clarified */
+  pendingMessageId?: string;
 }
+
+/** Tracks whether any real intelligence was saved during this chat session */
+type ChatSaveState = {
+  hasSaved: boolean;
+};
 
 interface HomeData {
   user:          UserRow | null;
@@ -160,9 +179,25 @@ export default function HomePage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatSheetVisible, setChatSheetVisible] = useState(false);
+  const [chatProcessing, setChatProcessing] = useState(false);
+  const [chatStreaming, setChatStreaming] = useState(false);
   const chatInputRef = useRef<HTMLInputElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatIdCounter = useRef(0);
+  const chatSaveStateRef = useRef<ChatSaveState>({ hasSaved: false });
+  // Pending message waiting for clarification resolution
+  const pendingClarificationRef = useRef<{
+    messageId: string;
+    originalText: string;
+    classification: ClassificationResult;
+  } | null>(null);
+  // New deal form state (inline in chat)
+  const [newDealForm, setNewDealForm] = useState<{
+    dealName: string;
+    accountName: string;
+    value: string;
+    originalText: string;
+  } | null>(null);
 
   const openChat = useCallback(() => {
     setChatOpen(true);
@@ -176,35 +211,384 @@ export default function HomePage() {
   }, []);
 
   const closeChat = useCallback(() => {
+    const hadSave = chatSaveStateRef.current.hasSaved;
     setChatSheetVisible(false);
     setTimeout(() => {
       setChatOpen(false);
       // Preserve messages so reopening shows history
+      // Phase 8: Environmental acknowledgment after real saved intelligence
+      if (hadSave) {
+        chatSaveStateRef.current.hasSaved = false;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            triggerEnvironmentalAcknowledgment({ source: 'capture' });
+          });
+        });
+      }
     }, 340);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleChatSubmit = useCallback(() => {
-    const text = chatInput.trim();
-    if (!text) return;
+  // ── CHAT INTELLIGENCE: save interaction helper ──────────────
+  const chatSaveInteraction = useCallback(async (
+    rawContent: string,
+    dealId: string | null,
+    type: 'note' | 'debrief' | 'meeting_log' = 'note',
+  ): Promise<string | null> => {
+    if (!data?.user) return null;
+    try {
+      const result = await saveInteraction(supabase, {
+        userId: data.user.id,
+        dealId,
+        type,
+        rawContent,
+      });
+      if (result?.id) {
+        triggerExtraction(result.id, data.user.id);
+        await updateStreak(supabase, data.user.id);
+        chatSaveStateRef.current.hasSaved = true;
+        // Delayed re-fetch for extraction
+        setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
+        return result.id;
+      }
+    } catch (err) {
+      console.error('Chat save error:', err);
+    }
+    return null;
+  }, [data, supabase]);
 
+  // ── CHAT INTELLIGENCE: stream assistant response ────────────
+  const streamAssistantResponse = useCallback(async (
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    dealId?: string | null,
+  ) => {
+    if (!data?.user) return;
+    const assistantMsgId = `msg-${++chatIdCounter.current}`;
+    setChatMessages(prev => [...prev, {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+    }]);
+    setChatStreaming(true);
+
+    try {
+      const res = await fetch('/api/chat-home', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: data.user.id,
+          messages,
+          dealId: dealId ?? null,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        setChatMessages(prev => prev.map(m =>
+          m.id === assistantMsgId
+            ? { ...m, content: "I couldn't process that right now. Try again?" }
+            : m
+        ));
+        setChatStreaming(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        const current = accumulated;
+        setChatMessages(prev => prev.map(m =>
+          m.id === assistantMsgId ? { ...m, content: current } : m
+        ));
+      }
+    } catch {
+      setChatMessages(prev => prev.map(m =>
+        m.id === assistantMsgId
+          ? { ...m, content: "Something went wrong. Try again?" }
+          : m
+      ));
+    } finally {
+      setChatStreaming(false);
+    }
+  }, [data]);
+
+  // ── CHAT INTELLIGENCE: handle new deal creation inline ──────
+  const handleNewDealCreate = useCallback(async () => {
+    if (!newDealForm || !data?.user) return;
+    const { dealName, accountName, value, originalText } = newDealForm;
+    if (!dealName.trim() || !accountName.trim()) return;
+
+    setChatProcessing(true);
+
+    try {
+      // Check if account exists
+      const { data: existingAccount } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('user_id', data.user.id)
+        .ilike('name', accountName.trim())
+        .maybeSingle();
+
+      let accountId: string;
+      if (existingAccount) {
+        accountId = existingAccount.id;
+      } else {
+        const { data: newAccount, error: accountError } = await supabase
+          .from('accounts')
+          .insert({ user_id: data.user.id, name: accountName.trim() })
+          .select('id')
+          .single();
+        if (accountError || !newAccount) throw accountError ?? new Error('Account creation failed');
+        accountId = newAccount.id;
+      }
+
+      // Create deal
+      const dealInsert: Record<string, unknown> = {
+        user_id: data.user.id,
+        account_id: accountId,
+        name: dealName.trim(),
+        stage: 'Discovery',
+      };
+      if (value.trim()) {
+        const numVal = parseFloat(value.replace(/[,$]/g, ''));
+        if (!isNaN(numVal)) dealInsert.value = numVal;
+      }
+
+      const { data: newDeal, error: dealError } = await supabase
+        .from('deals')
+        .insert(dealInsert)
+        .select('id, name')
+        .single();
+      if (dealError || !newDeal) throw dealError ?? new Error('Deal creation failed');
+
+      // Save original message as interaction on new deal
+      await chatSaveInteraction(originalText, newDeal.id, 'note');
+
+      // Acknowledge in chat
+      setChatMessages(prev => [...prev, {
+        id: `msg-${++chatIdCounter.current}`,
+        role: 'assistant',
+        content: `Created ${dealName.trim()} — saved your intel to it.`,
+      }]);
+
+      setNewDealForm(null);
+      setHomeRefreshKey(k => k + 1);
+    } catch (err) {
+      console.error('New deal creation error:', err);
+      setChatMessages(prev => [...prev, {
+        id: `msg-${++chatIdCounter.current}`,
+        role: 'assistant',
+        content: "Couldn't create that deal. Try again?",
+      }]);
+    } finally {
+      setChatProcessing(false);
+    }
+  }, [newDealForm, data, supabase, chatSaveInteraction]);
+
+  // ── CHAT INTELLIGENCE: handle clarification response ────────
+  const handleClarificationResponse = useCallback(async (selectedDealId: string | null) => {
+    const pending = pendingClarificationRef.current;
+    if (!pending) return;
+
+    pendingClarificationRef.current = null;
+    setChatProcessing(true);
+
+    try {
+      const type = pending.classification.bucket === 'meeting_context' ? 'meeting_log' as const : 'note' as const;
+      await chatSaveInteraction(pending.originalText, selectedDealId, type);
+
+      const dealName = selectedDealId
+        ? data?.allDeals.find(d => d.id === selectedDealId)?.name ?? null
+        : null;
+      const ack = selectedDealId
+        ? getAcknowledgment(pending.classification.bucket, dealName, null)
+        : 'Saved as general intel.';
+
+      setChatMessages(prev => [...prev, {
+        id: `msg-${++chatIdCounter.current}`,
+        role: 'assistant',
+        content: ack,
+        saved: true,
+      }]);
+    } catch {
+      setChatMessages(prev => [...prev, {
+        id: `msg-${++chatIdCounter.current}`,
+        role: 'assistant',
+        content: 'Something went wrong saving that. Try again?',
+      }]);
+    } finally {
+      setChatProcessing(false);
+    }
+  }, [data, chatSaveInteraction]);
+
+  // ── MAIN CHAT SUBMIT HANDLER ────────────────────────────────
+  const handleChatSubmit = useCallback(async () => {
+    const text = chatInput.trim();
+    if (!text || chatProcessing || chatStreaming) return;
+    if (!data?.user) return;
+
+    const userMsgId = `msg-${++chatIdCounter.current}`;
     const userMsg: ChatMessage = {
-      id: `msg-${++chatIdCounter.current}`,
+      id: userMsgId,
       role: 'user',
       content: text,
     };
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput('');
+    setChatProcessing(true);
 
-    // Placeholder assistant response (to be replaced in Session 3)
-    setTimeout(() => {
-      const assistantMsg: ChatMessage = {
+    try {
+      // Phase 1: Classify message
+      const classification = classifyMessage(
+        text,
+        data.allDeals ?? [],
+        data.meetings ?? [],
+      );
+
+      // Attach classification to user message
+      setChatMessages(prev => prev.map(m =>
+        m.id === userMsgId ? { ...m, classification } : m
+      ));
+
+      // Phase 2: Route based on confidence
+      switch (classification.bucket) {
+
+        // ── QUESTION PATH (Phase 6) ─────────────────────────
+        case 'question': {
+          // Build message history for assistant
+          const history = chatMessages
+            .filter(m => !m.uiMode)
+            .map(m => ({ role: m.role, content: m.content }));
+          history.push({ role: 'user', content: text });
+
+          await streamAssistantResponse(history, classification.matchedDealId);
+          break;
+        }
+
+        // ── EMAIL DRAFT PATH ────────────────────────────────
+        case 'email_draft': {
+          if (classification.confidence === 'low') {
+            // Need deal clarification
+            pendingClarificationRef.current = {
+              messageId: userMsgId,
+              originalText: text,
+              classification,
+            };
+            setChatMessages(prev => [...prev, {
+              id: `msg-${++chatIdCounter.current}`,
+              role: 'assistant',
+              content: classification.clarificationQuestion ?? 'Which deal is this about?',
+              uiMode: 'deal_picker',
+              pendingMessageId: userMsgId,
+            }]);
+          } else {
+            // For now, email drafts save as interaction + respond
+            await chatSaveInteraction(text, classification.matchedDealId, 'note');
+            const history = chatMessages
+              .filter(m => !m.uiMode)
+              .map(m => ({ role: m.role, content: m.content }));
+            history.push({ role: 'user', content: text });
+            await streamAssistantResponse(history, classification.matchedDealId);
+          }
+          break;
+        }
+
+        // ── NEW DEAL PATH (Phase 4) ─────────────────────────
+        case 'new_deal': {
+          setChatMessages(prev => [...prev, {
+            id: `msg-${++chatIdCounter.current}`,
+            role: 'assistant',
+            content: 'Should I create a new deal for this?',
+            uiMode: 'new_deal_confirm',
+            pendingMessageId: userMsgId,
+          }]);
+          // Pre-populate form with extracted entity name
+          setNewDealForm({
+            dealName: classification.extractedEntityName ?? '',
+            accountName: classification.extractedEntityName ?? '',
+            value: '',
+            originalText: text,
+          });
+          break;
+        }
+
+        // ── EXISTING DEAL UPDATE (Phase 3) ──────────────────
+        case 'existing_deal_update': {
+          const type = 'note' as const;
+          await chatSaveInteraction(text, classification.matchedDealId, type);
+          const ack = getAcknowledgment(
+            classification.bucket,
+            classification.matchedDealName,
+            null,
+          );
+          setChatMessages(prev => [...prev, {
+            id: `msg-${++chatIdCounter.current}`,
+            role: 'assistant',
+            content: ack,
+            saved: true,
+          }]);
+          break;
+        }
+
+        // ── MEETING CONTEXT PATH (Phase 3 variant) ──────────
+        case 'meeting_context': {
+          if (classification.confidence === 'low') {
+            pendingClarificationRef.current = {
+              messageId: userMsgId,
+              originalText: text,
+              classification,
+            };
+            setChatMessages(prev => [...prev, {
+              id: `msg-${++chatIdCounter.current}`,
+              role: 'assistant',
+              content: classification.clarificationQuestion ?? 'Which deal is this about?',
+              uiMode: 'deal_picker',
+              pendingMessageId: userMsgId,
+            }]);
+          } else {
+            await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log');
+            const ack = getAcknowledgment(
+              classification.bucket,
+              classification.matchedDealName,
+              classification.matchedMeetingTitle,
+            );
+            setChatMessages(prev => [...prev, {
+              id: `msg-${++chatIdCounter.current}`,
+              role: 'assistant',
+              content: ack,
+              saved: true,
+            }]);
+          }
+          break;
+        }
+
+        // ── GENERAL INTEL PATH (Phase 5) ────────────────────
+        case 'general_intel': {
+          await chatSaveInteraction(text, null, 'note');
+          setChatMessages(prev => [...prev, {
+            id: `msg-${++chatIdCounter.current}`,
+            role: 'assistant',
+            content: getAcknowledgment('general_intel', null, null),
+            saved: true,
+          }]);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error('Chat submit error:', err);
+      setChatMessages(prev => [...prev, {
         id: `msg-${++chatIdCounter.current}`,
         role: 'assistant',
-        content: "I heard you. Intelligence is coming in the next session.",
-      };
-      setChatMessages(prev => [...prev, assistantMsg]);
-    }, 600);
-  }, [chatInput]);
+        content: "Something went wrong. Try again?",
+      }]);
+    } finally {
+      setChatProcessing(false);
+    }
+  }, [chatInput, chatProcessing, chatStreaming, data, chatMessages, chatSaveInteraction, streamAssistantResponse]);
 
   // Auto-scroll chat to bottom on new messages
   useEffect(() => {
@@ -821,6 +1205,9 @@ export default function HomePage() {
           37.5% { opacity: 1; }
           100% { opacity: 0; }
         }
+        @keyframes chatSpin {
+          to { transform: rotate(360deg); }
+        }
       `}</style>
 
       {/* ── WARM TINT LAYER (additive, gradient-based) ── */}
@@ -1273,35 +1660,241 @@ export default function HomePage() {
               )}
 
               {chatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    display:       'flex',
-                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                    marginBottom:  10,
-                  }}
-                >
+                <div key={msg.id}>
                   <div
                     style={{
-                      maxWidth:     '80%',
-                      padding:      '10px 14px',
-                      borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                      background:   msg.role === 'user'
-                        ? 'rgba(232,160,48,0.14)'
-                        : 'rgba(240,235,224,0.06)',
-                      border:       msg.role === 'user'
-                        ? '0.5px solid rgba(232,160,48,0.18)'
-                        : '0.5px solid rgba(240,235,224,0.06)',
-                      fontSize:     14,
-                      fontWeight:   300,
-                      lineHeight:   1.55,
-                      color:        msg.role === 'user'
-                        ? 'rgba(252,246,234,0.92)'
-                        : 'rgba(240,235,224,0.72)',
+                      display:       'flex',
+                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                      marginBottom:  msg.uiMode ? 4 : 10,
                     }}
                   >
-                    {msg.content}
+                    <div
+                      style={{
+                        maxWidth:     '80%',
+                        padding:      '10px 14px',
+                        borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                        background:   msg.role === 'user'
+                          ? 'rgba(232,160,48,0.14)'
+                          : 'rgba(240,235,224,0.06)',
+                        border:       msg.role === 'user'
+                          ? '0.5px solid rgba(232,160,48,0.18)'
+                          : '0.5px solid rgba(240,235,224,0.06)',
+                        fontSize:     14,
+                        fontWeight:   300,
+                        lineHeight:   1.55,
+                        color:        msg.role === 'user'
+                          ? 'rgba(252,246,234,0.92)'
+                          : 'rgba(240,235,224,0.72)',
+                      }}
+                    >
+                      {msg.content}
+                    </div>
                   </div>
+
+                  {/* ── DEAL PICKER (clarification UI) ──────────── */}
+                  {msg.uiMode === 'deal_picker' && pendingClarificationRef.current && (
+                    <div style={{ marginBottom: 10, paddingLeft: 4 }}>
+                      <div style={{
+                        maxHeight: 160,
+                        overflowY: 'auto',
+                        marginBottom: 6,
+                      }}>
+                        {(data?.allDeals ?? []).map((d) => (
+                          <button
+                            key={d.id}
+                            onClick={() => handleClarificationResponse(d.id)}
+                            disabled={chatProcessing}
+                            style={{
+                              width:        '100%',
+                              display:      'block',
+                              textAlign:    'left',
+                              background:   'rgba(16,20,30,0.6)',
+                              border:       '0.5px solid rgba(232,160,48,0.15)',
+                              borderRadius: 10,
+                              padding:      '9px 13px',
+                              marginBottom: 4,
+                              cursor:       'pointer',
+                              fontFamily:   "'DM Sans', sans-serif",
+                              transition:   'border-color 0.15s',
+                            }}
+                          >
+                            <span style={{ fontSize: 13, fontWeight: 400, color: 'rgba(252,246,234,0.88)' }}>
+                              {d.name}
+                            </span>
+                            {d.accounts?.name && (
+                              <span style={{ fontSize: 12, fontWeight: 300, color: 'rgba(240,235,224,0.45)', marginLeft: 6 }}>
+                                &middot; {d.accounts.name}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => handleClarificationResponse(null)}
+                        disabled={chatProcessing}
+                        style={{
+                          background: 'none',
+                          border:     'none',
+                          color:      'rgba(240,235,224,0.36)',
+                          fontSize:   12,
+                          fontWeight: 400,
+                          cursor:     'pointer',
+                          fontFamily: "'DM Sans', sans-serif",
+                          padding:    '4px 0',
+                        }}
+                      >
+                        Save without a deal
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── NEW DEAL CONFIRMATION ───────────────────── */}
+                  {msg.uiMode === 'new_deal_confirm' && newDealForm && (
+                    <div style={{ marginBottom: 10, paddingLeft: 4 }}>
+                      {/* Yes / No buttons */}
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                        <button
+                          onClick={() => {
+                            // Show inline form
+                            setChatMessages(prev => prev.map(m =>
+                              m.id === msg.id ? { ...m, uiMode: 'new_deal_form' } : m
+                            ));
+                          }}
+                          style={{
+                            flex:         1,
+                            padding:      '10px 0',
+                            borderRadius: 10,
+                            border:       '0.5px solid rgba(232,160,48,0.3)',
+                            background:   'rgba(232,160,48,0.1)',
+                            color:        'rgba(252,246,234,0.88)',
+                            fontSize:     13,
+                            fontWeight:   500,
+                            cursor:       'pointer',
+                            fontFamily:   "'DM Sans', sans-serif",
+                          }}
+                        >
+                          Yes, create it
+                        </button>
+                        <button
+                          onClick={async () => {
+                            // Save as general intel instead
+                            setNewDealForm(null);
+                            setChatMessages(prev => prev.map(m =>
+                              m.id === msg.id ? { ...m, uiMode: undefined } : m
+                            ));
+                            await chatSaveInteraction(newDealForm.originalText, null, 'note');
+                            setChatMessages(prev => [...prev, {
+                              id: `msg-${++chatIdCounter.current}`,
+                              role: 'assistant',
+                              content: 'Saved as general intel.',
+                              saved: true,
+                            }]);
+                          }}
+                          style={{
+                            flex:         1,
+                            padding:      '10px 0',
+                            borderRadius: 10,
+                            border:       '0.5px solid rgba(240,235,224,0.08)',
+                            background:   'rgba(240,235,224,0.04)',
+                            color:        'rgba(240,235,224,0.5)',
+                            fontSize:     13,
+                            fontWeight:   400,
+                            cursor:       'pointer',
+                            fontFamily:   "'DM Sans', sans-serif",
+                          }}
+                        >
+                          No, just save it
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── NEW DEAL INLINE FORM ────────────────────── */}
+                  {msg.uiMode === 'new_deal_form' && newDealForm && (
+                    <div style={{ marginBottom: 10, paddingLeft: 4 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                        <input
+                          type="text"
+                          placeholder="Deal name *"
+                          value={newDealForm.dealName}
+                          onChange={(e) => setNewDealForm(prev => prev ? { ...prev, dealName: e.target.value } : prev)}
+                          style={{
+                            width:        '100%',
+                            background:   'rgba(16,20,30,0.6)',
+                            border:       '0.5px solid rgba(232,160,48,0.22)',
+                            borderRadius: 10,
+                            padding:      '10px 13px',
+                            fontFamily:   "'DM Sans', sans-serif",
+                            fontSize:     13,
+                            fontWeight:   300,
+                            color:        'rgba(252,246,234,0.92)',
+                            outline:      'none',
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Account name *"
+                          value={newDealForm.accountName}
+                          onChange={(e) => setNewDealForm(prev => prev ? { ...prev, accountName: e.target.value } : prev)}
+                          style={{
+                            width:        '100%',
+                            background:   'rgba(16,20,30,0.6)',
+                            border:       '0.5px solid rgba(232,160,48,0.22)',
+                            borderRadius: 10,
+                            padding:      '10px 13px',
+                            fontFamily:   "'DM Sans', sans-serif",
+                            fontSize:     13,
+                            fontWeight:   300,
+                            color:        'rgba(252,246,234,0.92)',
+                            outline:      'none',
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Value (optional)"
+                          value={newDealForm.value}
+                          onChange={(e) => setNewDealForm(prev => prev ? { ...prev, value: e.target.value } : prev)}
+                          style={{
+                            width:        '100%',
+                            background:   'rgba(16,20,30,0.6)',
+                            border:       '0.5px solid rgba(240,235,224,0.1)',
+                            borderRadius: 10,
+                            padding:      '10px 13px',
+                            fontFamily:   "'DM Sans', sans-serif",
+                            fontSize:     13,
+                            fontWeight:   300,
+                            color:        'rgba(252,246,234,0.92)',
+                            outline:      'none',
+                          }}
+                        />
+                      </div>
+                      <button
+                        onClick={handleNewDealCreate}
+                        disabled={!newDealForm.dealName.trim() || !newDealForm.accountName.trim() || chatProcessing}
+                        style={{
+                          width:        '100%',
+                          padding:      '11px 0',
+                          borderRadius: 10,
+                          border:       'none',
+                          background:   newDealForm.dealName.trim() && newDealForm.accountName.trim() && !chatProcessing
+                            ? 'linear-gradient(135deg, #C87820, #E09838)'
+                            : 'rgba(255,255,255,0.06)',
+                          color:        newDealForm.dealName.trim() && newDealForm.accountName.trim() && !chatProcessing
+                            ? 'white'
+                            : 'rgba(240,235,224,0.36)',
+                          fontSize:     12,
+                          fontWeight:   600,
+                          cursor:       newDealForm.dealName.trim() && newDealForm.accountName.trim() && !chatProcessing
+                            ? 'pointer'
+                            : 'default',
+                          fontFamily:   "'DM Sans', sans-serif",
+                          transition:   'all 0.2s ease',
+                        }}
+                      >
+                        {chatProcessing ? 'Creating...' : 'Create deal'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1355,20 +1948,20 @@ export default function HomePage() {
                 />
                 <button
                   onClick={handleChatSubmit}
-                  disabled={!chatInput.trim()}
+                  disabled={!chatInput.trim() || chatProcessing || chatStreaming}
                   style={{
                     width:        36,
                     height:       36,
                     borderRadius: 12,
                     border:       'none',
-                    background:   chatInput.trim()
+                    background:   chatInput.trim() && !chatProcessing && !chatStreaming
                       ? 'linear-gradient(135deg, #C87820, #E09838)'
                       : 'rgba(255,255,255,0.04)',
-                    color:        chatInput.trim()
+                    color:        chatInput.trim() && !chatProcessing && !chatStreaming
                       ? 'white'
                       : 'rgba(240,235,224,0.22)',
                     fontSize:     16,
-                    cursor:       chatInput.trim() ? 'pointer' : 'default',
+                    cursor:       chatInput.trim() && !chatProcessing && !chatStreaming ? 'pointer' : 'default',
                     display:      'flex',
                     alignItems:   'center',
                     justifyContent: 'center',
@@ -1377,9 +1970,19 @@ export default function HomePage() {
                   }}
                   aria-label="Send message"
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
+                  {chatProcessing || chatStreaming ? (
+                    <div style={{
+                      width: 14, height: 14,
+                      border: '1.5px solid rgba(240,235,224,0.22)',
+                      borderTopColor: 'rgba(232,160,48,0.7)',
+                      borderRadius: '50%',
+                      animation: 'chatSpin 0.7s linear infinite',
+                    }} />
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
                 </button>
               </div>
             </div>
