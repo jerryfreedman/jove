@@ -36,6 +36,7 @@ import {
   classifyMessage,
   isFollowUp,
   getAcknowledgment,
+  hasQuestionIntent,
   type ClassificationResult,
   type MessageBucket,
 } from '@/lib/chat-intelligence';
@@ -531,20 +532,29 @@ export default function HomePage() {
         });
       }
 
-      const dealName = selectedDealId
-        ? data?.allDeals.find(d => d.id === selectedDealId)?.name ?? null
-        : null;
-      const ack = selectedDealId
-        ? getAcknowledgment(pending.classification.bucket, dealName, null)
-        : 'Saved.';
-
-      addAndPersistAssistantMessage(ack, { saved: true, dealId: selectedDealId });
+      // Session 7: If original message had a question, stream a response
+      // instead of just acknowledging.
+      if (hasQuestionIntent(pending.originalText)) {
+        const history = chatMessages
+          .filter(m => !m.uiMode)
+          .map(m => ({ role: m.role, content: m.content }));
+        history.push({ role: 'user', content: pending.originalText });
+        await streamAssistantResponse(history, selectedDealId);
+      } else {
+        const dealName = selectedDealId
+          ? data?.allDeals.find(d => d.id === selectedDealId)?.name ?? null
+          : null;
+        const ack = selectedDealId
+          ? getAcknowledgment(pending.classification.bucket, dealName, null)
+          : 'Saved.';
+        addAndPersistAssistantMessage(ack, { saved: true, dealId: selectedDealId });
+      }
     } catch {
       addAndPersistAssistantMessage('Didn\u2019t save that \u2014 try again?');
     } finally {
       setChatProcessing(false);
     }
-  }, [data, supabase, chatSaveInteraction, addAndPersistAssistantMessage, buildRoutingMetadata]);
+  }, [data, supabase, chatSaveInteraction, addAndPersistAssistantMessage, buildRoutingMetadata, chatMessages, streamAssistantResponse]);
 
   // ── MAIN CHAT SUBMIT HANDLER ────────────────────────────────
   const handleChatSubmit = useCallback(async () => {
@@ -707,20 +717,34 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            await chatSaveInteraction(text, classification.matchedDealId, 'note', {
-              intentType: 'capture',
+            // Session 7: Hybrid — save silently, then decide response
+            const isMixed = hasQuestionIntent(text);
+            // Save intel (fire-and-forget for mixed, awaited for pure)
+            chatSaveInteraction(text, classification.matchedDealId, 'note', {
+              intentType: isMixed ? 'mixed' as InteractionIntentType : 'capture',
               routingConfidence: 1,
               routingMetadata: routingMeta,
             });
-            const ack = getAcknowledgment(
-              classification.bucket,
-              classification.matchedDealName,
-              null,
-            );
-            addAndPersistAssistantMessage(ack, {
-              saved: true,
-              dealId: classification.matchedDealId,
-            });
+
+            if (isMixed) {
+              // Mixed: user gave intel AND asked a question → stream response
+              const history = chatMessages
+                .filter(m => !m.uiMode)
+                .map(m => ({ role: m.role, content: m.content }));
+              history.push({ role: 'user', content: text });
+              await streamAssistantResponse(history, classification.matchedDealId);
+            } else {
+              // Pure intel: short acknowledgment
+              const ack = getAcknowledgment(
+                classification.bucket,
+                classification.matchedDealName,
+                null,
+              );
+              addAndPersistAssistantMessage(ack, {
+                saved: true,
+                dealId: classification.matchedDealId,
+              });
+            }
           }
           break;
         }
@@ -746,36 +770,62 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log', {
+            // Session 7: Hybrid — save silently, then decide response
+            const isMixed = hasQuestionIntent(text);
+            chatSaveInteraction(text, classification.matchedDealId, 'meeting_log', {
               meetingId: classification.matchedMeetingId,
-              intentType: 'debrief',
+              intentType: isMixed ? 'mixed' as InteractionIntentType : 'debrief',
               routingConfidence: 1,
               routingMetadata: routingMeta,
             });
-            const ack = getAcknowledgment(
-              classification.bucket,
-              classification.matchedDealName,
-              classification.matchedMeetingTitle,
-            );
-            addAndPersistAssistantMessage(ack, {
-              saved: true,
-              dealId: classification.matchedDealId,
-            });
+
+            if (isMixed) {
+              // Mixed: debrief + question → stream response with deal context
+              const history = chatMessages
+                .filter(m => !m.uiMode)
+                .map(m => ({ role: m.role, content: m.content }));
+              history.push({ role: 'user', content: text });
+              await streamAssistantResponse(history, classification.matchedDealId);
+            } else {
+              // Pure debrief: short acknowledgment
+              const ack = getAcknowledgment(
+                classification.bucket,
+                classification.matchedDealName,
+                classification.matchedMeetingTitle,
+              );
+              addAndPersistAssistantMessage(ack, {
+                saved: true,
+                dealId: classification.matchedDealId,
+              });
+            }
           }
           break;
         }
 
         // ── GENERAL INTEL PATH ──────────────────────────────
         case 'general_intel': {
-          await chatSaveInteraction(text, null, 'note', {
-            intentType: 'general_intel',
+          // Session 7: Hybrid — save silently, then decide response
+          const isMixed = hasQuestionIntent(text);
+          chatSaveInteraction(text, null, 'note', {
+            intentType: isMixed ? 'mixed' as InteractionIntentType : 'general_intel',
             routingConfidence: 1,
             routingMetadata: routingMeta,
           });
-          addAndPersistAssistantMessage(
-            getAcknowledgment('general_intel', null, null),
-            { saved: true },
-          );
+
+          if (isMixed) {
+            // Mixed: intel + question → stream response
+            const history = chatMessages
+              .filter(m => !m.uiMode)
+              .map(m => ({ role: m.role, content: m.content }));
+            history.push({ role: 'user', content: text });
+            await streamAssistantResponse(history, null);
+          } else {
+            // Pure intel: short acknowledgment
+            addAndPersistAssistantMessage(
+              getAcknowledgment('general_intel', null, null),
+              { saved: true },
+            );
+          }
           break;
         }
       }

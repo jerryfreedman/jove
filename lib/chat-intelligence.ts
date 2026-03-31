@@ -72,6 +72,15 @@ function containsAny(text: string, keywords: string[]): boolean {
   return keywords.some(kw => lower.includes(kw));
 }
 
+/**
+ * Session 7: Detect if text contains a question component, even when the
+ * primary classification is intel/update.  Used for hybrid "mixed" routing:
+ * save the intel AND stream a meaningful response.
+ */
+export function hasQuestionIntent(text: string): boolean {
+  return isQuestion(text);
+}
+
 /** Check if text is a question to the assistant */
 function isQuestion(text: string): boolean {
   const lower = normalize(text);
