@@ -57,6 +57,38 @@ export async function saveInteraction(
   return data;
 }
 
+// ── UPDATE INTERACTION LINKAGE ────────────────────────────
+// Phase 9 (Session 3): When clarification resolves an ambiguous message,
+// update the existing saved interaction instead of creating a duplicate.
+// Preserves original raw_content, updates linkage + metadata.
+export async function updateInteractionLinkage(
+  supabase: SupabaseClient,
+  params: {
+    interactionId: string;
+    dealId?: string | null;
+    meetingId?: string | null;
+    routingConfidence?: number | null;
+    routingMetadata?: InteractionRoutingMetadata | null;
+  },
+): Promise<boolean> {
+  const update: Record<string, unknown> = {};
+  if (params.dealId !== undefined) update.deal_id = params.dealId;
+  if (params.meetingId !== undefined) update.meeting_id = params.meetingId;
+  if (params.routingConfidence != null) update.routing_confidence = params.routingConfidence;
+  if (params.routingMetadata != null) update.routing_metadata = params.routingMetadata;
+
+  const { error } = await supabase
+    .from('interactions')
+    .update(update)
+    .eq('id', params.interactionId);
+
+  if (error) {
+    console.error('Update interaction linkage error:', error);
+    return false;
+  }
+  return true;
+}
+
 // ── TRIGGER EXTRACTION ────────────────────────────────────
 // Fire-and-forget pattern from CaptureSheet.tsx
 export function triggerExtraction(interactionId: string, userId: string): void {

@@ -1,6 +1,7 @@
 // ── CHAT INTELLIGENCE ENGINE ──────────────────────────────────
 // Session 3: Deterministic message classification + confidence routing.
 // Lightweight, client-side heuristics. No LLM calls for classification.
+// Ambiguity-safe: preserves all candidates, never silently collapses.
 
 import type { DealRow, MeetingRow } from '@/lib/types';
 
@@ -15,6 +16,21 @@ export type MessageBucket =
 
 export type ConfidenceLevel = 'high' | 'low';
 
+// ── CANDIDATE TYPES ──────────────────────────────────────────
+export interface DealCandidate {
+  dealId: string;
+  dealName: string;
+  accountName: string | null;
+  score: number;
+}
+
+export interface MeetingCandidate {
+  meetingId: string;
+  meetingTitle: string;
+  dealId: string | null;
+  score: number;
+}
+
 export interface ClassificationResult {
   bucket: MessageBucket;
   confidence: ConfidenceLevel;
@@ -26,9 +42,24 @@ export interface ClassificationResult {
   clarificationQuestion: string | null;
   /** For new deal detection — extracted company/opportunity name */
   extractedEntityName: string | null;
+  /** All deal candidates scored at classification time (Session 3) */
+  allDealCandidates: DealCandidate[];
+  /** All meeting candidates scored at classification time (Session 3) */
+  allMeetingCandidates: MeetingCandidate[];
+  /** Why the classifier was uncertain, if applicable (Session 3) */
+  ambiguityReason: string | null;
 }
 
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
+
+// ── CONFIDENCE THRESHOLDS ────────────────────────────────────
+// Score >= HIGH_CONFIDENCE_THRESHOLD → auto-link
+// Score >= MIN_MATCH_THRESHOLD but < HIGH_CONFIDENCE_THRESHOLD → low confidence
+// Score < MIN_MATCH_THRESHOLD → no match
+const HIGH_CONFIDENCE_DEAL_THRESHOLD = 8;
+const MIN_DEAL_MATCH_THRESHOLD = 3;
+// If the gap between #1 and #2 deal candidates is < this, treat as ambiguous
+const AMBIGUOUS_DEAL_GAP = 3;
 
 // ── HELPERS ───────────────────────────────────────────────────
 
@@ -90,15 +121,16 @@ function isMeetingContext(text: string): boolean {
   ]);
 }
 
-/** Try to match a deal by name/account name mention */
-function matchDeal(
+// ── DEAL MATCHING (AMBIGUITY-SAFE) ──────────────────────────
+// Returns ALL candidates above minimum threshold, sorted by score desc.
+// The caller decides whether the top match is confident enough.
+
+function scoreDealCandidates(
   text: string,
   deals: DealWithAccount[],
-): { dealId: string; dealName: string; accountName: string | null } | null {
+): DealCandidate[] {
   const lower = normalize(text);
-
-  // Score each deal by how strongly it's referenced
-  let bestMatch: { dealId: string; dealName: string; accountName: string | null; score: number } | null = null;
+  const candidates: DealCandidate[] = [];
 
   for (const deal of deals) {
     let score = 0;
@@ -113,12 +145,12 @@ function matchDeal(
     if (accountNameLower && accountNameLower.length >= 3 && lower.includes(accountNameLower)) {
       score += 8;
     }
-    // Partial match — first significant word of deal name (>= 4 chars)
+    // Partial match — significant words of deal name (>= 4 chars)
     const dealWords = dealNameLower.split(/\s+/).filter(w => w.length >= 4);
     for (const word of dealWords) {
       if (lower.includes(word)) score += 3;
     }
-    // Partial match — first significant word of account name
+    // Partial match — significant words of account name
     if (accountNameLower) {
       const accountWords = accountNameLower.split(/\s+/).filter(w => w.length >= 4);
       for (const word of accountWords) {
@@ -126,71 +158,158 @@ function matchDeal(
       }
     }
 
-    if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-      bestMatch = {
+    if (score >= MIN_DEAL_MATCH_THRESHOLD) {
+      candidates.push({
         dealId: deal.id,
         dealName: deal.name,
         accountName: deal.accounts?.name ?? null,
         score,
+      });
+    }
+  }
+
+  // Sort by score descending
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
+}
+
+/** Determine the best deal match and confidence from scored candidates */
+function resolveDealMatch(candidates: DealCandidate[]): {
+  bestMatch: DealCandidate | null;
+  confidence: ConfidenceLevel;
+  ambiguityReason: string | null;
+} {
+  if (candidates.length === 0) {
+    return { bestMatch: null, confidence: 'low', ambiguityReason: null };
+  }
+
+  const best = candidates[0];
+
+  // Single candidate with strong score → high confidence
+  if (candidates.length === 1 && best.score >= HIGH_CONFIDENCE_DEAL_THRESHOLD) {
+    return { bestMatch: best, confidence: 'high', ambiguityReason: null };
+  }
+
+  // Multiple candidates: check the gap between #1 and #2
+  if (candidates.length > 1) {
+    const gap = best.score - candidates[1].score;
+    if (gap < AMBIGUOUS_DEAL_GAP) {
+      // Too close — ambiguous
+      return {
+        bestMatch: null,
+        confidence: 'low',
+        ambiguityReason: `Multiple deals match closely: ${candidates.slice(0, 3).map(c => `${c.dealName} (${c.score})`).join(', ')}`,
       };
     }
   }
 
-  // Require a minimum score of 3 (at least one significant word match)
-  if (bestMatch && bestMatch.score >= 3) {
-    return { dealId: bestMatch.dealId, dealName: bestMatch.dealName, accountName: bestMatch.accountName };
+  // Clear winner — check if score is high enough for auto-link
+  if (best.score >= HIGH_CONFIDENCE_DEAL_THRESHOLD) {
+    return { bestMatch: best, confidence: 'high', ambiguityReason: null };
   }
-  return null;
+
+  // Score is above minimum but below high confidence threshold
+  // Single weak match — still auto-link but mark as lower confidence
+  // (a single word match like "sales" shouldn't block the user)
+  return {
+    bestMatch: best,
+    confidence: best.score >= 6 ? 'high' : 'low',
+    ambiguityReason: best.score < 6 ? `Weak match: ${best.dealName} (score ${best.score})` : null,
+  };
 }
 
-/** Try to match an active/recent meeting */
-function matchMeeting(
+// ── MEETING MATCHING (AMBIGUITY-SAFE) ───────────────────────
+// Returns ALL candidates, never silently picks one from ambiguous set.
+
+function scoreMeetingCandidates(
   text: string,
   meetings: MeetingRow[],
-): { meetingId: string; meetingTitle: string; dealId: string | null } | null {
+): MeetingCandidate[] {
   const lower = normalize(text);
   const now = Date.now();
+  const candidates: MeetingCandidate[] = [];
 
-  // Priority 1: meeting in progress or just ended (< 2 hours ago)
-  const recentMeetings = meetings
-    .filter(m => {
-      const start = new Date(m.scheduled_at).getTime();
-      const end = start + 60 * 60 * 1000;
-      return now >= start && now <= end + 2 * 60 * 60 * 1000;
-    })
-    .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
-
-  // If meeting context language + recent meeting exists, high confidence
-  if (recentMeetings.length === 1) {
-    return {
-      meetingId: recentMeetings[0].id,
-      meetingTitle: recentMeetings[0].title,
-      dealId: recentMeetings[0].deal_id,
-    };
-  }
-
-  // Try title match
   for (const meeting of meetings) {
+    let score = 0;
+    const start = new Date(meeting.scheduled_at).getTime();
+    const end = start + 60 * 60 * 1000; // 1 hour assumed duration
+
+    // Time proximity scoring
+    if (now >= start && now <= end + 2 * 60 * 60 * 1000) {
+      // Meeting in progress or ended < 2 hours ago → strong signal
+      score += 8;
+    } else if (now >= start && now <= end + 4 * 60 * 60 * 1000) {
+      // Ended 2-4 hours ago → moderate signal
+      score += 4;
+    }
+
+    // Title word match
     const titleLower = normalize(meeting.title);
     const titleWords = titleLower.split(/\s+/).filter(w => w.length >= 4);
     for (const word of titleWords) {
-      if (lower.includes(word)) {
-        return {
-          meetingId: meeting.id,
-          meetingTitle: meeting.title,
-          dealId: meeting.deal_id,
-        };
-      }
+      if (lower.includes(word)) score += 5;
+    }
+
+    if (score > 0) {
+      candidates.push({
+        meetingId: meeting.id,
+        meetingTitle: meeting.title,
+        dealId: meeting.deal_id,
+        score,
+      });
     }
   }
 
-  // If meeting language but multiple recent meetings → ambiguous
-  if (recentMeetings.length > 1) {
-    return null; // Will trigger clarification
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
+}
+
+function resolveMeetingMatch(candidates: MeetingCandidate[]): {
+  bestMatch: MeetingCandidate | null;
+  confidence: ConfidenceLevel;
+  ambiguityReason: string | null;
+} {
+  if (candidates.length === 0) {
+    return { bestMatch: null, confidence: 'low', ambiguityReason: null };
   }
 
-  return null;
+  const best = candidates[0];
+
+  // Single candidate with strong score → high confidence
+  if (candidates.length === 1 && best.score >= 8) {
+    return { bestMatch: best, confidence: 'high', ambiguityReason: null };
+  }
+
+  // Multiple candidates: check the gap
+  if (candidates.length > 1) {
+    const gap = best.score - candidates[1].score;
+    if (gap < 3) {
+      return {
+        bestMatch: null,
+        confidence: 'low',
+        ambiguityReason: `Multiple meetings match: ${candidates.slice(0, 3).map(c => c.meetingTitle).join(', ')}`,
+      };
+    }
+  }
+
+  // Clear winner with strong score
+  if (best.score >= 8) {
+    return { bestMatch: best, confidence: 'high', ambiguityReason: null };
+  }
+
+  // Moderate score — auto-link but not fully confident
+  if (best.score >= 5) {
+    return { bestMatch: best, confidence: 'high', ambiguityReason: null };
+  }
+
+  // Weak match
+  return {
+    bestMatch: best,
+    confidence: 'low',
+    ambiguityReason: `Weak meeting match: ${best.meetingTitle} (score ${best.score})`,
+  };
 }
+
 
 /** Try to extract a company/entity name from new deal text */
 function extractEntityName(text: string): string | null {
@@ -260,154 +379,166 @@ export function classifyMessage(
 ): ClassificationResult {
   const trimmed = text.trim();
 
-  // ── BUCKET 1: PURE QUESTION (no save) ─────────────────────
-  if (isQuestion(trimmed) && !isMeetingContext(trimmed)) {
-    // Check if the question references a specific deal for context
-    const dealMatch = matchDeal(trimmed, deals);
+  // Score all candidates upfront — we'll attach them to every result
+  const dealCandidates = scoreDealCandidates(trimmed, deals);
+  const meetingCandidates = scoreMeetingCandidates(trimmed, meetings);
+  const dealResolution = resolveDealMatch(dealCandidates);
+  const meetingResolution = resolveMeetingMatch(meetingCandidates);
+
+  // Helper to build a result with candidates always attached
+  function makeResult(
+    overrides: Partial<ClassificationResult> & Pick<ClassificationResult, 'bucket' | 'confidence'>,
+  ): ClassificationResult {
     return {
-      bucket: 'question',
-      confidence: 'high',
-      matchedDealId: dealMatch?.dealId ?? null,
-      matchedDealName: dealMatch?.dealName ?? null,
+      matchedDealId: null,
+      matchedDealName: null,
       matchedMeetingId: null,
       matchedMeetingTitle: null,
       clarificationQuestion: null,
       extractedEntityName: null,
+      ambiguityReason: null,
+      allDealCandidates: dealCandidates,
+      allMeetingCandidates: meetingCandidates,
+      ...overrides,
     };
+  }
+
+  // ── BUCKET 1: PURE QUESTION (no save) ─────────────────────
+  if (isQuestion(trimmed) && !isMeetingContext(trimmed)) {
+    return makeResult({
+      bucket: 'question',
+      confidence: 'high',
+      matchedDealId: dealResolution.bestMatch?.dealId ?? null,
+      matchedDealName: dealResolution.bestMatch?.dealName ?? null,
+    });
   }
 
   // ── BUCKET 2: EMAIL / DRAFT INTENT ────────────────────────
   if (isEmailIntent(trimmed)) {
-    const dealMatch = matchDeal(trimmed, deals);
-    return {
+    const hasDeal = dealResolution.bestMatch && dealResolution.confidence === 'high';
+    return makeResult({
       bucket: 'email_draft',
-      confidence: dealMatch ? 'high' : 'low',
-      matchedDealId: dealMatch?.dealId ?? null,
-      matchedDealName: dealMatch?.dealName ?? null,
-      matchedMeetingId: null,
-      matchedMeetingTitle: null,
-      clarificationQuestion: dealMatch ? null : 'Which deal is this email about?',
-      extractedEntityName: null,
-    };
+      confidence: hasDeal ? 'high' : 'low',
+      matchedDealId: hasDeal ? dealResolution.bestMatch!.dealId : null,
+      matchedDealName: hasDeal ? dealResolution.bestMatch!.dealName : null,
+      clarificationQuestion: hasDeal ? null : 'Which deal is this email about?',
+      ambiguityReason: dealResolution.ambiguityReason,
+    });
   }
 
   // ── BUCKET 3: NEW DEAL / NEW OPPORTUNITY ──────────────────
   if (isNewDealSignal(trimmed)) {
     const entityName = extractEntityName(trimmed);
-    return {
+    return makeResult({
       bucket: 'new_deal',
       confidence: 'high',
-      matchedDealId: null,
-      matchedDealName: null,
-      matchedMeetingId: null,
-      matchedMeetingTitle: null,
-      clarificationQuestion: null,
       extractedEntityName: entityName,
-    };
+    });
   }
 
   // ── BUCKET 4: MEETING CONTEXT ─────────────────────────────
   if (isMeetingContext(trimmed)) {
-    const meetingMatch = matchMeeting(trimmed, meetings);
-    const dealMatch = matchDeal(trimmed, deals);
+    const hasMeeting = meetingResolution.bestMatch && meetingResolution.confidence === 'high';
+    const hasDeal = dealResolution.bestMatch && dealResolution.confidence === 'high';
 
-    // If we found a meeting, use it
-    if (meetingMatch) {
-      return {
+    if (hasMeeting) {
+      // Strong meeting match — use its deal linkage, or fall back to deal match
+      return makeResult({
         bucket: 'meeting_context',
         confidence: 'high',
-        matchedDealId: meetingMatch.dealId ?? dealMatch?.dealId ?? null,
-        matchedDealName: dealMatch?.dealName ?? null,
-        matchedMeetingId: meetingMatch.meetingId,
-        matchedMeetingTitle: meetingMatch.meetingTitle,
-        clarificationQuestion: null,
-        extractedEntityName: null,
-      };
+        matchedDealId: meetingResolution.bestMatch!.dealId ?? dealResolution.bestMatch?.dealId ?? null,
+        matchedDealName: hasDeal ? dealResolution.bestMatch!.dealName : null,
+        matchedMeetingId: meetingResolution.bestMatch!.meetingId,
+        matchedMeetingTitle: meetingResolution.bestMatch!.meetingTitle,
+      });
     }
 
-    // Meeting language but no clear meeting match — try deal
-    if (dealMatch) {
-      return {
+    // No meeting match but strong deal match — still useful
+    if (hasDeal) {
+      return makeResult({
         bucket: 'meeting_context',
         confidence: 'high',
-        matchedDealId: dealMatch.dealId,
-        matchedDealName: dealMatch.dealName,
-        matchedMeetingId: null,
-        matchedMeetingTitle: null,
-        clarificationQuestion: null,
-        extractedEntityName: null,
-      };
+        matchedDealId: dealResolution.bestMatch!.dealId,
+        matchedDealName: dealResolution.bestMatch!.dealName,
+        ambiguityReason: meetingResolution.ambiguityReason,
+      });
     }
 
-    // Meeting language, no deal or meeting match
+    // Meeting language, no confident match for deal or meeting
     if (deals.length > 0) {
-      return {
+      // Build a richer clarification question if we have candidates
+      const ambiguityReasons: string[] = [];
+      if (meetingResolution.ambiguityReason) ambiguityReasons.push(meetingResolution.ambiguityReason);
+      if (dealResolution.ambiguityReason) ambiguityReasons.push(dealResolution.ambiguityReason);
+
+      return makeResult({
         bucket: 'meeting_context',
         confidence: 'low',
-        matchedDealId: null,
-        matchedDealName: null,
-        matchedMeetingId: null,
-        matchedMeetingTitle: null,
+        // If there's a weak deal match, still include it for context
+        matchedDealId: dealResolution.bestMatch?.dealId ?? null,
+        matchedDealName: dealResolution.bestMatch?.dealName ?? null,
+        matchedMeetingId: meetingResolution.bestMatch?.meetingId ?? null,
+        matchedMeetingTitle: meetingResolution.bestMatch?.meetingTitle ?? null,
         clarificationQuestion: 'Which deal is this about?',
-        extractedEntityName: null,
-      };
+        ambiguityReason: ambiguityReasons.join('; ') || null,
+      });
     }
 
     // No deals at all — save as general intel
-    return {
+    return makeResult({
       bucket: 'general_intel',
       confidence: 'high',
-      matchedDealId: null,
-      matchedDealName: null,
-      matchedMeetingId: null,
-      matchedMeetingTitle: null,
-      clarificationQuestion: null,
-      extractedEntityName: null,
-    };
+    });
   }
 
   // ── BUCKET 5: EXISTING DEAL UPDATE ────────────────────────
-  const dealMatch = matchDeal(trimmed, deals);
-  if (dealMatch) {
-    return {
+  if (dealResolution.bestMatch) {
+    if (dealResolution.confidence === 'high') {
+      return makeResult({
+        bucket: 'existing_deal_update',
+        confidence: 'high',
+        matchedDealId: dealResolution.bestMatch.dealId,
+        matchedDealName: dealResolution.bestMatch.dealName,
+        ambiguityReason: dealResolution.ambiguityReason,
+      });
+    }
+
+    // Low confidence deal match — don't silently auto-link
+    // Ask for clarification if there are multiple candidates
+    if (dealCandidates.length > 1) {
+      return makeResult({
+        bucket: 'existing_deal_update',
+        confidence: 'low',
+        matchedDealId: null,
+        matchedDealName: null,
+        clarificationQuestion: 'Which deal is this about?',
+        ambiguityReason: dealResolution.ambiguityReason,
+      });
+    }
+
+    // Single weak match — still auto-link (one word match shouldn't block)
+    return makeResult({
       bucket: 'existing_deal_update',
       confidence: 'high',
-      matchedDealId: dealMatch.dealId,
-      matchedDealName: dealMatch.dealName,
-      matchedMeetingId: null,
-      matchedMeetingTitle: null,
-      clarificationQuestion: null,
-      extractedEntityName: null,
-    };
+      matchedDealId: dealResolution.bestMatch.dealId,
+      matchedDealName: dealResolution.bestMatch.dealName,
+      ambiguityReason: dealResolution.ambiguityReason,
+    });
   }
 
   // ── BUCKET 6: GENERAL INTEL (no clear deal match) ─────────
-  // If there are active deals, we should ask whether to link
-  // But only if the message seems substantial enough (> 15 chars)
   if (trimmed.length > 15 && deals.length > 0) {
-    return {
+    return makeResult({
       bucket: 'general_intel',
       confidence: 'high',
-      matchedDealId: null,
-      matchedDealName: null,
-      matchedMeetingId: null,
-      matchedMeetingTitle: null,
-      clarificationQuestion: null,
-      extractedEntityName: null,
-    };
+    });
   }
 
   // Short or ambiguous — treat as general intel, no clarification needed
-  return {
+  return makeResult({
     bucket: 'general_intel',
     confidence: 'high',
-    matchedDealId: null,
-    matchedDealName: null,
-    matchedMeetingId: null,
-    matchedMeetingTitle: null,
-    clarificationQuestion: null,
-    extractedEntityName: null,
-  };
+  });
 }
 
 // ── ACKNOWLEDGMENT MESSAGES ──────────────────────────────────

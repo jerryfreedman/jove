@@ -122,6 +122,8 @@ export type InteractionIntentType =
 export type InteractionRoutingMetadata = {
   /** Deal IDs that were candidate matches at classification time */
   matchedDealCandidates?: Array<{ dealId: string; dealName: string; score?: number }>;
+  /** Meeting IDs that were candidate matches at classification time */
+  matchedMeetingCandidates?: Array<{ meetingId: string; meetingTitle: string; score?: number }>;
   /** Contact IDs that were candidate matches */
   matchedContactCandidates?: Array<{ contactId: string; contactName: string }>;
   /** Classifier bucket that was selected */
