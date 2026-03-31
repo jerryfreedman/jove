@@ -1450,64 +1450,6 @@ export default function BriefingPage() {
           </div>
         )}
 
-{/* ── INTELLIGENCE STATS ────────────────────── */}
-        <div style={{
-          display:      'flex',
-          border:       '0.5px solid rgba(200,160,80,0.2)',
-          borderRadius: 14,
-          overflow:     'hidden',
-          marginBottom: 20,
-        }}>
-          {[
-            {
-              n:     todaySignals.length,
-              label: 'New Signals',
-              color: todaySignals.length > 0 ? COLORS.amber : undefined,
-            },
-            {
-              n:     avgIntelScore,
-              label: 'Intel Score',
-              color: undefined,
-            },
-            {
-              n:     `↑${streak.currentStreak}`,
-              label: 'Streak',
-              color: COLORS.green,
-            },
-          ].map((stat, i) => (
-            <div
-              key={stat.label}
-              style={{
-                flex:        1,
-                padding:     '14px 0',
-                textAlign:   'center',
-                borderRight: i < 2
-                  ? '0.5px solid rgba(200,160,80,0.15)'
-                  : 'none',
-                background:  '#FFFFFF',
-              }}
-            >
-              <div style={{
-                fontSize:   22,
-                fontWeight: 300,
-                color:      stat.color ?? COLORS.amber,
-              }}>
-                {stat.n}
-              </div>
-              <div style={{
-                fontSize:      9,
-                fontWeight:    600,
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-                color:         'rgba(26,20,16,0.28)',
-                marginTop:     3,
-              }}>
-                {stat.label}
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* ── CAPTURE SHORTCUT ─────────────────────── */}
         <div
           onClick={() => {
