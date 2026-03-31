@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
       const deal = dealRes.data;
       const account = deal.accounts as { name: string; contacts?: Array<{
         name: string; title: string | null; is_champion: boolean;
+        relationship_summary: string | null;
       }> } | null;
       const contacts = (account?.contacts ?? []);
       const interactions = interactionsRes.data ?? [];
@@ -90,9 +91,13 @@ export async function POST(request: NextRequest) {
       );
 
       const contactsText = contacts.length > 0
-        ? contacts.map(c =>
-            `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${c.is_champion ? 'yes' : 'no'}`
-          ).join('\n')
+        ? contacts.map(c => {
+            let line = `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${c.is_champion ? 'yes' : 'no'}`;
+            if (c.relationship_summary) {
+              line += `\n  Relationship: ${c.relationship_summary}`;
+            }
+            return line;
+          }).join('\n')
         : 'No contacts logged yet.';
 
       const interactionsText = interactions.length > 0

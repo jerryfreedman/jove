@@ -14,11 +14,26 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createServerSupabaseClient();
-    const { data: kbRows } = await supabase
-      .from('knowledge_base')
-      .select('product_name, description, key_features')
-      .eq('user_id', userId ?? '')
-      .order('created_at', { ascending: true });
+    const [{ data: kbRows }, { data: voiceData }] = await Promise.all([
+      supabase
+        .from('knowledge_base')
+        .select('product_name, description, key_features')
+        .eq('user_id', userId ?? '')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('voice_profile')
+        .select('opening_style, closing_style, formality_level, avg_length, common_phrases')
+        .eq('user_id', userId ?? '')
+        .single(),
+    ]);
+
+    const voiceProfile = voiceData as {
+      opening_style: string | null;
+      closing_style: string | null;
+      formality_level: string | null;
+      avg_length: string | null;
+      common_phrases: string[] | null;
+    } | null;
 
     const kbText = kbRows && kbRows.length > 0
       ? kbRows.map((kb: { product_name: string; description: string; key_features: string[] | null }) => {
@@ -29,6 +44,20 @@ export async function POST(request: NextRequest) {
           return parts.join(' | ');
         }).join('\n')
       : 'Not specified';
+
+    let voiceSection = '';
+    if (voiceProfile?.opening_style) {
+      const parts = [
+        `Opening style: ${voiceProfile.opening_style}`,
+        `Closing style: ${voiceProfile.closing_style ?? 'varies'}`,
+        `Formality: ${voiceProfile.formality_level ?? 'moderate'}`,
+        `Tone length: ${voiceProfile.avg_length ?? 'moderate'}`,
+      ];
+      if (voiceProfile.common_phrases?.length) {
+        parts.push(`Common phrases: ${voiceProfile.common_phrases.join(', ')}`);
+      }
+      voiceSection = `\n\nWRITING STYLE (match this voice):\n${parts.join('\n')}`;
+    }
 
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
@@ -46,7 +75,7 @@ Products the user sells:
 ${kbText}
 
 Reference specific product capabilities naturally where relevant.
-Never mention products that aren't relevant to the email context.`,
+Never mention products that aren't relevant to the email context.${voiceSection}`,
       messages: [
         {
           role: 'user',

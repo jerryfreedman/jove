@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
         }
       );
 
-      // Fetch deal context and voice profile in parallel
-      const [dealRes, interactionsRes, voiceRes, kbRes] = await Promise.all([
+      // Fetch deal context, voice profile, and signals in parallel
+      const [dealRes, interactionsRes, voiceRes, kbRes, signalsRes] = await Promise.all([
         supabase
           .from('deals')
           .select('*, accounts(*, contacts(*))')
@@ -73,6 +73,14 @@ export async function POST(request: NextRequest) {
           .select('product_name, description, key_features, target_use_cases')
           .eq('user_id', userId)
           .order('created_at', { ascending: true }),
+        supabase
+          .from('signals')
+          .select('signal_type, content, confidence_score, created_at')
+          .eq('deal_id', dealId)
+          .eq('user_id', userId)
+          .gte('confidence_score', 0.6)
+          .order('created_at', { ascending: false })
+          .limit(15),
       ]);
 
       const deal = dealRes.data;
@@ -83,6 +91,9 @@ export async function POST(request: NextRequest) {
       const contacts = (account?.contacts ?? []);
       const interactions = interactionsRes.data ?? [];
       const voice = voiceRes.data;
+      const signals = (signalsRes.data ?? []).filter(
+        (s: { confidence_score: number }) => s.confidence_score >= 0.6
+      );
 
       const days = deal ? Math.floor(
         (Date.now() - new Date(deal.last_activity_at).getTime()) /
@@ -109,6 +120,12 @@ export async function POST(request: NextRequest) {
       const voiceText = voice?.opening_style
         ? `Opening: ${voice.opening_style}. Closing: ${voice.closing_style ?? 'varies'}. Formality: ${voice.formality_level ?? 'moderate'}.`
         : 'No voice profile yet — learning from your emails.';
+
+      const signalsText = signals.length > 0
+        ? signals.map((s: { signal_type: string; content: string; confidence_score: number }) =>
+            `- ${s.signal_type}: ${s.content} (${s.confidence_score})`
+          ).join('\n')
+        : '';
 
       const kbRows = kbRes.data ?? [];
       const kbText = kbRows.length > 0
@@ -148,7 +165,7 @@ ${contactsText}
 
 RECENT INTERACTIONS:
 ${interactionsText}
-
+${signalsText ? `\nDEAL INTELLIGENCE (extracted signals):\n${signalsText}\n` : ''}
 VOICE PROFILE:
 ${voiceText}
 
