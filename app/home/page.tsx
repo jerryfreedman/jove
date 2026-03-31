@@ -12,6 +12,7 @@ import {
   triggerExtraction,
   updateStreak,
 } from '@/lib/capture-utils';
+import { persistChatMessage, generateThreadId } from '@/lib/chat-persistence';
 import {
   getGreeting,
   getSceneForHour,
@@ -176,6 +177,9 @@ export default function HomePage() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatIdCounter = useRef(0);
   const chatSaveStateRef = useRef<ChatSaveState>({ hasSaved: false });
+  // ── CHAT PERSISTENCE: thread ID for durable message storage ──
+  const chatThreadIdRef = useRef<string>(generateThreadId('home_chat'));
+
   // Pending message waiting for clarification resolution
   const pendingClarificationRef = useRef<{
     messageId: string;
@@ -219,6 +223,41 @@ export default function HomePage() {
     }, 340);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── CHAT PERSISTENCE: helper to add + persist assistant message ──
+  const addAndPersistAssistantMessage = useCallback((
+    content: string,
+    opts?: {
+      uiMode?: ChatMessage['uiMode'];
+      pendingMessageId?: string;
+      saved?: boolean;
+      dealId?: string | null;
+    },
+  ) => {
+    const msgId = `msg-${++chatIdCounter.current}`;
+    const msg: ChatMessage = {
+      id: msgId,
+      role: 'assistant',
+      content,
+      ...(opts?.uiMode && { uiMode: opts.uiMode }),
+      ...(opts?.pendingMessageId && { pendingMessageId: opts.pendingMessageId }),
+      ...(opts?.saved && { saved: opts.saved }),
+    };
+    setChatMessages(prev => [...prev, msg]);
+
+    // Persist durably (fire-and-forget)
+    if (data?.user) {
+      persistChatMessage(supabase, {
+        userId: data.user.id,
+        threadId: chatThreadIdRef.current,
+        role: 'assistant',
+        sourceSurface: 'home_chat',
+        messageText: content,
+        dealId: opts?.dealId ?? null,
+      });
+    }
+    return msgId;
+  }, [data, supabase]);
 
   // ── CHAT INTELLIGENCE: save interaction helper ──────────────
   const chatSaveInteraction = useCallback(async (
@@ -302,6 +341,18 @@ export default function HomePage() {
           m.id === assistantMsgId ? { ...m, content: current } : m
         ));
       }
+
+      // ── Persist final assistant reply durably (fire-and-forget) ──
+      if (accumulated.trim()) {
+        persistChatMessage(supabase, {
+          userId: data.user.id,
+          threadId: chatThreadIdRef.current,
+          role: 'assistant',
+          sourceSurface: 'home_chat',
+          messageText: accumulated,
+          dealId: dealId ?? null,
+        });
+      }
     } catch {
       setChatMessages(prev => prev.map(m =>
         m.id === assistantMsgId
@@ -311,7 +362,7 @@ export default function HomePage() {
     } finally {
       setChatStreaming(false);
     }
-  }, [data]);
+  }, [data, supabase]);
 
   // ── CHAT INTELLIGENCE: handle new deal creation inline ──────
   const handleNewDealCreate = useCallback(async () => {
@@ -366,25 +417,20 @@ export default function HomePage() {
       await chatSaveInteraction(originalText, newDeal.id, 'note');
 
       // Acknowledge in chat
-      setChatMessages(prev => [...prev, {
-        id: `msg-${++chatIdCounter.current}`,
-        role: 'assistant',
-        content: `Created ${dealName.trim()} — saved your intel to it.`,
-      }]);
+      addAndPersistAssistantMessage(
+        `Created ${dealName.trim()} — saved your intel to it.`,
+        { dealId: newDeal.id },
+      );
 
       setNewDealForm(null);
       setHomeRefreshKey(k => k + 1);
     } catch (err) {
       console.error('New deal creation error:', err);
-      setChatMessages(prev => [...prev, {
-        id: `msg-${++chatIdCounter.current}`,
-        role: 'assistant',
-        content: "Couldn\u2019t create that \u2014 try again?",
-      }]);
+      addAndPersistAssistantMessage("Couldn\u2019t create that \u2014 try again?");
     } finally {
       setChatProcessing(false);
     }
-  }, [newDealForm, data, supabase, chatSaveInteraction]);
+  }, [newDealForm, data, supabase, chatSaveInteraction, addAndPersistAssistantMessage]);
 
   // ── CHAT INTELLIGENCE: handle clarification response ────────
   const handleClarificationResponse = useCallback(async (selectedDealId: string | null) => {
@@ -405,22 +451,13 @@ export default function HomePage() {
         ? getAcknowledgment(pending.classification.bucket, dealName, null)
         : 'Saved.';
 
-      setChatMessages(prev => [...prev, {
-        id: `msg-${++chatIdCounter.current}`,
-        role: 'assistant',
-        content: ack,
-        saved: true,
-      }]);
+      addAndPersistAssistantMessage(ack, { saved: true, dealId: selectedDealId });
     } catch {
-      setChatMessages(prev => [...prev, {
-        id: `msg-${++chatIdCounter.current}`,
-        role: 'assistant',
-        content: 'Didn\u2019t save that \u2014 try again?',
-      }]);
+      addAndPersistAssistantMessage('Didn\u2019t save that \u2014 try again?');
     } finally {
       setChatProcessing(false);
     }
-  }, [data, chatSaveInteraction]);
+  }, [data, chatSaveInteraction, addAndPersistAssistantMessage]);
 
   // ── MAIN CHAT SUBMIT HANDLER ────────────────────────────────
   const handleChatSubmit = useCallback(async () => {
@@ -437,6 +474,15 @@ export default function HomePage() {
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput('');
     setChatProcessing(true);
+
+    // ── Persist user message durably (fire-and-forget) ──
+    persistChatMessage(supabase, {
+      userId: data.user.id,
+      threadId: chatThreadIdRef.current,
+      role: 'user',
+      sourceSurface: 'home_chat',
+      messageText: text,
+    });
 
     // ── Drop any pending clarification state from a previous message ──
     // If the user sends a new message while a clarification is pending,
@@ -509,13 +555,10 @@ export default function HomePage() {
               originalText: text,
               classification,
             };
-            setChatMessages(prev => [...prev, {
-              id: `msg-${++chatIdCounter.current}`,
-              role: 'assistant',
-              content: classification.clarificationQuestion ?? 'Which deal is this about?',
-              uiMode: 'deal_picker',
-              pendingMessageId: userMsgId,
-            }]);
+            addAndPersistAssistantMessage(
+              classification.clarificationQuestion ?? 'Which deal is this about?',
+              { uiMode: 'deal_picker', pendingMessageId: userMsgId },
+            );
           } else {
             // For now, email drafts save as interaction + respond
             await chatSaveInteraction(text, classification.matchedDealId, 'note');
@@ -530,13 +573,10 @@ export default function HomePage() {
 
         // ── NEW DEAL PATH (Phase 4) ─────────────────────────
         case 'new_deal': {
-          setChatMessages(prev => [...prev, {
-            id: `msg-${++chatIdCounter.current}`,
-            role: 'assistant',
-            content: 'Should I create a new deal for this?',
-            uiMode: 'new_deal_confirm',
-            pendingMessageId: userMsgId,
-          }]);
+          addAndPersistAssistantMessage(
+            'Should I create a new deal for this?',
+            { uiMode: 'new_deal_confirm', pendingMessageId: userMsgId },
+          );
           // Pre-populate form with extracted entity name
           setNewDealForm({
             dealName: classification.extractedEntityName ?? '',
@@ -556,12 +596,10 @@ export default function HomePage() {
             classification.matchedDealName,
             null,
           );
-          setChatMessages(prev => [...prev, {
-            id: `msg-${++chatIdCounter.current}`,
-            role: 'assistant',
-            content: ack,
+          addAndPersistAssistantMessage(ack, {
             saved: true,
-          }]);
+            dealId: classification.matchedDealId,
+          });
           break;
         }
 
@@ -573,13 +611,10 @@ export default function HomePage() {
               originalText: text,
               classification,
             };
-            setChatMessages(prev => [...prev, {
-              id: `msg-${++chatIdCounter.current}`,
-              role: 'assistant',
-              content: classification.clarificationQuestion ?? 'Which deal is this about?',
-              uiMode: 'deal_picker',
-              pendingMessageId: userMsgId,
-            }]);
+            addAndPersistAssistantMessage(
+              classification.clarificationQuestion ?? 'Which deal is this about?',
+              { uiMode: 'deal_picker', pendingMessageId: userMsgId },
+            );
           } else {
             await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log');
             const ack = getAcknowledgment(
@@ -587,12 +622,10 @@ export default function HomePage() {
               classification.matchedDealName,
               classification.matchedMeetingTitle,
             );
-            setChatMessages(prev => [...prev, {
-              id: `msg-${++chatIdCounter.current}`,
-              role: 'assistant',
-              content: ack,
+            addAndPersistAssistantMessage(ack, {
               saved: true,
-            }]);
+              dealId: classification.matchedDealId,
+            });
           }
           break;
         }
@@ -600,26 +633,20 @@ export default function HomePage() {
         // ── GENERAL INTEL PATH (Phase 5) ────────────────────
         case 'general_intel': {
           await chatSaveInteraction(text, null, 'note');
-          setChatMessages(prev => [...prev, {
-            id: `msg-${++chatIdCounter.current}`,
-            role: 'assistant',
-            content: getAcknowledgment('general_intel', null, null),
-            saved: true,
-          }]);
+          addAndPersistAssistantMessage(
+            getAcknowledgment('general_intel', null, null),
+            { saved: true },
+          );
           break;
         }
       }
     } catch (err) {
       console.error('Chat submit error:', err);
-      setChatMessages(prev => [...prev, {
-        id: `msg-${++chatIdCounter.current}`,
-        role: 'assistant',
-        content: "Didn\u2019t catch that \u2014 try again?",
-      }]);
+      addAndPersistAssistantMessage("Didn\u2019t catch that \u2014 try again?");
     } finally {
       setChatProcessing(false);
     }
-  }, [chatInput, chatProcessing, chatStreaming, data, chatMessages, chatSaveInteraction, streamAssistantResponse]);
+  }, [chatInput, chatProcessing, chatStreaming, data, chatMessages, chatSaveInteraction, streamAssistantResponse, addAndPersistAssistantMessage]);
 
   // Auto-scroll chat to bottom on new messages
   useEffect(() => {

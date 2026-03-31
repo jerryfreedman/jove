@@ -209,6 +209,23 @@ export type StreakLogRow = {
   created_at: string;
 };
 
+export type ChatMessageRole = 'user' | 'assistant';
+export type ChatSourceSurface = 'home_chat' | 'deal_chat';
+
+export type ChatMessageRow = {
+  id: string;
+  user_id: string;
+  thread_id: string;
+  role: ChatMessageRole;
+  source_surface: ChatSourceSurface;
+  message_text: string;
+  deal_id: string | null;
+  meeting_id: string | null;
+  contact_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
 export type DealWithAccount = DealRow & {
   accounts: AccountRow;
 };

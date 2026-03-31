@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS, STAGE_STYLES } from '@/lib/design-system';
 import type { DealRow, AccountRow } from '@/lib/types';
 import { renderMarkdown } from '@/lib/renderMarkdown';
+import { persistChatMessage, generateThreadId } from '@/lib/chat-persistence';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 type Message = {
@@ -70,6 +71,9 @@ export default function DealChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const userIdRef = useRef<string | null>(null);
+
+  // ── CHAT PERSISTENCE: thread ID for durable message storage ──
+  const chatThreadIdRef = useRef<string>(generateThreadId('deal_chat'));
 
   useEffect(() => {
     document.body.style.backgroundColor = '#0D0F12';
@@ -213,6 +217,18 @@ export default function DealChatPage() {
     setInput('');
     setStreaming(true);
 
+    // ── Persist user message durably (fire-and-forget) ──
+    if (userId) {
+      persistChatMessage(supabase, {
+        userId,
+        threadId: chatThreadIdRef.current,
+        role: 'user',
+        sourceSurface: 'deal_chat',
+        messageText: input.trim(),
+        dealId,
+      });
+    }
+
     const assistantId = generateId();
     let fullResponse = '';
 
@@ -267,6 +283,18 @@ export default function DealChatPage() {
       }
 
       setStreaming(false);
+
+      // ── Persist final assistant reply durably (fire-and-forget) ──
+      if (fullResponse.trim() && userId) {
+        persistChatMessage(supabase, {
+          userId,
+          threadId: chatThreadIdRef.current,
+          role: 'assistant',
+          sourceSurface: 'deal_chat',
+          messageText: fullResponse,
+          dealId,
+        });
+      }
 
       // Fire update detection in background — never awaited
       detectUpdates(userMessage.content, assistantId);
