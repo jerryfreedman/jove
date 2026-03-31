@@ -253,20 +253,8 @@ export default function HomePage() {
   const birdHitboxRef = useRef<HTMLDivElement>(null);
   const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Session memory: promptKeys already answered via bird this session.
-  // Primary logic: gap resolved in data → question disappears naturally.
-  // Safety net: answered this session → skip even if gap still shows in data.
-  const birdAnsweredRef = useRef<Set<string>>((() => {
-    try {
-      const stored = sessionStorage.getItem('jove_bird_answered');
-      if (stored) {
-        return new Set<string>(JSON.parse(stored) as string[]);
-      }
-    } catch { /* corrupt data — start fresh */ }
-    return new Set<string>();
-  })());
-  // Counter to force birdQuestion useMemo to recompute after a submit
-  // (refs alone don't trigger re-render, so useMemo wouldn't see the ref change).
+  // Counter to force birdQuestion useMemo to recompute after a bird submit.
+  // Actual persistence uses localStorage keys: curiosity_asked_{targetId}
   const [birdAnsweredCount, setBirdAnsweredCount] = useState(0);
 
   // ── DO THIS FIRST STATE ────────────────────────────────────
@@ -842,119 +830,141 @@ export default function HomePage() {
     return null;
   }, [data]);
 
-  // ── BIRD QUESTION GENERATION ────────────────────────────
-  // Priority hierarchy targets the gap whose answer compounds the most:
-  //   1. Future meeting intent  → shapes prep brief, smart questions, draft emails
-  //   2. Post-meeting debrief   → highest signal density while memory is fresh
-  //   3. Stale deal gap-fill    → targets specific missing signal (champion > next step > budget)
-  //   4. Open fallback          → captures ideas, early-stage thinking
-  const birdQuestion = useMemo(() => {
-    if (!data) return { text: "What's on your mind?", dealId: null as string | null, promptKey: `fallback:${new Date().toDateString()}` };
+  // ── BIRD QUESTION GENERATION (SYSTEM CURIOSITY) ─────────
+  // The bird is a delivery surface for system curiosity.
+  // ONE question at a time. Deterministic. No randomness. No fallback.
+  // Priority:
+  //   1. Upcoming meeting with weak context
+  //   2. In-progress meeting needing context
+  //   3. Recently completed meeting needing debrief
+  //   4. Active deal with no signals OR stale (>14 days no activity)
+  //   5. null → bird remains passive
+  const birdQuestion = useMemo((): {
+    text: string;
+    dealId: string | null;
+    meetingId: string | null;
+    targetId: string;
+  } | null => {
+    if (!data) return null;
 
-    const answered = birdAnsweredRef.current;
-    const now = new Date();
-    const twoDaysOut = new Date(now);
-    twoDaysOut.setDate(twoDaysOut.getDate() + 2);
-    twoDaysOut.setHours(0, 0, 0, 0);
+    const nowMs = Date.now();
+    const todayStr = new Date().toDateString();
 
-    // ── P1: FUTURE MEETING INTENT ─────────────────────────
-    // Upcoming meeting in next 48h — ask what they want from it.
-    // This answer directly enriches the prep brief and draft artifacts.
-    const upcoming = data.meetings.filter(m => {
-      const mt = new Date(m.scheduled_at);
-      return mt > now && mt < twoDaysOut;
-    });
+    // Helper: already asked on any surface (bird or briefing)
+    const isAsked = (id: string) =>
+      localStorage.getItem(`curiosity_asked_${id}`) === 'true' ||
+      localStorage.getItem(`question_answered_${id}`) === 'true';
+
+    // Helper: weak context — same definition as briefing page
+    const hasWeakContext = (meeting: MeetingRow): boolean => {
+      if (!meeting.deal_id) return true;
+      const dealSignals = data.signals.filter(s => s.deal_id === meeting.deal_id);
+      return dealSignals.length === 0;
+    };
+
+    // ── P1: UPCOMING MEETING WITH WEAK CONTEXT ────────────
+    const upcoming = data.meetings
+      .filter(m => {
+        const mt = new Date(m.scheduled_at);
+        return mt.getTime() > nowMs && mt.toDateString() === todayStr;
+      })
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
 
     for (const meeting of upcoming) {
-      const promptKey = `meeting_goal:${meeting.id}`;
-      if (answered.has(promptKey)) continue;
-      const text = `What's your goal for ${meeting.title}?`;
-      const dealId = meeting.deal_id ?? null;
-      return { text, dealId, promptKey };
+      if (isAsked(meeting.id)) continue;
+      if (!hasWeakContext(meeting)) continue;
+
+      if (!meeting.attendees) {
+        return {
+          text: "Who's joining this call?",
+          dealId: meeting.deal_id ?? null,
+          meetingId: meeting.id,
+          targetId: meeting.id,
+        };
+      }
+      return {
+        text: "What's the goal for this meeting?",
+        dealId: meeting.deal_id ?? null,
+        meetingId: meeting.id,
+        targetId: meeting.id,
+      };
     }
 
-    // ── P2: POST-MEETING DEBRIEF ──────────────────────────
-    // Meeting ended in last 2 hours, no debrief yet — fresh recall = richest extraction.
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
-    const recentUnDebriefed = data.meetings.filter(m => {
-      const mt = new Date(m.scheduled_at);
-      if (mt >= now || mt <= twoHoursAgo || m.debrief_completed) return false;
-      // Respect cross-surface acknowledgment
-      if (localStorage.getItem(`meeting_prompt_ack_${m.id}`)) return false;
-      return true;
-    });
-
-    for (const meeting of recentUnDebriefed) {
-      const promptKey = `meeting_debrief:${meeting.id}`;
-      if (answered.has(promptKey)) continue;
-      const text = `How did ${meeting.title} go?`;
-      const dealId = meeting.deal_id ?? null;
-      return { text, dealId, promptKey };
+    // ── P2: IN-PROGRESS MEETING NEEDING CONTEXT ──────────
+    for (const meeting of data.meetings) {
+      const start = new Date(meeting.scheduled_at).getTime();
+      const end = start + 60 * 60 * 1000;
+      if (nowMs >= start && nowMs <= end) {
+        if (isAsked(meeting.id)) continue;
+        return {
+          text: "Anything important happening right now?",
+          dealId: meeting.deal_id ?? null,
+          meetingId: meeting.id,
+          targetId: meeting.id,
+        };
+      }
     }
 
-    // ── P3: STALE DEAL GAP-FILL ──────────────────────────
-    // Walk deals from stalest to freshest, skip already-answered, ask about first gap.
-    const sortedDeals = [...data.allDeals].sort(
-      (a, b) => new Date(a.last_activity_at).getTime() - new Date(b.last_activity_at).getTime(),
-    );
+    // ── P3: RECENTLY COMPLETED MEETING NEEDING DEBRIEF ───
+    const twoHoursAgo = nowMs - 2 * 60 * 60 * 1000;
+    const recentCompleted = data.meetings
+      .filter(m => {
+        const start = new Date(m.scheduled_at).getTime();
+        const end = start + 60 * 60 * 1000;
+        if (nowMs <= end || start <= twoHoursAgo) return false;
+        if (m.debrief_completed) return false;
+        if (localStorage.getItem(`meeting_prompt_ack_${m.id}`)) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
 
-    for (const deal of sortedDeals) {
-      const name = deal.accounts?.name || deal.name;
+    for (const meeting of recentCompleted) {
+      if (isAsked(meeting.id)) continue;
+      return {
+        text: "How did the meeting go?",
+        dealId: meeting.deal_id ?? null,
+        meetingId: meeting.id,
+        targetId: meeting.id,
+      };
+    }
+
+    // ── P4: ACTIVE DEAL — NO SIGNALS OR STALE (>14 DAYS) ─
+    for (const deal of data.allDeals) {
+      if (isAsked(deal.id)) continue;
       const dealSignals = data.signals.filter(s => s.deal_id === deal.id);
-      const signalTypes = new Set(dealSignals.map(s => s.signal_type));
+      const daysSince = getDaysSinceActivity(deal);
 
-      // Target the highest-value missing signal for this deal
-      if (!signalTypes.has('champion_identified')) {
-        const promptKey = `deal_champion:${deal.id}`;
-        if (!answered.has(promptKey)) {
-          return { text: `Who's your champion at ${name}?`, dealId: deal.id, promptKey };
-        }
-      }
-      if (!deal.next_action) {
-        const promptKey = `deal_next_step:${deal.id}`;
-        if (!answered.has(promptKey)) {
-          return { text: `What's the next step on ${name}?`, dealId: deal.id, promptKey };
-        }
-      }
-      if (!signalTypes.has('budget_mentioned')) {
-        const promptKey = `deal_budget:${deal.id}`;
-        if (!answered.has(promptKey)) {
-          return { text: `Any budget context on ${name}?`, dealId: deal.id, promptKey };
-        }
-      }
-
-      // Check if deal is stale (overdue for touchpoint)
-      const userPulseThreshold = data.user?.pulse_check_days ?? PULSE_CHECK_DEFAULT_DAYS;
-      if (getDaysSinceActivity(deal) >= userPulseThreshold) {
-        const promptKey = `deal_stale:${deal.id}`;
-        if (!answered.has(promptKey)) {
-          return { text: `Anything new on ${name}?`, dealId: deal.id, promptKey };
-        }
+      if (dealSignals.length === 0 || daysSince > 14) {
+        const name = deal.accounts?.name || deal.name;
+        return {
+          text: `Any updates on ${name}?`,
+          dealId: deal.id,
+          meetingId: null,
+          targetId: deal.id,
+        };
       }
     }
 
-    // ── P4: OPEN FALLBACK ────────────────────────────────
-    const fallbackKey = `fallback:${new Date().toDateString()}`;
-    return { text: "What's on your mind?", dealId: null as string | null, promptKey: fallbackKey };
+    // ── NO VALID TARGET → bird remains passive ───────────
+    return null;
   }, [data, birdAnsweredCount]);
 
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
   // Core bird save logic — accepts explicit dealId
   const executeBirdSave = async (finalDealId: string | null) => {
-    if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
+    if (!birdModalInput.trim() || birdModalSaving || !data?.user || !birdQuestion) return;
     setBirdModalSaving(true);
 
-    // Capture the promptKey before any async work — useMemo may recompute
-    const currentPromptKey = birdQuestion.promptKey;
+    // Capture the targetId before any async work — useMemo may recompute
+    const currentTargetId = birdQuestion.targetId;
+    const questionText = birdQuestion.text;
 
     try {
       const result = await saveInteraction(supabase, {
         userId: data.user.id,
         dealId: finalDealId,
         type: 'note',
-        rawContent: (birdQuestion.text && birdModalInput.trim())
-          ? '[Bird question: ' + birdQuestion.text + '] ' + birdModalInput.trim()
-          : birdModalInput,
+        rawContent: '[Bird question: ' + questionText + '] ' + birdModalInput.trim(),
       });
 
       if (result?.id) {
@@ -963,12 +973,8 @@ export default function HomePage() {
 
       await updateStreak(supabase, data.user.id);
 
-      // ── PERSIST PROMPT KEY — only after save succeeds ──────
-      birdAnsweredRef.current.add(currentPromptKey);
-      sessionStorage.setItem(
-        'jove_bird_answered',
-        JSON.stringify(Array.from(birdAnsweredRef.current))
-      );
+      // ── PERSIST: mark this target as asked — never ask again ──
+      localStorage.setItem(`curiosity_asked_${currentTargetId}`, 'true');
       setBirdAnsweredCount(c => c + 1);
     } catch (err) {
       console.error('Bird capture error:', err);
@@ -996,7 +1002,7 @@ export default function HomePage() {
   };
 
   const handleBirdSubmit = async () => {
-    if (!birdModalInput.trim() || birdModalSaving || !data?.user) return;
+    if (!birdModalInput.trim() || birdModalSaving || !data?.user || !birdQuestion) return;
 
     // Soft gate: no deal and active deals exist — ask before saving
     if (!birdQuestion.dealId && data.allDeals.length > 0) {
@@ -1164,10 +1170,11 @@ export default function HomePage() {
       <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
+      {/* Only interactive when bird has a valid curiosity target */}
       <div
         ref={birdHitboxRef}
         onClick={() => {
-          if (!birdModalOpen) {
+          if (!birdModalOpen && birdQuestion) {
             setBirdModalInput('');
             setBirdModalOpen(true);
             setTimeout(() => birdModalInputRef.current?.focus(), 200);
@@ -1181,12 +1188,12 @@ export default function HomePage() {
           height:       44,
           borderRadius: '50%',
           zIndex:       23,
-          pointerEvents:'auto',
-          cursor:       'pointer',
+          pointerEvents: birdQuestion ? 'auto' : 'none',
+          cursor:       birdQuestion ? 'pointer' : 'default',
           willChange:   'transform',
           WebkitTapHighlightColor: 'transparent',
         }}
-        aria-label="Tap bird to capture"
+        aria-label={birdQuestion ? 'Tap bird to answer' : 'Bird is resting'}
       />
 
       {/* ── ACKNOWLEDGMENT + SUN KEYFRAMES ──────────── */}
@@ -2009,7 +2016,7 @@ export default function HomePage() {
       )}
 
       {/* ── BIRD CAPTURE MODAL ──────────────────────── */}
-      {birdModalOpen && (
+      {birdModalOpen && birdQuestion && (
         <>
           {/* Backdrop — tap to dismiss */}
           <div
