@@ -40,7 +40,6 @@ import type {
 import {
   classifyMessage,
   isFollowUp,
-  getAcknowledgment,
   hasQuestionIntent,
   type ClassificationResult,
   type MessageBucket,
@@ -311,10 +310,26 @@ export default function HomePage() {
     return null;
   }, [data, supabase]);
 
+  // ── ResponseContext type for grounded LLM awareness ──────────
+  type ResponseContext = {
+    classification: string;
+    actionTaken?: 'saved' | 'linked' | 'created_deal' | 'none';
+    linkedDealId?: string | null;
+    linkedDealName?: string | null;
+    createdDealId?: string | null;
+    ambiguity?: boolean;
+  };
+
+  // ── Conversational input detection ─────────────────────────
+  const isConversational = useCallback((input: string): boolean => {
+    return /^(hi|hello|hey|what do you do|help|who are you|what can you do|good morning|good afternoon|good evening|thanks|thank you|sup|yo)/i.test(input.trim());
+  }, []);
+
   // ── CHAT INTELLIGENCE: stream assistant response ────────────
   const streamAssistantResponse = useCallback(async (
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     dealId?: string | null,
+    responseContext?: ResponseContext | null,
   ) => {
     if (!data?.user) return;
     const assistantMsgId = `msg-${++chatIdCounter.current}`;
@@ -333,6 +348,7 @@ export default function HomePage() {
           userId: data.user.id,
           messages,
           dealId: dealId ?? null,
+          responseContext: responseContext ?? null,
         }),
       });
 
@@ -441,11 +457,17 @@ export default function HomePage() {
         },
       });
 
-      // Acknowledge in chat
-      addAndPersistAssistantMessage(
-        `Created ${dealName.trim()} — saved your intel to it.`,
-        { dealId: newDeal.id },
-      );
+      // Stream a conversational response about the new deal
+      const history = chatMessages
+        .filter(m => !m.uiMode)
+        .map(m => ({ role: m.role, content: m.content }));
+      history.push({ role: 'user', content: originalText });
+      await streamAssistantResponse(history, newDeal.id, {
+        classification: 'new_deal',
+        actionTaken: 'created_deal',
+        createdDealId: newDeal.id,
+        linkedDealName: dealName.trim(),
+      });
 
       setNewDealForm(null);
       setHomeRefreshKey(k => k + 1);
@@ -455,7 +477,7 @@ export default function HomePage() {
     } finally {
       setChatProcessing(false);
     }
-  }, [newDealForm, data, supabase, chatSaveInteraction, addAndPersistAssistantMessage]);
+  }, [newDealForm, data, supabase, chatSaveInteraction, addAndPersistAssistantMessage, chatMessages, streamAssistantResponse]);
 
   // ── SESSION 3: build routing metadata with all candidates ────
   const buildRoutingMetadata = useCallback((
@@ -529,23 +551,20 @@ export default function HomePage() {
         });
       }
 
-      // Session 7: If original message had a question, stream a response
-      // instead of just acknowledging.
-      if (hasQuestionIntent(pending.originalText)) {
-        const history = chatMessages
-          .filter(m => !m.uiMode)
-          .map(m => ({ role: m.role, content: m.content }));
-        history.push({ role: 'user', content: pending.originalText });
-        await streamAssistantResponse(history, selectedDealId);
-      } else {
-        const dealName = selectedDealId
-          ? data?.allDeals.find(d => d.id === selectedDealId)?.name ?? null
-          : null;
-        const ack = selectedDealId
-          ? getAcknowledgment(pending.classification.bucket, dealName, null)
-          : 'Saved.';
-        addAndPersistAssistantMessage(ack, { saved: true, dealId: selectedDealId });
-      }
+      // ALWAYS stream a conversational response after clarification resolution
+      const dealName = selectedDealId
+        ? data?.allDeals.find(d => d.id === selectedDealId)?.name ?? null
+        : null;
+      const history = chatMessages
+        .filter(m => !m.uiMode)
+        .map(m => ({ role: m.role, content: m.content }));
+      history.push({ role: 'user', content: pending.originalText });
+      await streamAssistantResponse(history, selectedDealId, {
+        classification: pending.classification.bucket,
+        actionTaken: 'linked',
+        linkedDealId: selectedDealId,
+        linkedDealName: dealName,
+      });
     } catch {
       addAndPersistAssistantMessage('Didn\u2019t save that \u2014 try again?');
     } finally {
@@ -597,18 +616,27 @@ export default function HomePage() {
 
     try {
       // ── FOLLOW-UP DETECTION ─────────────────────────────────
-      // If the message is a short continuation of the previous turn,
-      // skip classification and route directly to the assistant.
-      // This prevents context-reset framing and keeps conversation natural.
       const previousMessages = chatMessages
         .filter(m => !m.uiMode)
         .map(m => ({ role: m.role, content: m.content }));
 
       if (isFollowUp(text, previousMessages)) {
         const history = [...previousMessages, { role: 'user' as const, content: text }];
-        // Infer deal context from the last classified message, if any
         const lastClassified = [...chatMessages].reverse().find(m => m.classification?.matchedDealId);
         await streamAssistantResponse(history, lastClassified?.classification?.matchedDealId ?? null);
+        setChatProcessing(false);
+        return;
+      }
+
+      // ── CONVERSATIONAL INPUT DETECTION ──────────────────────
+      // Skip strict classification for greetings/conversational messages.
+      // Still send to LLM so the assistant always responds naturally.
+      if (isConversational(text)) {
+        const history = [...previousMessages, { role: 'user' as const, content: text }];
+        await streamAssistantResponse(history, null, {
+          classification: 'conversational',
+          actionTaken: 'none',
+        });
         setChatProcessing(false);
         return;
       }
@@ -633,9 +661,7 @@ export default function HomePage() {
 
         // ── QUESTION PATH ────────────────────────────────────
         case 'question': {
-          // Session 7: Optionally save if strong intel detected.
-          // A question that references a specific deal likely contains
-          // context worth capturing (e.g. "Budget is 50k, should I follow up?").
+          // Optionally save if strong intel detected in the question
           if (classification.matchedDealId && text.length > 40) {
             chatSaveInteraction(text, classification.matchedDealId, 'note', {
               intentType: 'mixed' as InteractionIntentType,
@@ -644,20 +670,23 @@ export default function HomePage() {
             });
           }
 
-          // Always stream response — don't block on save
           const history = chatMessages
             .filter(m => !m.uiMode)
             .map(m => ({ role: m.role, content: m.content }));
           history.push({ role: 'user', content: text });
 
-          await streamAssistantResponse(history, classification.matchedDealId);
+          await streamAssistantResponse(history, classification.matchedDealId, {
+            classification: 'question',
+            actionTaken: classification.matchedDealId && text.length > 40 ? 'saved' : 'none',
+            linkedDealId: classification.matchedDealId,
+            linkedDealName: classification.matchedDealName,
+          });
           break;
         }
 
         // ── EMAIL DRAFT PATH ────────────────────────────────
         case 'email_draft': {
           if (classification.confidence === 'low') {
-            // Phase 2: Save raw immediately BEFORE asking for clarification
             const savedId = await chatSaveInteraction(text, null, 'note', {
               intentType: 'draft_intent',
               routingConfidence: 0.3,
@@ -683,7 +712,12 @@ export default function HomePage() {
               .filter(m => !m.uiMode)
               .map(m => ({ role: m.role, content: m.content }));
             history.push({ role: 'user', content: text });
-            await streamAssistantResponse(history, classification.matchedDealId);
+            await streamAssistantResponse(history, classification.matchedDealId, {
+              classification: 'email_draft',
+              actionTaken: 'saved',
+              linkedDealId: classification.matchedDealId,
+              linkedDealName: classification.matchedDealName,
+            });
           }
           break;
         }
@@ -707,8 +741,7 @@ export default function HomePage() {
         // ── EXISTING DEAL UPDATE ────────────────────────────
         case 'existing_deal_update': {
           if (classification.confidence === 'low') {
-            // Session 3: Don't silently auto-link ambiguous deal matches.
-            // Save raw immediately, then ask for clarification.
+            // Save raw immediately, then ask for clarification
             const savedId = await chatSaveInteraction(text, null, 'note', {
               intentType: 'capture',
               routingConfidence: 0.3,
@@ -725,7 +758,7 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            // Session 7: Hybrid — save first, then decide response
+            // Save first, then ALWAYS stream a conversational response
             const isMixed = hasQuestionIntent(text);
             await chatSaveInteraction(text, classification.matchedDealId, 'note', {
               intentType: isMixed ? 'mixed' as InteractionIntentType : 'capture',
@@ -733,25 +766,16 @@ export default function HomePage() {
               routingMetadata: routingMeta,
             });
 
-            if (isMixed) {
-              // Mixed: user gave intel AND asked a question → stream response
-              const history = chatMessages
-                .filter(m => !m.uiMode)
-                .map(m => ({ role: m.role, content: m.content }));
-              history.push({ role: 'user', content: text });
-              await streamAssistantResponse(history, classification.matchedDealId);
-            } else {
-              // Pure intel: short acknowledgment
-              const ack = getAcknowledgment(
-                classification.bucket,
-                classification.matchedDealName,
-                null,
-              );
-              addAndPersistAssistantMessage(ack, {
-                saved: true,
-                dealId: classification.matchedDealId,
-              });
-            }
+            const history = chatMessages
+              .filter(m => !m.uiMode)
+              .map(m => ({ role: m.role, content: m.content }));
+            history.push({ role: 'user', content: text });
+            await streamAssistantResponse(history, classification.matchedDealId, {
+              classification: 'existing_deal_update',
+              actionTaken: 'saved',
+              linkedDealId: classification.matchedDealId,
+              linkedDealName: classification.matchedDealName,
+            });
           }
           break;
         }
@@ -759,7 +783,7 @@ export default function HomePage() {
         // ── MEETING CONTEXT PATH ────────────────────────────
         case 'meeting_context': {
           if (classification.confidence === 'low') {
-            // Phase 2: Save raw immediately, then ask for clarification
+            // Save raw immediately, then ask for clarification
             const savedId = await chatSaveInteraction(text, null, 'meeting_log', {
               meetingId: classification.matchedMeetingId,
               intentType: 'debrief',
@@ -777,7 +801,7 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            // Session 7: Hybrid — save first, then decide response
+            // Save first, then ALWAYS stream a conversational response
             const isMixed = hasQuestionIntent(text);
             await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log', {
               meetingId: classification.matchedMeetingId,
@@ -786,32 +810,23 @@ export default function HomePage() {
               routingMetadata: routingMeta,
             });
 
-            if (isMixed) {
-              // Mixed: debrief + question → stream response with deal context
-              const history = chatMessages
-                .filter(m => !m.uiMode)
-                .map(m => ({ role: m.role, content: m.content }));
-              history.push({ role: 'user', content: text });
-              await streamAssistantResponse(history, classification.matchedDealId);
-            } else {
-              // Pure debrief: short acknowledgment
-              const ack = getAcknowledgment(
-                classification.bucket,
-                classification.matchedDealName,
-                classification.matchedMeetingTitle,
-              );
-              addAndPersistAssistantMessage(ack, {
-                saved: true,
-                dealId: classification.matchedDealId,
-              });
-            }
+            const history = chatMessages
+              .filter(m => !m.uiMode)
+              .map(m => ({ role: m.role, content: m.content }));
+            history.push({ role: 'user', content: text });
+            await streamAssistantResponse(history, classification.matchedDealId, {
+              classification: 'meeting_context',
+              actionTaken: 'saved',
+              linkedDealId: classification.matchedDealId,
+              linkedDealName: classification.matchedDealName,
+            });
           }
           break;
         }
 
         // ── GENERAL INTEL PATH ──────────────────────────────
         case 'general_intel': {
-          // Session 7: Hybrid — save first, then decide response
+          // Save first, then ALWAYS stream a conversational response
           const isMixed = hasQuestionIntent(text);
           await chatSaveInteraction(text, null, 'note', {
             intentType: isMixed ? 'mixed' as InteractionIntentType : 'general_intel',
@@ -819,20 +834,14 @@ export default function HomePage() {
             routingMetadata: routingMeta,
           });
 
-          if (isMixed) {
-            // Mixed: intel + question → stream response
-            const history = chatMessages
-              .filter(m => !m.uiMode)
-              .map(m => ({ role: m.role, content: m.content }));
-            history.push({ role: 'user', content: text });
-            await streamAssistantResponse(history, null);
-          } else {
-            // Pure intel: short acknowledgment
-            addAndPersistAssistantMessage(
-              getAcknowledgment('general_intel', null, null),
-              { saved: true },
-            );
-          }
+          const history = chatMessages
+            .filter(m => !m.uiMode)
+            .map(m => ({ role: m.role, content: m.content }));
+          history.push({ role: 'user', content: text });
+          await streamAssistantResponse(history, null, {
+            classification: 'general_intel',
+            actionTaken: 'saved',
+          });
           break;
         }
       }
@@ -842,7 +851,7 @@ export default function HomePage() {
     } finally {
       setChatProcessing(false);
     }
-  }, [chatInput, chatProcessing, chatStreaming, data, chatMessages, chatSaveInteraction, streamAssistantResponse, addAndPersistAssistantMessage, buildRoutingMetadata]);
+  }, [chatInput, chatProcessing, chatStreaming, data, chatMessages, chatSaveInteraction, streamAssistantResponse, addAndPersistAssistantMessage, buildRoutingMetadata, isConversational]);
 
   // Auto-scroll chat to bottom on new messages
   useEffect(() => {

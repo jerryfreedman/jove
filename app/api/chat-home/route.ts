@@ -10,16 +10,27 @@ export const maxDuration = 30;
 type MessageParam = { role: 'user' | 'assistant'; content: string };
 
 /**
+ * ResponseContext — grounded awareness passed from the client routing layer.
+ * Tells the LLM what just happened so it can respond conversationally
+ * without needing to see the system action directly.
+ */
+type ResponseContext = {
+  classification: string;
+  actionTaken?: 'saved' | 'linked' | 'created_deal' | 'none';
+  linkedDealId?: string | null;
+  linkedDealName?: string | null;
+  createdDealId?: string | null;
+  ambiguity?: boolean;
+};
+
+/**
  * POST /api/chat-home
  *
- * Home-screen assistant route. Handles two modes:
- * 1. Pure question (no deal context) — general assistant
- * 2. Question with deal context — deal-aware assistant
+ * Home-screen assistant route. ALWAYS returns a conversational response.
  *
- * Session 5: Added context cache, retrieval prioritization,
- * voice/KB parity with deal chat, response discipline.
- *
- * Does NOT save interactions. The client handles save decisions.
+ * Session 5: Context cache, retrieval prioritization, voice/KB parity.
+ * Session (assistant-first): Universal LLM response. Capture is silent.
+ * ResponseContext gives the LLM grounded awareness of system actions.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -27,23 +38,22 @@ export async function POST(request: NextRequest) {
       userId: string;
       messages: MessageParam[];
       dealId?: string | null;
+      responseContext?: ResponseContext | null;
     };
 
-    const { userId, messages, dealId } = body;
+    const { userId, messages, dealId, responseContext } = body;
 
     if (!userId || !messages?.length) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    // Session 5: Context cache for home chat (keyed by dealId or 'general')
+    // Session 5: Context cache for data context (keyed by dealId or 'general')
+    // Only caches the data block (deals, signals, voice, KB) — NOT the responseContext,
+    // which changes per message.
     const cacheKey = `chat_home_${dealId ?? 'general'}_${userId}`;
-    const cachedSystem = getCached(cacheKey);
+    let dataContextBlock: string | null = getCached(cacheKey);
 
-    let systemPrompt: string;
-
-    if (cachedSystem) {
-      systemPrompt = cachedSystem;
-    } else {
+    if (!dataContextBlock) {
       const cookieStore = await cookies();
       const supabase = createServerClient(
         SUPABASE_URL,
@@ -66,7 +76,6 @@ export async function POST(request: NextRequest) {
       let contextBlock = '';
 
       // Fetch user's active deals summary + signals + voice + KB in parallel
-      // Session 5: Added voice profile and KB fetch for parity with deal chat
       const [dealsRes, signalsRes, voiceRes, kbRes] = await Promise.all([
         supabase
           .from('deals')
@@ -99,7 +108,7 @@ export async function POST(request: NextRequest) {
       const voice = voiceRes.data;
       const kbRows = kbRes.data ?? [];
 
-      // Session 5: Deduplicate signals across portfolio
+      // Deduplicate signals across portfolio
       const seenSignalContent = new Set<string>();
       const dedupedSignals = signals.filter((s: { signal_type: string; content: string }) => {
         const key = `${s.signal_type}:${s.content.slice(0, 60).toLowerCase()}`;
@@ -136,7 +145,7 @@ export async function POST(request: NextRequest) {
           type: string; raw_content: string | null; created_at: string; origin?: string | null;
         }>;
 
-        // Session 5: Prioritize interactions same as deal chat
+        // Prioritize interactions by recency + origin
         const prioritizedInteractions = rawInteractions
           .map(i => {
             let priority = 0;
@@ -205,12 +214,12 @@ ${dedupedSignals.length > 0
 `;
       }
 
-      // Session 5: Voice profile for email drafting parity
+      // Voice profile for email drafting parity
       const voiceText = voice?.opening_style
         ? `\nVOICE PROFILE:\nOpening: ${voice.opening_style}. Closing: ${voice.closing_style ?? 'varies'}. Formality: ${voice.formality_level ?? 'moderate'}.`
         : '';
 
-      // Session 5: KB context for product awareness
+      // KB context for product awareness
       const kbText = kbRows.length > 0
         ? `\nWHAT YOU SELL:\n${kbRows.map(kb => {
             const lines = [`• ${kb.product_name}: ${kb.description}`];
@@ -219,30 +228,61 @@ ${dedupedSignals.length > 0
           }).join('\n')}`
         : '';
 
-      // Session 5: Tightened system prompt with response discipline
-      systemPrompt = `You are Jove — an expert sales intelligence assistant.
-You are embedded in the homepage of a CRM built for senior sales professionals.
+      dataContextBlock = `${contextBlock}${voiceText}${kbText}`;
 
-RESPONSE RULES:
-- Be direct. Be specific. Never give generic sales advice.
-- Never use filler phrases like "Great question!" or "Certainly!" or "Based on the context provided...".
-- Match the user's energy — brief if they're brief, detailed if they want depth.
-- Keep responses concise — this is a mobile-first chat interface.
-- Do NOT restate deal facts the user already knows unless specifically asked.
-- Do NOT list context back. Use it to inform your answer, not to prove you have it.
-- If the user asks a follow-up or short question, answer directly without re-introducing context.
-- When you lack context on something, say so briefly. Do not fabricate deal details or speculate about information you don't have.
-- When drafting emails, format as:
+      // Cache the data context (NOT the response context)
+      setCached(cacheKey, dataContextBlock);
+    }
+
+    // ── Build final system prompt: static rules + per-message responseContext + cached data ──
+    const responseCtxBlock = responseContext
+      ? `
+SYSTEM CONTEXT:
+- Classification: ${responseContext.classification}
+- Action taken: ${responseContext.actionTaken ?? 'none'}
+- Linked deal: ${responseContext.linkedDealName ?? responseContext.linkedDealId ?? 'none'}
+- Ambiguity: ${responseContext.ambiguity ?? false}
+`
+      : '';
+
+    const systemPrompt = `You are Jove, a personal intelligence assistant.
+
+You help the user manage deals, relationships, and decisions using their real data.
+You always respond conversationally, clearly, and helpfully.
+
+---
+${responseCtxBlock}
+You have access to structured memory: deals, contacts, interactions, and recent activity.
+
+---
+
+RULES:
+1. ALWAYS respond conversationally.
+2. NEVER respond with system outputs like "Saved.", "Captured.", or "Logged."
+3. Capture and system actions happen silently unless useful to mention naturally.
+4. Use real context when it improves the answer:
+   - Reference deals, contacts, or recent events by name.
+   - Avoid generic advice if specific context exists.
+5. If no useful context exists, respond naturally like a helpful assistant.
+6. If the user asks what happened, explain truthfully based on system context. Do not invent or guess.
+7. Do NOT hallucinate. If data is not available, do not fabricate it.
+8. Do NOT over-explain system actions. If you saved something, acknowledge it briefly and naturally within a useful response — never make "I saved that" the entire response.
+9. If your response could be given by a generic assistant with no memory, improve it using available context (if relevant).
+10. Prioritize usefulness over completeness.
+11. Match the user's energy — brief if they're brief, detailed if they want depth.
+12. Keep responses concise — this is a mobile-first chat interface.
+13. Never use filler phrases like "Great question!" or "Certainly!" or "Based on the context provided...".
+14. When drafting emails, format as:
 Subject: [subject line]
 
 [email body]
-${contextBlock}${voiceText}${kbText}`;
 
-      // Cache the assembled system prompt
-      setCached(cacheKey, systemPrompt);
-    }
+---
 
-    // Cap messages — Session 5: keep last 20 (same as before)
+Your goal is to feel like a system that knows the user, remembers everything important, and helps them move forward.
+${dataContextBlock}`;
+
+    // Cap messages — keep last 20
     let processedMessages: MessageParam[] = messages;
     if (messages.length > 30) {
       processedMessages = messages.slice(-20);
