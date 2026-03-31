@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
+import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
 
 export const maxDuration = 30;
 
@@ -280,6 +281,8 @@ Subject: [subject line]
 ---
 
 Your goal is to feel like a system that knows the user, remembers everything important, and helps them move forward.
+
+${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}
 ${dataContextBlock}`;
 
     // Cap messages — keep last 20

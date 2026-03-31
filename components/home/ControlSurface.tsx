@@ -17,7 +17,11 @@ import {
   type ModuleId,
   type ModulePriorityResult,
 } from '@/lib/module-priority';
-import type { DealRow, MeetingRow } from '@/lib/types';
+import type { DealRow, MeetingRow, UserDomainProfile } from '@/lib/types';
+import {
+  DEFAULT_DOMAIN_PROFILE,
+  getControlSurfaceLabels,
+} from '@/lib/semantic-labels';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -28,6 +32,7 @@ interface ControlSurfaceProps {
   allDeals: DealWithAccount[];
   urgentDeals: DealWithAccount[];
   meetings: MeetingRow[];
+  domainProfile?: UserDomainProfile;
 }
 
 // ── HELPERS ────────────────────────────────────────────────
@@ -79,9 +84,14 @@ export default function ControlSurface({
   allDeals,
   urgentDeals,
   meetings,
+  domainProfile,
 }: ControlSurfaceProps) {
   const router = useRouter();
   const [sheetVisible, setSheetVisible] = useState(false);
+  const labels = useMemo(
+    () => getControlSurfaceLabels(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
+    [domainProfile],
+  );
 
   // Animate in/out
   useEffect(() => {
@@ -178,7 +188,7 @@ export default function ControlSurface({
           ...(isProminent ? { fontSize: 11, letterSpacing: '1.4px' } : {}),
         }}
       >
-        Needs attention
+        {labels.needsAttention}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {attentionItems.map((deal) => {
@@ -269,7 +279,7 @@ export default function ControlSurface({
             paddingLeft: 2,
           }}
         >
-          {isImminent ? 'Coming up' : 'Upcoming'}
+          {isImminent ? labels.comingUp : labels.upcoming}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {upcomingMeetings.map((meeting, idx) => {
@@ -346,7 +356,7 @@ export default function ControlSurface({
           paddingLeft: 2,
         }}
       >
-        Top deals
+        {labels.topDeals}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {topDeals.map((deal) => {
@@ -474,7 +484,7 @@ export default function ControlSurface({
           letterSpacing: '0.2px',
         }}
       >
-        All deals
+        {labels.allDeals}
       </button>
       <button
         onClick={() => navigateTo('/meetings')}
@@ -493,7 +503,7 @@ export default function ControlSurface({
           letterSpacing: '0.2px',
         }}
       >
-        Meetings
+        {labels.meetings}
       </button>
       <button
         onClick={() => navigateTo('/settings')}
@@ -512,7 +522,7 @@ export default function ControlSurface({
           letterSpacing: '0.2px',
         }}
       >
-        Settings
+        {labels.settings}
       </button>
     </div>
   );
@@ -555,7 +565,7 @@ export default function ControlSurface({
         }}
       >
         {isLowDataState
-          ? 'As you add deals and meetings, this surface will show what matters most.'
+          ? `As you add ${labels.allDeals.toLowerCase()} and meetings, this surface will show what matters most.`
           : 'Nothing needs your attention right now. This will update as things change.'}
       </div>
     </div>

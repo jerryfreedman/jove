@@ -1,3 +1,13 @@
+// ── User Domain Profile (Semantic Layer — Session 3) ────────
+export type UserDomainKey = 'sales' | 'real_estate' | 'student' | 'consulting' | 'custom';
+
+export type UserDomainProfile = {
+  domain: UserDomainKey;
+  primaryEntityLabel: string;   // "Deals", "Projects", "Listings"
+  contactLabel: string;         // "Contacts", "Clients", "Buyers"
+  accountLabel: string;         // "Accounts", "Organizations", "Brokerages"
+};
+
 export type UserRow = {
   id: string;
   email: string;
@@ -10,6 +20,8 @@ export type UserRow = {
   pulse_check_days: number;
   morning_digest_enabled: boolean;
   weather_enabled: boolean;
+  /** Session 3: Semantic layer — user's domain key (optional, not yet persisted to DB) */
+  domain_key?: UserDomainKey;
   created_at: string;
   updated_at: string;
 };

@@ -14,6 +14,7 @@ import type {
   AccountRow,
   ContactRow,
 } from '@/lib/types';
+import { DEFAULT_DOMAIN_PROFILE, getEntityLabel } from '@/lib/semantic-labels';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 // ── TYPES ──────────────────────────────────────────────────
@@ -295,7 +296,7 @@ export default function DealsPage() {
           color:      '#1A1410',
           margin:     0,
         }}>
-          Deals
+          {getEntityLabel('primary', DEFAULT_DOMAIN_PROFILE)}
         </h1>
         <button
           onClick={() => router.push('/ideas')}
