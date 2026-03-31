@@ -130,6 +130,13 @@ export default function HomePage() {
   // Counter to force birdQuestion useMemo to recompute after a bird submit.
   // Actual persistence uses localStorage keys: curiosity_asked_{targetId}
   const [birdAnsweredCount, setBirdAnsweredCount] = useState(0);
+  // Ref for cross-system curiosity resolution (chat → homepage/bird)
+  const birdQuestionRef = useRef<{
+    text: string;
+    dealId: string | null;
+    meetingId: string | null;
+    targetId: string;
+  } | null>(null);
 
   // ── ENVIRONMENTAL ACKNOWLEDGMENT STATE ─────────────────
   const [ackToken, setAckToken] = useState(0);
@@ -229,6 +236,12 @@ export default function HomePage() {
         triggerExtraction(result.id, data.user.id);
         await updateStreak(supabase, data.user.id);
         chatSaveStateRef.current.hasSaved = true;
+        // Resolve homepage/bird curiosity if this save matches the active target
+        const activeQ = birdQuestionRef.current;
+        if (activeQ && dealId && dealId === activeQ.dealId) {
+          localStorage.setItem(`curiosity_asked_${activeQ.targetId}`, 'true');
+          setBirdAnsweredCount(c => c + 1);
+        }
         // Delayed re-fetch for extraction
         setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
         return result.id;
@@ -1018,6 +1031,7 @@ export default function HomePage() {
     // ── NO VALID TARGET → bird remains passive ───────────
     return null;
   }, [data, birdAnsweredCount]);
+  birdQuestionRef.current = birdQuestion;
 
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
   // Core bird save logic — accepts explicit dealId
@@ -1123,15 +1137,60 @@ export default function HomePage() {
   const firstName       = getFirstName(data?.user ?? null);
   const greeting        = getGreeting(h);
 
-  // ── ASSISTANT PRESENCE LINE (subtle, calm, single line) ──
-  const assistantLine = useMemo(() => {
-    if (!data) return '';
+  // ── HOMEPAGE INTELLIGENCE LINE (single source — curiosity > brief > fallback) ──
+  // Exactly ONE line under the greeting. Priority order:
+  //   1. Curiosity question (valid + unsatisfied) — same source as bird
+  //   2. Auto-brief for next meeting (read from briefing page cache)
+  //   3. Soft time-of-day fallback
+  const homepageIntelligenceLine = useMemo((): {
+    type: 'curiosity' | 'brief' | 'fallback';
+    text: string;
+    targetId?: string;
+  } => {
+    if (!data) return { type: 'fallback', text: '' };
+
+    // ── P1: CURIOSITY QUESTION ────────────────────
+    // Uses the same birdQuestion source — one mind, one question.
+    // Homepage displays the question; bird provides the answer surface.
+    if (birdQuestion) {
+      return {
+        type: 'curiosity',
+        text: birdQuestion.text,
+        targetId: birdQuestion.targetId,
+      };
+    }
+
+    // ── P2: AUTO-BRIEF FROM CACHE ─────────────────
+    // Read the briefing page's cached micro brief for the next meeting.
+    // Read-only — does NOT regenerate or call any API.
+    if (typeof window !== 'undefined') {
+      const nowMs = Date.now();
+      const today = new Date().toISOString().split('T')[0];
+      const nextMeeting = data.meetings.find(m => new Date(m.scheduled_at).getTime() > nowMs);
+      if (nextMeeting) {
+        const prefix = `brief_${nextMeeting.id}_${today}`;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key?.startsWith(prefix)) {
+            const cached = localStorage.getItem(key);
+            if (cached) {
+              return { type: 'brief', text: cached };
+            }
+          }
+        }
+      }
+    }
+
+    // ── P3: SOFT FALLBACK ─────────────────────────
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "Whenever you\u2019re ready.";
-    if (hour >= 12 && hour < 17) return "You\u2019re set for the day.";
-    if (hour >= 17 && hour < 21) return "Nothing urgent right now.";
-    return "Rest well.";
-  }, [data]);
+    let fallback: string;
+    if (hour >= 5 && hour < 12) fallback = "Whenever you\u2019re ready.";
+    else if (hour >= 12 && hour < 17) fallback = "You\u2019re set for the day.";
+    else if (hour >= 17 && hour < 21) fallback = "Nothing urgent right now.";
+    else fallback = "Rest well.";
+
+    return { type: 'fallback', text: fallback };
+  }, [data, birdQuestion]);
 
   // Entrance animation values
   const anim = (delay: number) => ({
@@ -1443,13 +1502,14 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* ── ASSISTANT PRESENCE LINE ─────────────────── */}
-        {!loading && assistantLine && (
+        {/* ── HOMEPAGE INTELLIGENCE LINE (exactly one) ──── */}
+        {!loading && homepageIntelligenceLine.text && (
           <div
             style={{
               textAlign:  'center',
               padding:    '0 32px',
               marginTop:  14,
+              maxWidth:   360,
               ...anim(0.22),
             }}
           >
@@ -1459,8 +1519,9 @@ export default function HomePage() {
               fontWeight:    300,
               color:         textSecondary,
               letterSpacing: '0.2px',
+              lineHeight:    '1.5',
             }}>
-              {assistantLine}
+              {homepageIntelligenceLine.text}
             </span>
           </div>
         )}
