@@ -276,6 +276,21 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
       return NextResponse.json({ error: 'Extraction parsing failed' }, { status: 500 });
     }
 
+    // ── SESSION 8: CASCADING ERROR PREVENTION ──────────────
+    // If the interaction's deal linkage has low routing confidence,
+    // do NOT propagate the deal_id to signals or deal scores.
+    // Prefer storing raw data without forced linkage over wrong linkage.
+    const routingConfidence = typeof interaction.routing_confidence === 'number'
+      ? interaction.routing_confidence
+      : 1; // Legacy interactions without routing_confidence are trusted
+    const routingMeta = interaction.routing_metadata as { routingPath?: string } | null;
+    const wasUserClarified = routingMeta?.routingPath === 'user_clarified';
+
+    // Trust the deal_id only if confidence is high OR the user explicitly clarified
+    const trustedDealId = (routingConfidence >= 0.7 || wasUserClarified)
+      ? (interaction.deal_id ?? null)
+      : null;
+
     // ── FETCH EXISTING SIGNALS FOR DEDUPLICATION ──────────
     let existingQuery = supabase
       .from('signals')
@@ -284,8 +299,8 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
       .order('created_at', { ascending: false })
       .limit(30);
 
-    if (interaction.deal_id) {
-      existingQuery = existingQuery.eq('deal_id', interaction.deal_id);
+    if (trustedDealId) {
+      existingQuery = existingQuery.eq('deal_id', trustedDealId);
     }
 
     const { data: existingSignals } = await existingQuery;
@@ -303,7 +318,7 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
 
       const signalRow = {
         user_id:          userId,
-        deal_id:          interaction.deal_id ?? null,
+        deal_id:          trustedDealId,
         contact_id:       null as string | null,
         interaction_id:   interactionId,
         signal_type:      sig.signal_type as SignalType,
@@ -321,13 +336,14 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
 
     // ── UPDATE DEAL SCORES + CONTACT SUMMARIES (PARALLEL) ──
     const updateDealScores = async () => {
-      if (!interaction.deal_id) return;
+      // Session 8: Only update deal scores when we trust the linkage
+      if (!trustedDealId) return;
 
       const { data: allDealSignals } = await supabase
         .from('signals')
         .select('signal_type, content, created_at, is_duplicate')
         .eq('user_id', userId)
-        .eq('deal_id', interaction.deal_id)
+        .eq('deal_id', trustedDealId)
         .order('created_at', { ascending: false });
 
       const allSignals = allDealSignals ?? [];
@@ -351,75 +367,197 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
       await supabase
         .from('deals')
         .update(dealUpdate)
-        .eq('id', interaction.deal_id)
+        .eq('id', trustedDealId)
         .eq('user_id', userId);
     };
 
+    // ── SESSION 8: CONTACT DEDUPLICATION + ENRICHMENT SAFETY ──
+    // One real person = one contact record. Never create duplicates.
+    // Relationship summaries APPEND, never overwrite.
+
+    /**
+     * Score how well two names match for deduplication.
+     * Returns 0 (no match) to 3 (exact match).
+     */
+    const scoreContactNameMatch = (
+      candidateName: string,
+      searchName: string,
+    ): number => {
+      const a = candidateName.toLowerCase().trim();
+      const b = searchName.toLowerCase().trim();
+
+      // Exact match (case-insensitive)
+      if (a === b) return 3;
+
+      // One name contains the other (e.g. "John Smith" vs "John")
+      if (a.includes(b) || b.includes(a)) return 2;
+
+      // Check if all words of the shorter name appear in the longer name
+      const wordsA = a.split(/\s+/);
+      const wordsB = b.split(/\s+/);
+      const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB;
+      const longer = wordsA.length > wordsB.length ? wordsA : wordsB;
+      const allWordsMatch = shorter.every(w => longer.some(lw => lw === w || lw.includes(w) || w.includes(lw)));
+      if (allWordsMatch && shorter.length >= 1) return 2;
+
+      // Last name match (common in sales — "Smith" matching "John Smith")
+      const lastA = wordsA[wordsA.length - 1];
+      const lastB = wordsB[wordsB.length - 1];
+      if (lastA && lastB && lastA.length >= 3 && lastA === lastB) return 1;
+
+      return 0;
+    };
+
+    /**
+     * Find the best existing contact match for a given name.
+     * Returns the matched contact or null if no confident match.
+     */
+    const findBestContactMatch = async (
+      contactName: string,
+      targetAccountId: string | null,
+    ): Promise<{ id: string; name: string; relationship_summary: string | null; account_id: string | null } | null> => {
+      const trimmedName = contactName.trim();
+      if (!trimmedName) return null;
+
+      // Search broadly — fetch candidates by partial name match
+      const { data: candidates } = await supabase
+        .from('contacts')
+        .select('id, name, relationship_summary, account_id, last_interaction_at')
+        .eq('user_id', userId)
+        .ilike('name', `%${trimmedName.split(/\s+/)[trimmedName.split(/\s+/).length - 1]}%`)
+        .limit(20);
+
+      if (!candidates || candidates.length === 0) return null;
+
+      // Score each candidate
+      const scored = candidates.map(c => ({
+        ...c,
+        nameScore: scoreContactNameMatch(c.name, trimmedName),
+        accountProximity: targetAccountId && c.account_id === targetAccountId ? 2 : 0,
+        recency: c.last_interaction_at
+          ? Math.max(0, 1 - (Date.now() - new Date(c.last_interaction_at).getTime()) / (30 * 24 * 60 * 60 * 1000))
+          : 0,
+      }));
+
+      // Filter to only name matches
+      const matches = scored.filter(c => c.nameScore >= 2);
+
+      if (matches.length === 0) return null;
+
+      if (matches.length === 1) {
+        return matches[0];
+      }
+
+      // Multiple matches — pick best by: account proximity > name score > recency
+      matches.sort((a, b) => {
+        const totalA = a.nameScore + a.accountProximity + a.recency;
+        const totalB = b.nameScore + b.accountProximity + b.recency;
+        return totalB - totalA;
+      });
+
+      const best = matches[0];
+      const second = matches[1];
+      const bestTotal = best.nameScore + best.accountProximity + best.recency;
+      const secondTotal = second.nameScore + second.accountProximity + second.recency;
+
+      // If top two are too close, don't auto-assign (prefer missing over wrong)
+      if (bestTotal - secondTotal < 1) return null;
+
+      return best;
+    };
+
     const updateContacts = async () => {
+      // Session 8: Resolve account_id using trustedDealId (not raw interaction.deal_id)
+      // to prevent cascading errors from low-confidence deal linkage
+      let accountId: string | null = null;
+      if (trustedDealId) {
+        const { data: deal } = await supabase
+          .from('deals')
+          .select('account_id')
+          .eq('id', trustedDealId)
+          .single();
+        accountId = deal?.account_id ?? null;
+      }
+
       for (const contact of extracted.contacts_mentioned ?? []) {
         if (!contact.name?.trim()) continue;
 
-        // Search for existing contact by name
-        const { data: existingContacts } = await supabase
-          .from('contacts')
-          .select('id, name, relationship_summary')
-          .eq('user_id', userId)
-          .ilike('name', `%${contact.name.trim()}%`)
-          .limit(1);
+        // Step 1: Try to find existing contact (deduplication)
+        const existingContact = await findBestContactMatch(contact.name.trim(), accountId);
 
-        if (existingContacts && existingContacts.length > 0) {
-          // Update existing contact relationship summary
-          const existingContact = existingContacts[0];
+        if (existingContact) {
+          // Step 2: APPEND to relationship summary (Session 8 Phase 3)
+          // Never overwrite — accumulate context over time.
+          const currentSummary = existingContact.relationship_summary ?? '';
+
           const summaryMessage = await anthropic.messages.create({
             model:      CLAUDE_MODEL,
             max_tokens: 200,
-            system: `You are updating a relationship summary for a sales contact.
-Write an updated 2-3 sentence relationship summary.
-Be specific. Include role context and key relationship details.
+            system: `You are appending new context to a sales contact's relationship summary.
+CRITICAL: You must PRESERVE all existing information and ADD the new context.
+Do NOT rewrite or replace the existing summary. Append a new sentence.
+If the existing summary is empty, write a fresh 1-2 sentence summary.
 Return only the summary text — no labels, no preamble, no quotes.`,
             messages: [
               {
                 role:    'user',
-                content: `Current summary: ${existingContact.relationship_summary ?? 'No summary yet'}
-New context: ${contact.context}
-Write the updated summary.`,
+                content: `Existing summary: ${currentSummary || 'No summary yet'}
+New context to append: ${contact.context}
+Write the updated summary that preserves all existing info and adds the new context.`,
               },
             ],
           });
 
-          const newSummary = summaryMessage.content[0].type === 'text'
+          const updatedSummary = summaryMessage.content[0].type === 'text'
             ? summaryMessage.content[0].text.trim()
-            : existingContact.relationship_summary;
+            : currentSummary;
+
+          // Safety check: never allow a shorter summary (would indicate loss of data)
+          const finalSummary = updatedSummary.length >= currentSummary.length * 0.8
+            ? updatedSummary
+            : `${currentSummary} ${contact.context}`;
 
           await supabase
             .from('contacts')
             .update({
-              relationship_summary: newSummary,
+              relationship_summary: finalSummary,
               last_interaction_at:  new Date().toISOString(),
+              // Update title only if we have a new one and existing is empty
+              ...(contact.title && !existingContact.relationship_summary ? { title: contact.title } : {}),
             })
             .eq('id', existingContact.id);
 
         } else {
-          // Create stub contact — only when account_id is available
-          let accountId: string | null = null;
-          if (interaction.deal_id) {
-            const { data: deal } = await supabase
-              .from('deals')
-              .select('account_id')
-              .eq('id', interaction.deal_id)
-              .single();
-            accountId = deal?.account_id ?? null;
-          }
-
+          // Step 3: No match found — create new contact only if account_id available
+          // This is the ONLY path where new contacts are created.
           if (accountId) {
-            await supabase.from('contacts').insert({
-              user_id:              userId,
-              account_id:           accountId,
-              name:                 contact.name.trim(),
-              title:                contact.title ?? null,
-              relationship_summary: `Mentioned in a capture: ${contact.context}`,
-              last_interaction_at:  new Date().toISOString(),
-            });
+            // Final dedup safety: exact name check before insert
+            const { data: exactCheck } = await supabase
+              .from('contacts')
+              .select('id')
+              .eq('user_id', userId)
+              .eq('account_id', accountId)
+              .ilike('name', contact.name.trim())
+              .limit(1);
+
+            if (exactCheck && exactCheck.length > 0) {
+              // Exact match exists — update instead of create
+              await supabase
+                .from('contacts')
+                .update({
+                  last_interaction_at: new Date().toISOString(),
+                })
+                .eq('id', exactCheck[0].id);
+            } else {
+              await supabase.from('contacts').insert({
+                user_id:              userId,
+                account_id:           accountId,
+                name:                 contact.name.trim(),
+                title:                contact.title ?? null,
+                relationship_summary: `Mentioned in a capture: ${contact.context}`,
+                last_interaction_at:  new Date().toISOString(),
+              });
+            }
           }
         }
       }

@@ -217,13 +217,13 @@ function resolveDealMatch(candidates: DealCandidate[]): {
     return { bestMatch: best, confidence: 'high', ambiguityReason: null };
   }
 
-  // Score is above minimum but below high confidence threshold
-  // Single weak match — still auto-link but mark as lower confidence
-  // (a single word match like "sales" shouldn't block the user)
+  // Session 8: Score is above minimum but below high confidence threshold
+  // NEVER auto-link — force clarification to prevent data pollution.
+  // Better to ask than to silently attach to the wrong deal.
   return {
-    bestMatch: best,
-    confidence: best.score >= 6 ? 'high' : 'low',
-    ambiguityReason: best.score < 6 ? `Weak match: ${best.dealName} (score ${best.score})` : null,
+    bestMatch: null,
+    confidence: 'low',
+    ambiguityReason: `Below confidence threshold: ${best.dealName} (score ${best.score})`,
   };
 }
 
@@ -233,10 +233,21 @@ function resolveDealMatch(candidates: DealCandidate[]): {
 function scoreMeetingCandidates(
   text: string,
   meetings: MeetingRow[],
+  deals?: DealWithAccount[],
 ): MeetingCandidate[] {
   const lower = normalize(text);
   const now = Date.now();
   const candidates: MeetingCandidate[] = [];
+
+  // Session 8: Build account name lookup from deals for cross-referencing
+  const dealAccountMap = new Map<string, string>();
+  if (deals) {
+    for (const deal of deals) {
+      if (deal.accounts?.name) {
+        dealAccountMap.set(deal.id, normalize(deal.accounts.name));
+      }
+    }
+  }
 
   for (const meeting of meetings) {
     let score = 0;
@@ -257,6 +268,16 @@ function scoreMeetingCandidates(
     const titleWords = titleLower.split(/\s+/).filter(w => w.length >= 4);
     for (const word of titleWords) {
       if (lower.includes(word)) score += 5;
+    }
+
+    // Session 8: Account name in meeting title or user text
+    // If meeting is linked to a deal, check if the account name appears
+    if (meeting.deal_id && dealAccountMap.has(meeting.deal_id)) {
+      const accountName = dealAccountMap.get(meeting.deal_id)!;
+      if (accountName.length >= 3) {
+        if (lower.includes(accountName)) score += 6;
+        if (titleLower.includes(accountName)) score += 3;
+      }
     }
 
     if (score > 0) {
@@ -306,16 +327,12 @@ function resolveMeetingMatch(candidates: MeetingCandidate[]): {
     return { bestMatch: best, confidence: 'high', ambiguityReason: null };
   }
 
-  // Moderate score — auto-link but not fully confident
-  if (best.score >= 5) {
-    return { bestMatch: best, confidence: 'high', ambiguityReason: null };
-  }
-
-  // Weak match
+  // Session 8: Below threshold — NEVER auto-link.
+  // Leave deal_id NULL rather than guess incorrectly.
   return {
-    bestMatch: best,
+    bestMatch: null,
     confidence: 'low',
-    ambiguityReason: `Weak meeting match: ${best.meetingTitle} (score ${best.score})`,
+    ambiguityReason: `Below meeting confidence threshold: ${best.meetingTitle} (score ${best.score})`,
   };
 }
 
@@ -390,7 +407,8 @@ export function classifyMessage(
 
   // Score all candidates upfront — we'll attach them to every result
   const dealCandidates = scoreDealCandidates(trimmed, deals);
-  const meetingCandidates = scoreMeetingCandidates(trimmed, meetings);
+  // Session 8: Pass deals to meeting scoring for account name cross-referencing
+  const meetingCandidates = scoreMeetingCandidates(trimmed, meetings, deals);
   const dealResolution = resolveDealMatch(dealCandidates);
   const meetingResolution = resolveMeetingMatch(meetingCandidates);
 
@@ -512,25 +530,15 @@ export function classifyMessage(
       });
     }
 
-    // Low confidence deal match — don't silently auto-link
-    // Ask for clarification if there are multiple candidates
-    if (dealCandidates.length > 1) {
-      return makeResult({
-        bucket: 'existing_deal_update',
-        confidence: 'low',
-        matchedDealId: null,
-        matchedDealName: null,
-        clarificationQuestion: 'Which deal is this about?',
-        ambiguityReason: dealResolution.ambiguityReason,
-      });
-    }
-
-    // Single weak match — still auto-link (one word match shouldn't block)
+    // Session 8: Low confidence deal match — NEVER silently auto-link.
+    // Whether single or multiple weak candidates, force clarification.
+    // Better to have a missing link than a wrong link.
     return makeResult({
       bucket: 'existing_deal_update',
-      confidence: 'high',
-      matchedDealId: dealResolution.bestMatch.dealId,
-      matchedDealName: dealResolution.bestMatch.dealName,
+      confidence: 'low',
+      matchedDealId: null,
+      matchedDealName: null,
+      clarificationQuestion: 'Which deal is this about?',
       ambiguityReason: dealResolution.ambiguityReason,
     });
   }

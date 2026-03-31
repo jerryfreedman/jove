@@ -61,11 +61,14 @@ export async function saveInteraction(
 // Phase 9 (Session 3): When clarification resolves an ambiguous message,
 // update the existing saved interaction instead of creating a duplicate.
 // Preserves original raw_content, updates linkage + metadata.
+// Session 8: Extended to also support correcting contact_id.
+// All updates are idempotent — safe to call multiple times.
 export async function updateInteractionLinkage(
   supabase: SupabaseClient,
   params: {
     interactionId: string;
     dealId?: string | null;
+    contactId?: string | null;
     meetingId?: string | null;
     routingConfidence?: number | null;
     routingMetadata?: InteractionRoutingMetadata | null;
@@ -73,9 +76,13 @@ export async function updateInteractionLinkage(
 ): Promise<boolean> {
   const update: Record<string, unknown> = {};
   if (params.dealId !== undefined) update.deal_id = params.dealId;
+  if (params.contactId !== undefined) update.contact_id = params.contactId;
   if (params.meetingId !== undefined) update.meeting_id = params.meetingId;
   if (params.routingConfidence != null) update.routing_confidence = params.routingConfidence;
   if (params.routingMetadata != null) update.routing_metadata = params.routingMetadata;
+
+  // Session 8: No-op guard — avoid empty updates
+  if (Object.keys(update).length === 0) return true;
 
   const { error } = await supabase
     .from('interactions')
