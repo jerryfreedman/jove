@@ -1663,10 +1663,10 @@ export default function HomePage() {
       </div>
 
       <div
-        className="absolute inset-0 flex flex-col items-center justify-center"
-        style={{ zIndex: 20, pointerEvents: 'none' }}
+        className="absolute inset-0 flex flex-col items-center"
+        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 28vh)' }}
       >
-        {/* ── GREETING + NAME (centered) ────────────── */}
+        {/* ── GREETING + NAME (upper third — secondary to sun) ── */}
         <div
           style={{
             textAlign:  'center',
@@ -1789,12 +1789,12 @@ export default function HomePage() {
       </div>
 
       {/* ── CONTROL SURFACE ENTRY POINT (bottom-right orb) ── */}
-      {!chatOpen && !controlOpen && (
+      {!controlOpen && (
         <div
           onClick={() => setControlOpen(true)}
           style={{
             position:       'fixed',
-            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 82px)',
+            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 88px)',
             right:          22,
             zIndex:         26,
             width:          42,
@@ -1808,8 +1808,9 @@ export default function HomePage() {
             alignItems:     'center',
             justifyContent: 'center',
             cursor:         'pointer',
-            opacity:        visible ? 1 : 0,
-            transition:     'opacity 0.65s ease 0.36s, transform 0.15s ease, box-shadow 0.15s ease',
+            opacity:        chatOpen ? 0 : visible ? 1 : 0,
+            pointerEvents:  chatOpen ? 'none' : 'auto',
+            transition:     'opacity 0.4s ease, transform 0.15s ease, box-shadow 0.15s ease',
             WebkitTapHighlightColor: 'transparent',
             boxShadow:      '0 2px 12px rgba(0,0,0,0.25)',
           }}
@@ -1838,7 +1839,7 @@ export default function HomePage() {
         <div
           style={{
             position:       'fixed',
-            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 20px)',
+            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 24px)',
             left:           0,
             right:          0,
             display:        'flex',
@@ -1852,8 +1853,8 @@ export default function HomePage() {
           <div
             onClick={openChat}
             style={{
-              width:          'calc(100% - 48px)',
-              maxWidth:       380,
+              width:          'calc(100% - 64px)',
+              maxWidth:       360,
               pointerEvents:  'auto',
               cursor:         'pointer',
               WebkitTapHighlightColor: 'transparent',
