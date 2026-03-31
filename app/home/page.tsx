@@ -7,7 +7,6 @@ import SceneBackground from '@/components/home/SceneBackground';
 import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import Logo from '@/components/ui/Logo';
-import CaptureSheet from '@/components/capture/CaptureSheet';
 import {
   saveInteraction,
   triggerExtraction,
@@ -98,16 +97,6 @@ function getDaysSinceActivity(deal: DealRow): number {
   );
 }
 
-// ── MEETING ASSISTANT STATE (lightweight — home only needs debrief awareness) ──
-function getMeetingLifecycle(meeting: MeetingRow): 'upcoming' | 'in_progress' | 'completed' {
-  const now = Date.now();
-  const start = new Date(meeting.scheduled_at).getTime();
-  const end = start + 60 * 60 * 1000;
-  if (now < start) return 'upcoming';
-  if (now <= end) return 'in_progress';
-  return 'completed';
-}
-
 // ── COMPONENT ─────────────────────────────────────────────
 export default function HomePage() {
   const router   = useRouter();
@@ -120,13 +109,8 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const [showCapture, setShowCapture] = useState(false);
-  const [captureInitialMode, setCaptureInitialMode] = useState<'debrief' | null>(null);
-  const [captureInitialText, setCaptureInitialText] = useState('');
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [logoBloom, setLogoBloom] = useState(false);
-  const [debriefMeetings, setDebriefMeetings] = useState<MeetingRow[]>([]);
-  const [debriefDismissed, setDebriefDismissed] = useState(false);
 
   // ── CELESTIAL POSITION (single source of truth from SceneBackground) ──
   const [celestialPos, setCelestialPos] = useState<CelestialPosition>({
@@ -152,8 +136,6 @@ export default function HomePage() {
   const [shimmerActive, setShimmerActive] = useState(false);
   const [shimmerOpacity, setShimmerOpacity] = useState(1);
   const ackGuardRef = useRef<number>(0);
-  const captureCompletedRef = useRef(false);
-
   // ── BIRD REACTION TRIGGER ────────────────────────────
   const [birdReactionTrigger, setBirdReactionTrigger] = useState(0);
   // Stable ref: labels the source of the next reaction increment ('save' | 'ambient')
@@ -285,7 +267,7 @@ export default function HomePage() {
       if (!res.ok || !res.body) {
         setChatMessages(prev => prev.map(m =>
           m.id === assistantMsgId
-            ? { ...m, content: "I couldn't process that right now. Try again?" }
+            ? { ...m, content: "Didn\u2019t catch that \u2014 try again?" }
             : m
         ));
         setChatStreaming(false);
@@ -308,7 +290,7 @@ export default function HomePage() {
     } catch {
       setChatMessages(prev => prev.map(m =>
         m.id === assistantMsgId
-          ? { ...m, content: "Something went wrong. Try again?" }
+          ? { ...m, content: "Didn\u2019t catch that \u2014 try again?" }
           : m
       ));
     } finally {
@@ -382,7 +364,7 @@ export default function HomePage() {
       setChatMessages(prev => [...prev, {
         id: `msg-${++chatIdCounter.current}`,
         role: 'assistant',
-        content: "Couldn't create that deal. Try again?",
+        content: "Couldn\u2019t create that \u2014 try again?",
       }]);
     } finally {
       setChatProcessing(false);
@@ -406,7 +388,7 @@ export default function HomePage() {
         : null;
       const ack = selectedDealId
         ? getAcknowledgment(pending.classification.bucket, dealName, null)
-        : 'Saved as general intel.';
+        : 'Saved.';
 
       setChatMessages(prev => [...prev, {
         id: `msg-${++chatIdCounter.current}`,
@@ -418,7 +400,7 @@ export default function HomePage() {
       setChatMessages(prev => [...prev, {
         id: `msg-${++chatIdCounter.current}`,
         role: 'assistant',
-        content: 'Something went wrong saving that. Try again?',
+        content: 'Didn\u2019t save that \u2014 try again?',
       }]);
     } finally {
       setChatProcessing(false);
@@ -440,6 +422,23 @@ export default function HomePage() {
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput('');
     setChatProcessing(true);
+
+    // ── Drop any pending clarification state from a previous message ──
+    // If the user sends a new message while a clarification is pending,
+    // gracefully abandon the old flow rather than deadlocking.
+    if (pendingClarificationRef.current) {
+      pendingClarificationRef.current = null;
+      // Remove the stale deal_picker UI from chat
+      setChatMessages(prev => prev.map(m =>
+        m.uiMode === 'deal_picker' ? { ...m, uiMode: undefined } : m
+      ));
+    }
+    if (newDealForm) {
+      setNewDealForm(null);
+      setChatMessages(prev => prev.map(m =>
+        (m.uiMode === 'new_deal_confirm' || m.uiMode === 'new_deal_form') ? { ...m, uiMode: undefined } : m
+      ));
+    }
 
     try {
       // Phase 1: Classify message
@@ -583,7 +582,7 @@ export default function HomePage() {
       setChatMessages(prev => [...prev, {
         id: `msg-${++chatIdCounter.current}`,
         role: 'assistant',
-        content: "Something went wrong. Try again?",
+        content: "Didn\u2019t catch that \u2014 try again?",
       }]);
     } finally {
       setChatProcessing(false);
@@ -754,7 +753,7 @@ export default function HomePage() {
         signalRes,
         streakRes,
         accountCountRes,
-        debriefRes,
+        /* debriefRes — removed, positional placeholder */,
         stuckInteractionsRes,
       ] = await Promise.all([
         supabase
@@ -841,8 +840,6 @@ export default function HomePage() {
         streakLogs:   (streakRes.data ?? []) as StreakLogRow[],
         accountCount: accountCountRes.count ?? 0,
       });
-
-      setDebriefMeetings((debriefRes.data ?? []) as MeetingRow[]);
 
       // ── SILENT EXTRACTION RETRY ──────────────────────────
       // Re-fire extraction for the most recent stuck interaction (fire-and-forget)
@@ -1786,7 +1783,7 @@ export default function HomePage() {
                             setChatMessages(prev => [...prev, {
                               id: `msg-${++chatIdCounter.current}`,
                               role: 'assistant',
-                              content: 'Saved as general intel.',
+                              content: 'Saved.',
                               saved: true,
                             }]);
                           }}
@@ -2008,40 +2005,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── CAPTURE SHEET (logic preserved, not visually triggered) ── */}
-      {showCapture && data?.user && (
-        <CaptureSheet
-          onClose={() => {
-            const hadCapture = captureCompletedRef.current;
-            captureCompletedRef.current = false;
-            setShowCapture(false);
-            setCaptureInitialMode(null);
-            setCaptureInitialText('');
-            // Fire environmental response after sheet is visually gone
-            if (hadCapture) {
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  triggerEnvironmentalAcknowledgment({ source: 'capture' });
-                });
-              });
-            }
-          }}
-          userId={data.user.id}
-          activeDeals={data.allDeals ?? []}
-          onCaptureComplete={() => {
-            // Mark that a capture completed — environmental response fires on close
-            captureCompletedRef.current = true;
-            // Clear pending pulse flag (prevent double-fire on next mount)
-            localStorage.removeItem('jove_pulse_pending');
-            // Delay re-fetch to give extraction time to complete
-            setTimeout(() => {
-              setHomeRefreshKey((k) => k + 1);
-            }, 3000);
-          }}
-          initialMode={captureInitialMode ?? undefined}
-          initialText={captureInitialText || undefined}
-        />
-      )}
 
       {/* ── BIRD CAPTURE MODAL ──────────────────────── */}
       {birdModalOpen && birdQuestion && (

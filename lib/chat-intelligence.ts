@@ -383,21 +383,18 @@ export function getAcknowledgment(
     case 'existing_deal_update':
       return dealName
         ? `Got it — added to ${dealName}.`
-        : 'Saved.';
+        : 'Saved that.';
     case 'meeting_context':
-      if (meetingTitle) return `Logged to ${meetingTitle}.`;
-      if (dealName) return `Saved — meeting context for ${dealName}.`;
-      return 'Saved as meeting context.';
+      if (meetingTitle) return `Noted — saved to ${meetingTitle}.`;
+      if (dealName) return `Got it — saved for ${dealName}.`;
+      return 'Saved.';
     case 'general_intel':
-      return 'Saved as general intel.';
+      return 'Saved.';
     case 'new_deal':
-      // This is handled by the new deal flow, not a simple ack
       return 'Noted.';
     case 'email_draft':
-      // This is handled by the email draft flow
-      return 'Starting a draft...';
+      return 'On it.';
     case 'question':
-      // Questions don't get acknowledgments — they get answers
       return '';
   }
 }
