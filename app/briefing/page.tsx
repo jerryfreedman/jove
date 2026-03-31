@@ -129,6 +129,10 @@ export default function BriefingPage() {
   const [briefLoading, setBriefLoading] = useState<Record<string, boolean>>({});
   const [showCompleted, setShowCompleted] = useState(false);
 
+  // Hero brief state (auto-fetched on page load for next meeting only)
+  const [heroBrief, setHeroBrief] = useState<string | null>(null);
+  const [heroBriefLoading, setHeroBriefLoading] = useState(false);
+
   // Tour refs
   const doThisFirstRef    = useRef<HTMLDivElement>(null);
   const needsAttentionRef = useRef<HTMLDivElement>(null);
@@ -269,6 +273,56 @@ export default function BriefingPage() {
     }, 60000);
     return () => clearInterval(interval);
   }, [meetings]);
+
+  // ── HERO BRIEF — auto-fetch for next meeting on load ──
+  useEffect(() => {
+    if (loading || !userId) return;
+
+    // Find next upcoming/in-progress meeting with a deal
+    const heroMeeting = meetings.find(m => {
+      const state = getMeetingState(m);
+      return (state === 'upcoming' || state === 'in_progress') && m.deal_id;
+    });
+
+    if (!heroMeeting || !heroMeeting.deal_id) return;
+
+    // Check localStorage cache first
+    const today = new Date().toISOString().split('T')[0];
+    const cacheKey = `jove_prep_${heroMeeting.deal_id}_${today}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const brief = extractBriefSummary(cached);
+      setHeroBrief(brief);
+      // Also populate inlineBriefs cache
+      setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: brief }));
+      return;
+    }
+
+    setHeroBriefLoading(true);
+    fetch('/api/prep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dealId: heroMeeting.deal_id, userId }),
+    })
+      .then(async (response) => {
+        if (!response.ok || !response.body) return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullText += decoder.decode(value, { stream: true });
+        }
+        localStorage.setItem(cacheKey, fullText);
+        const brief = extractBriefSummary(fullText);
+        setHeroBrief(brief);
+        setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: brief }));
+      })
+      .catch(() => { /* fail silently */ })
+      .finally(() => setHeroBriefLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, userId, meetings]);
 
   // ── DO THIS FIRST — async, cached ───────────────────
   useEffect(() => {
@@ -537,6 +591,31 @@ export default function BriefingPage() {
     d => !confirmedIds.has(d.id) && !snoozedIds.has(d.id)
   );
 
+  // Build context lines for needs attention deals
+  const dealContextMap = useMemo(() => {
+    const ctx: Record<string, string> = {};
+    for (const deal of attentionDeals) {
+      // Find the most recent signal for this deal
+      const dealSignals = todaySignals
+        .filter(s => s.deal_id === deal.id)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      if (dealSignals.length > 0) {
+        const signal = dealSignals[0];
+        // Show signal type and a snippet of content
+        const snippet = signal.content.length > 60
+          ? signal.content.slice(0, 57) + '...'
+          : signal.content;
+        ctx[deal.id] = `Signal: ${snippet}`;
+      } else {
+        // Fallback: show last activity timing
+        const days = getDaysSince(deal.last_activity_at);
+        ctx[deal.id] = `Last activity: ${days} days ago`;
+      }
+    }
+    return ctx;
+  }, [attentionDeals, todaySignals]);
+
   // ── MEETING GROUPS (lifecycle-aware) ─────────────────
   const { nextMeeting, upcomingMeetings, completedMeetings } = useMemo(() => {
     const upcoming: MeetingRow[] = [];
@@ -692,42 +771,43 @@ export default function BriefingPage() {
       {!fetchError && (
       <div style={{ padding: '20px 18px 0' }}>
 
-        {/* ── NEXT MEETING (hero) ─────────────────── */}
-        {nextMeeting && (
+        {/* ── NEXT MEETING HERO ────────────────────── */}
+        {nextMeeting && (() => {
+          const heroState = getMeetingState(nextMeeting);
+          const isInProgress = heroState === 'in_progress';
+          return (
           <div style={{ marginBottom: 24 }}>
             <div style={sectionLabel}>Next Meeting</div>
             <div
-              onClick={() => handleMeetingTap(nextMeeting)}
               style={{
-                background:   '#FFFFFF',
-                borderLeft:   `3px solid ${getMeetingState(nextMeeting) === 'in_progress' ? COLORS.green : 'rgba(56,184,200,0.52)'}`,
-                borderRadius: '0 14px 14px 0',
-                padding:      '16px 17px',
-                boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
-                cursor:       'pointer',
+                background:   'linear-gradient(135deg, rgba(232,160,48,0.04), rgba(200,160,80,0.08))',
+                border:       '1px solid rgba(200,160,80,0.22)',
+                borderRadius: 16,
+                padding:      '20px 20px 18px',
+                boxShadow:    '0 4px 20px rgba(26,20,16,0.06)',
               }}
             >
-              {/* Time */}
+              {/* Status line */}
               <div style={{
                 display:      'flex',
                 alignItems:   'center',
                 gap:          7,
-                marginBottom: 7,
+                marginBottom: 10,
               }}>
                 <div style={{
-                  width:        6,
-                  height:       6,
+                  width:        7,
+                  height:       7,
                   borderRadius: '50%',
-                  background:   getMeetingState(nextMeeting) === 'in_progress' ? COLORS.green : COLORS.teal,
+                  background:   isInProgress ? COLORS.green : COLORS.teal,
                   flexShrink:   0,
-                  ...(getMeetingState(nextMeeting) === 'in_progress' ? { animation: 'dotBlink 2.5s ease-in-out infinite' } : {}),
+                  animation:    isInProgress ? 'dotBlink 2.5s ease-in-out infinite' : 'none',
                 }} />
                 <span style={{
-                  fontSize:      10,
+                  fontSize:      11,
                   fontWeight:    600,
                   letterSpacing: '1.5px',
                   textTransform: 'uppercase',
-                  color:         getMeetingState(nextMeeting) === 'in_progress'
+                  color:         isInProgress
                     ? 'rgba(72,200,120,0.82)'
                     : 'rgba(56,184,200,0.82)',
                 }}>
@@ -750,167 +830,118 @@ export default function BriefingPage() {
                 )}
               </div>
 
-              {/* Title */}
+              {/* Title — large, serif */}
               <div style={{
                 fontFamily:   "'Cormorant Garamond', serif",
-                fontSize:     20,
+                fontSize:     24,
                 fontWeight:   400,
                 color:        '#1A1410',
-                marginBottom: nextMeeting.attendees ? 5 : 10,
+                lineHeight:   1.25,
+                marginBottom: 6,
               }}>
                 {nextMeeting.title}
               </div>
 
-              {/* Attendees */}
-              {nextMeeting.attendees && (
-                <div style={{
-                  fontSize:     12,
-                  fontWeight:   300,
-                  color:        'rgba(26,20,16,0.44)',
-                  marginBottom: 10,
-                }}>
-                  {nextMeeting.attendees}
+              {/* AI Brief (deal-linked) or Attendees (no deal) */}
+              {nextMeeting.deal_id ? (
+                <div style={{ marginBottom: 14 }}>
+                  {heroBriefLoading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                      <div style={{
+                        height: 11, borderRadius: 6,
+                        background: 'rgba(26,20,16,0.06)',
+                        animation: 'shimmer 1.5s ease-in-out infinite',
+                        width: '92%',
+                      }} />
+                      <div style={{
+                        height: 11, borderRadius: 6,
+                        background: 'rgba(26,20,16,0.06)',
+                        animation: 'shimmer 1.5s ease-in-out infinite',
+                        width: '68%',
+                      }} />
+                    </div>
+                  ) : heroBrief ? (
+                    <p style={{
+                      fontSize:   14,
+                      fontWeight: 300,
+                      color:      'rgba(26,20,16,0.56)',
+                      lineHeight: 1.65,
+                      margin:     '6px 0 0',
+                    }}>
+                      {heroBrief}
+                    </p>
+                  ) : nextMeeting.attendees ? (
+                    <div style={{
+                      fontSize:   12,
+                      fontWeight: 300,
+                      color:      'rgba(26,20,16,0.44)',
+                      marginTop:  4,
+                    }}>
+                      {nextMeeting.attendees}
+                    </div>
+                  ) : null}
                 </div>
-              )}
-
-              {/* Inline expanded content */}
-              {expandedMeetingId === nextMeeting.id && (
-                <div style={{
-                  marginTop:    10,
-                  paddingTop:   10,
-                  borderTop:    '0.5px solid rgba(200,160,80,0.15)',
-                }}>
-                  {/* AI Brief (deal-linked only) */}
-                  {nextMeeting.deal_id && (
-                    <div style={{ marginBottom: 10 }}>
-                      {briefLoading[nextMeeting.id] ? (
-                        <div style={{
-                          height:       12,
-                          borderRadius: 6,
-                          background:   'rgba(26,20,16,0.06)',
-                          animation:    'shimmer 1.5s ease-in-out infinite',
-                          width:        '85%',
-                        }} />
-                      ) : inlineBriefs[nextMeeting.id] ? (
-                        <p style={{
-                          fontSize:   13,
-                          fontWeight: 300,
-                          color:      'rgba(26,20,16,0.56)',
-                          lineHeight: 1.6,
-                          margin:     0,
-                        }}>
-                          {inlineBriefs[nextMeeting.id]}
-                        </p>
-                      ) : null}
+              ) : (
+                <div style={{ marginBottom: 14 }}>
+                  {nextMeeting.attendees && (
+                    <div style={{
+                      fontSize:   12,
+                      fontWeight: 300,
+                      color:      'rgba(26,20,16,0.44)',
+                      marginTop:  4,
+                    }}>
+                      {nextMeeting.attendees}
                     </div>
                   )}
-
-                  {/* CTAs */}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {/* Prep Me — only for upcoming + deal-linked */}
-                    {nextMeeting.deal_id && getMeetingState(nextMeeting) === 'upcoming' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          router.push(`/deals/${nextMeeting.deal_id}/prep`);
-                        }}
-                        style={{
-                          padding:       '8px 16px',
-                          borderRadius:  9,
-                          border:        '0.5px solid rgba(56,184,200,0.4)',
-                          background:    'rgba(56,184,200,0.06)',
-                          color:         COLORS.teal,
-                          fontSize:      10,
-                          fontWeight:    700,
-                          letterSpacing: '1.5px',
-                          textTransform: 'uppercase',
-                          cursor:        'pointer',
-                          fontFamily:    "'DM Sans', sans-serif",
-                        }}
-                      >
-                        Prep Me
-                      </button>
-                    )}
-                    {/* Add context — always available */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddContext(nextMeeting);
-                      }}
-                      style={{
-                        padding:       '8px 16px',
-                        borderRadius:  9,
-                        border:        '0.5px solid rgba(200,160,80,0.3)',
-                        background:    'rgba(200,160,80,0.06)',
-                        color:         COLORS.amber,
-                        fontSize:      10,
-                        fontWeight:    700,
-                        letterSpacing: '1.5px',
-                        textTransform: 'uppercase',
-                        cursor:        'pointer',
-                        fontFamily:    "'DM Sans', sans-serif",
-                      }}
-                    >
-                      Add Context
-                    </button>
-                  </div>
                 </div>
               )}
 
-              {/* Collapsed state CTAs (visible without expansion) */}
-              {expandedMeetingId !== nextMeeting.id && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {nextMeeting.deal_id && getMeetingState(nextMeeting) === 'upcoming' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/deals/${nextMeeting.deal_id}/prep`);
-                      }}
-                      style={{
-                        padding:       '8px 16px',
-                        borderRadius:  9,
-                        border:        '0.5px solid rgba(56,184,200,0.4)',
-                        background:    'rgba(56,184,200,0.06)',
-                        color:         COLORS.teal,
-                        fontSize:      10,
-                        fontWeight:    700,
-                        letterSpacing: '1.5px',
-                        textTransform: 'uppercase',
-                        cursor:        'pointer',
-                        fontFamily:    "'DM Sans', sans-serif",
-                      }}
-                    >
-                      Prep Me
-                    </button>
-                  )}
-                  {getMeetingState(nextMeeting) !== 'upcoming' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddContext(nextMeeting);
-                      }}
-                      style={{
-                        padding:       '8px 16px',
-                        borderRadius:  9,
-                        border:        '0.5px solid rgba(200,160,80,0.3)',
-                        background:    'rgba(200,160,80,0.06)',
-                        color:         COLORS.amber,
-                        fontSize:      10,
-                        fontWeight:    700,
-                        letterSpacing: '1.5px',
-                        textTransform: 'uppercase',
-                        cursor:        'pointer',
-                        fontFamily:    "'DM Sans', sans-serif",
-                      }}
-                    >
-                      Add Context
-                    </button>
-                  )}
-                </div>
-              )}
+              {/* Single CTA based on state */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                {heroState === 'upcoming' && nextMeeting.deal_id ? (
+                  <button
+                    onClick={() => router.push(`/deals/${nextMeeting.deal_id}/prep`)}
+                    style={{
+                      padding:       '10px 20px',
+                      borderRadius:  10,
+                      border:        '0.5px solid rgba(56,184,200,0.4)',
+                      background:    'rgba(56,184,200,0.08)',
+                      color:         COLORS.teal,
+                      fontSize:      11,
+                      fontWeight:    700,
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      cursor:        'pointer',
+                      fontFamily:    "'DM Sans', sans-serif",
+                    }}
+                  >
+                    Prep →
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleAddContext(nextMeeting)}
+                    style={{
+                      padding:       '10px 20px',
+                      borderRadius:  10,
+                      border:        '0.5px solid rgba(200,160,80,0.3)',
+                      background:    'rgba(200,160,80,0.08)',
+                      color:         COLORS.amber,
+                      fontSize:      11,
+                      fontWeight:    700,
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      cursor:        'pointer',
+                      fontFamily:    "'DM Sans', sans-serif",
+                    }}
+                  >
+                    Add context →
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── UPCOMING TODAY ─────────────────────────── */}
         {upcomingMeetings.length > 0 && (
@@ -1087,6 +1118,212 @@ export default function BriefingPage() {
           </div>
         )}
 
+        {/* No meetings state */}
+        {!loading && meetings.length === 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={sectionLabel}>Meetings</div>
+            <div style={{
+              textAlign: 'center',
+              padding:   '24px 0 16px',
+            }}>
+              <p style={{
+                fontFamily: "'Cormorant Garamond', serif",
+                fontSize:   18,
+                fontWeight: 300,
+                color:      'rgba(26,20,16,0.36)',
+              }}>
+                No meetings today.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── NEEDS ATTENTION ──────────────────────── */}
+        {!loading && (
+          <div style={{ marginBottom: 24 }} ref={needsAttentionRef}>
+            <div style={sectionLabel}>Needs Attention</div>
+
+            {/* All clear state */}
+            {allClear || visibleAttentionDeals.length === 0 ? (
+              <div style={{
+                textAlign: 'center',
+                padding:   '32px 0 16px',
+              }}>
+                <p style={{
+                  fontFamily:   "'Cormorant Garamond', serif",
+                  fontSize:     32,
+                  fontWeight:   300,
+                  color:        '#1A1410',
+                  marginBottom: 6,
+                }}>
+                  All clear.
+                </p>
+                <p style={{
+                  fontSize:   13,
+                  fontWeight: 300,
+                  color:      'rgba(26,20,16,0.44)',
+                }}>
+                  {attentionDeals.length > 0
+                    ? 'Every deal has been reviewed.'
+                    : 'All deals have confirmed next steps.'}
+                </p>
+              </div>
+            ) : (
+              visibleAttentionDeals.map(deal => {
+                const days     = getDaysSince(deal.last_activity_at);
+                const isUrgent = days > 14;
+                const borderColor = isUrgent
+                  ? 'rgba(224,88,64,0.56)'
+                  : 'rgba(232,160,48,0.48)';
+                const dotColor  = isUrgent ? COLORS.red : COLORS.amber;
+                const textColor = isUrgent
+                  ? 'rgba(224,88,64,0.82)'
+                  : 'rgba(232,160,48,0.75)';
+
+                return (
+                  <div
+                    key={deal.id}
+                    style={{
+                      background:   '#FFFFFF',
+                      borderLeft:   `3px solid ${borderColor}`,
+                      borderRadius: '0 14px 14px 0',
+                      padding:      '14px 17px',
+                      marginBottom: 10,
+                      boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
+                      animation:    confirmedIds.has(deal.id)
+                        ? 'slideOut 0.3s ease forwards'
+                        : 'none',
+                    }}
+                  >
+                    {/* Deal header */}
+                    <div style={{
+                      display:      'flex',
+                      alignItems:   'center',
+                      gap:          7,
+                      marginBottom: 7,
+                    }}>
+                      <div style={{
+                        width:        6,
+                        height:       6,
+                        borderRadius: '50%',
+                        background:   dotColor,
+                        flexShrink:   0,
+                        animation:    'dotBlink 2.5s ease-in-out infinite',
+                      }} />
+                      <span style={{
+                        fontSize:      10,
+                        fontWeight:    600,
+                        letterSpacing: '1.5px',
+                        textTransform: 'uppercase',
+                        color:         textColor,
+                      }}>
+                        {accountMap[deal.account_id] ?? ''} · {days} days silent
+                      </span>
+                      {isUrgent && (
+                        <span style={{
+                          fontSize:      8,
+                          fontWeight:    700,
+                          letterSpacing: '1px',
+                          textTransform: 'uppercase',
+                          background:    'rgba(224,88,64,0.1)',
+                          color:         'rgba(224,88,64,0.88)',
+                          padding:       '2px 7px',
+                          borderRadius:  20,
+                          marginLeft:    'auto',
+                        }}>
+                          urgent
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Deal name */}
+                    <div style={{
+                      fontFamily:   "'Cormorant Garamond', serif",
+                      fontSize:     18,
+                      fontWeight:   400,
+                      color:        '#1A1410',
+                      marginBottom: 4,
+                    }}>
+                      {deal.name}
+                    </div>
+
+                    {/* Context line — intelligence */}
+                    {dealContextMap[deal.id] && (
+                      <div style={{
+                        fontSize:     12,
+                        fontWeight:   400,
+                        fontStyle:    'italic',
+                        color:        'rgba(26,20,16,0.40)',
+                        marginBottom: 4,
+                        lineHeight:   1.5,
+                      }}>
+                        {dealContextMap[deal.id]}
+                      </div>
+                    )}
+
+                    {/* Stage */}
+                    <div style={{
+                      fontSize:     12,
+                      fontWeight:   300,
+                      color:        'rgba(26,20,16,0.44)',
+                      marginBottom: 12,
+                    }}>
+                      {deal.stage} · {deal.next_action ?? 'No next action set'}
+                    </div>
+
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => handleConfirm(deal.id)}
+                        style={{
+                          flex:          1,
+                          padding:       '9px 0',
+                          borderRadius:  9,
+                          textAlign:     'center',
+                          background:    isUrgent
+                            ? 'rgba(224,88,64,0.08)'
+                            : 'rgba(232,160,48,0.08)',
+                          border:        `0.5px solid ${isUrgent
+                            ? 'rgba(224,88,64,0.3)'
+                            : 'rgba(232,160,48,0.3)'}`,
+                          color:         isUrgent ? COLORS.red : COLORS.amber,
+                          fontSize:      9,
+                          fontWeight:    700,
+                          letterSpacing: '1.5px',
+                          textTransform: 'uppercase',
+                          cursor:        'pointer',
+                          fontFamily:    "'DM Sans', sans-serif",
+                          transition:    'all 0.2s',
+                        }}
+                      >
+                        ✓  Confirm
+                      </button>
+                      <button
+                        onClick={() => handleSnooze(deal.id)}
+                        style={{
+                          padding:       '9px 14px',
+                          borderRadius:  9,
+                          background:    'rgba(26,20,16,0.04)',
+                          border:        '0.5px solid rgba(26,20,16,0.1)',
+                          color:         'rgba(26,20,16,0.3)',
+                          fontSize:      9,
+                          fontWeight:    500,
+                          letterSpacing: '1px',
+                          textTransform: 'uppercase',
+                          cursor:        'pointer',
+                          fontFamily:    "'DM Sans', sans-serif",
+                        }}
+                      >
+                        Snooze
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
         {/* ── COMPLETED MEETINGS ───────────────────── */}
         {completedMeetings.length > 0 && (
           <div style={{ marginBottom: 24 }}>
@@ -1213,252 +1450,7 @@ export default function BriefingPage() {
           </div>
         )}
 
-        {/* No meetings state */}
-        {!loading && meetings.length === 0 && (
-          <div style={{ marginBottom: 24 }}>
-            <div style={sectionLabel}>Meetings</div>
-            <div style={{
-              textAlign: 'center',
-              padding:   '24px 0 16px',
-            }}>
-              <p style={{
-                fontFamily: "'Cormorant Garamond', serif",
-                fontSize:   18,
-                fontWeight: 300,
-                color:      'rgba(26,20,16,0.36)',
-              }}>
-                No meetings today.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── NEEDS ATTENTION ──────────────────────── */}
-        {!loading && (
-          <div style={{ marginBottom: 24 }} ref={needsAttentionRef}>
-            <div style={sectionLabel}>Needs Attention</div>
-
-            {/* All clear state */}
-            {allClear || visibleAttentionDeals.length === 0 ? (
-              <div style={{
-                textAlign: 'center',
-                padding:   '32px 0 16px',
-              }}>
-                <p style={{
-                  fontFamily:   "'Cormorant Garamond', serif",
-                  fontSize:     32,
-                  fontWeight:   300,
-                  color:        '#1A1410',
-                  marginBottom: 6,
-                }}>
-                  All clear.
-                </p>
-                <p style={{
-                  fontSize:   13,
-                  fontWeight: 300,
-                  color:      'rgba(26,20,16,0.44)',
-                }}>
-                  {attentionDeals.length > 0
-                    ? 'Every deal has been reviewed.'
-                    : 'All deals have confirmed next steps.'}
-                </p>
-              </div>
-            ) : (
-              visibleAttentionDeals.map(deal => {
-                const days     = getDaysSince(deal.last_activity_at);
-                const isUrgent = days > 14;
-                const borderColor = isUrgent
-                  ? 'rgba(224,88,64,0.56)'
-                  : 'rgba(232,160,48,0.48)';
-                const dotColor  = isUrgent ? COLORS.red : COLORS.amber;
-                const textColor = isUrgent
-                  ? 'rgba(224,88,64,0.82)'
-                  : 'rgba(232,160,48,0.75)';
-
-                return (
-                  <div
-                    key={deal.id}
-                    style={{
-                      background:   '#FFFFFF',
-                      borderLeft:   `3px solid ${borderColor}`,
-                      borderRadius: '0 14px 14px 0',
-                      padding:      '14px 17px',
-                      marginBottom: 10,
-                      boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
-                      animation:    confirmedIds.has(deal.id)
-                        ? 'slideOut 0.3s ease forwards'
-                        : 'none',
-                    }}
-                  >
-                    {/* Deal header */}
-                    <div style={{
-                      display:      'flex',
-                      alignItems:   'center',
-                      gap:          7,
-                      marginBottom: 7,
-                    }}>
-                      <div style={{
-                        width:        6,
-                        height:       6,
-                        borderRadius: '50%',
-                        background:   dotColor,
-                        flexShrink:   0,
-                        animation:    'dotBlink 2.5s ease-in-out infinite',
-                      }} />
-                      <span style={{
-                        fontSize:      10,
-                        fontWeight:    600,
-                        letterSpacing: '1.5px',
-                        textTransform: 'uppercase',
-                        color:         textColor,
-                      }}>
-                        {accountMap[deal.account_id] ?? ''} · {days} days silent
-                      </span>
-                      {isUrgent && (
-                        <span style={{
-                          fontSize:      8,
-                          fontWeight:    700,
-                          letterSpacing: '1px',
-                          textTransform: 'uppercase',
-                          background:    'rgba(224,88,64,0.1)',
-                          color:         'rgba(224,88,64,0.88)',
-                          padding:       '2px 7px',
-                          borderRadius:  20,
-                          marginLeft:    'auto',
-                        }}>
-                          urgent
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Deal name */}
-                    <div style={{
-                      fontFamily:   "'Cormorant Garamond', serif",
-                      fontSize:     18,
-                      fontWeight:   400,
-                      color:        '#1A1410',
-                      marginBottom: 5,
-                    }}>
-                      {deal.name}
-                    </div>
-
-                    {/* Stage */}
-                    <div style={{
-                      fontSize:     12,
-                      fontWeight:   300,
-                      color:        'rgba(26,20,16,0.44)',
-                      marginBottom: 12,
-                    }}>
-                      {deal.stage} · {deal.next_action ?? 'No next action set'}
-                    </div>
-
-                    {/* Action buttons */}
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button
-                        onClick={() => handleConfirm(deal.id)}
-                        style={{
-                          flex:          1,
-                          padding:       '9px 0',
-                          borderRadius:  9,
-                          textAlign:     'center',
-                          background:    isUrgent
-                            ? 'rgba(224,88,64,0.08)'
-                            : 'rgba(232,160,48,0.08)',
-                          border:        `0.5px solid ${isUrgent
-                            ? 'rgba(224,88,64,0.3)'
-                            : 'rgba(232,160,48,0.3)'}`,
-                          color:         isUrgent ? COLORS.red : COLORS.amber,
-                          fontSize:      9,
-                          fontWeight:    700,
-                          letterSpacing: '1.5px',
-                          textTransform: 'uppercase',
-                          cursor:        'pointer',
-                          fontFamily:    "'DM Sans', sans-serif",
-                          transition:    'all 0.2s',
-                        }}
-                      >
-                        ✓  Confirm
-                      </button>
-                      <button
-                        onClick={() => handleSnooze(deal.id)}
-                        style={{
-                          padding:       '9px 14px',
-                          borderRadius:  9,
-                          background:    'rgba(26,20,16,0.04)',
-                          border:        '0.5px solid rgba(26,20,16,0.1)',
-                          color:         'rgba(26,20,16,0.3)',
-                          fontSize:      9,
-                          fontWeight:    500,
-                          letterSpacing: '1px',
-                          textTransform: 'uppercase',
-                          cursor:        'pointer',
-                          fontFamily:    "'DM Sans', sans-serif",
-                        }}
-                      >
-                        Snooze
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {/* ── DO THIS FIRST ─────────────────────────── */}
-        <div style={{ marginBottom: 24 }} ref={doThisFirstRef}>
-          <div style={sectionLabel}>Do This First</div>
-          <div style={{
-            background:   '#FFFFFF',
-            borderLeft:   '3px solid rgba(232,160,48,0.62)',
-            borderRadius: '0 14px 14px 0',
-            padding:      '16px 18px',
-            boxShadow:    '0 2px 10px rgba(26,20,16,0.06)',
-            minHeight:    60,
-          }}>
-            <div style={{
-              fontSize:      9,
-              fontWeight:    700,
-              letterSpacing: '2px',
-              textTransform: 'uppercase',
-              color:         COLORS.amber,
-              marginBottom:  9,
-            }}>
-              One thing
-            </div>
-            {doThisLoading ? (
-              <div style={{
-                height:       12,
-                borderRadius: 6,
-                background:   'rgba(26,20,16,0.06)',
-                animation:    'shimmer 1.5s ease-in-out infinite',
-                width:        '85%',
-              }} />
-            ) : doThisFirst ? (
-              <div style={{
-                fontSize:   14,
-                fontWeight: 300,
-                color:      'rgba(26,20,16,0.52)',
-                lineHeight: 1.72,
-                margin:     0,
-              }}>
-                {renderMarkdown(doThisFirst)}
-              </div>
-            ) : (
-              <p style={{
-                fontSize:   14,
-                fontWeight: 300,
-                color:      'rgba(26,20,16,0.36)',
-                lineHeight: 1.72,
-                margin:     0,
-              }}>
-                Your intelligence is warming up — capture a call or email to get started.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* ── INTELLIGENCE STATS ────────────────────── */}
+{/* ── INTELLIGENCE STATS ────────────────────── */}
         <div style={{
           display:      'flex',
           border:       '0.5px solid rgba(200,160,80,0.2)',
@@ -1619,7 +1611,6 @@ export default function BriefingPage() {
       {showBriefingTour && (
         <SpotlightTour
           stops={[
-            { ref: doThisFirstRef, copy: 'Your one priority for today.', position: 'below' as const },
             { ref: needsAttentionRef, copy: 'Deals that need your attention.', position: 'below' as const },
           ]}
           storageKey="jove_tour_briefing"
