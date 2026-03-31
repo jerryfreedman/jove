@@ -9,7 +9,7 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
-    const { dealId, userId, mode } = await request.json();
+    const { dealId, userId, mode, meetingId } = await request.json();
     if (!dealId || !userId) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
@@ -17,14 +17,18 @@ export async function POST(request: NextRequest) {
     const isMicro = mode === 'micro';
 
     // Check context cache first (skip if x-no-cache header set)
+    // Include meetingId in cache key so attendee-filtered context isn't reused across meetings
     const noCache = request.headers.get('x-no-cache') === 'true';
-    const cacheKey = `prep_${dealId}_${userId}`;
+    const cacheKey = `prep_${dealId}_${userId}${meetingId ? `_${meetingId}` : ''}`;
     const cachedPrompt = !noCache ? getCached(cacheKey) : null;
 
     let userPrompt: string;
+    // Track context richness for micro mode anti-generic check
+    let hasRealContext = false;
 
     if (cachedPrompt) {
       userPrompt = cachedPrompt;
+      hasRealContext = true; // cached means it had context when built
     } else {
       const cookieStore = await cookies();
       const supabase = createServerClient(
@@ -44,7 +48,7 @@ export async function POST(request: NextRequest) {
         }
       );
 
-      // Fetch all deal context in parallel
+      // Fetch all deal context in parallel — reduced limits for sharper context
       const [dealRes, interactionsRes, signalsRes, kbRes] = await Promise.all([
         supabase
           .from('deals')
@@ -58,7 +62,7 @@ export async function POST(request: NextRequest) {
           .eq('deal_id', dealId)
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
-          .limit(5),
+          .limit(3),
         supabase
           .from('signals')
           .select('signal_type, content')
@@ -66,13 +70,25 @@ export async function POST(request: NextRequest) {
           .eq('user_id', userId)
           .eq('is_duplicate', false)
           .order('created_at', { ascending: false })
-          .limit(10),
+          .limit(5),
         supabase
           .from('knowledge_base')
           .select('product_name, description, key_features, target_use_cases')
           .eq('user_id', userId)
           .order('created_at', { ascending: true }),
       ]);
+
+      // Fetch meeting attendees separately if meetingId provided
+      let meetingAttendeeData: { attendees: string | null } | null = null;
+      if (meetingId) {
+        const { data } = await supabase
+          .from('meetings')
+          .select('attendees')
+          .eq('id', meetingId)
+          .eq('user_id', userId)
+          .single();
+        meetingAttendeeData = data;
+      }
 
       if (dealRes.error || !dealRes.data) {
         return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
@@ -83,24 +99,85 @@ export async function POST(request: NextRequest) {
         name: string; title: string | null; is_champion: boolean;
         relationship_summary: string | null;
       }> } | null;
-      const contacts = (account?.contacts ?? []);
+      const allContacts = (account?.contacts ?? []);
       const interactions = interactionsRes.data ?? [];
       const signals = signalsRes.data ?? [];
+
+      // ── PHASE 1: ATTENDEE FILTERING ──
+      // If meetingId was provided and we have attendees, filter contacts
+      // to only those actually in the room
+      const meetingAttendees = meetingAttendeeData?.attendees ?? null;
+      let matchedContacts = allContacts;
+      let unmatchedAttendees: string[] = [];
+
+      if (meetingAttendees && meetingAttendees.trim()) {
+        const attendeeNames = meetingAttendees
+          .split(',')
+          .map((n: string) => n.trim().toLowerCase())
+          .filter((n: string) => n.length > 0);
+
+        if (attendeeNames.length > 0) {
+          const matched: typeof allContacts = [];
+          const matchedAttendeeNames = new Set<string>();
+
+          for (const contact of allContacts) {
+            const contactLower = contact.name.toLowerCase();
+            const isMatch = attendeeNames.some((attendee: string) =>
+              contactLower.includes(attendee) || attendee.includes(contactLower)
+            );
+            if (isMatch) {
+              matched.push(contact);
+              // Track which attendee names matched
+              for (const attendee of attendeeNames) {
+                if (contactLower.includes(attendee) || attendee.includes(contactLower)) {
+                  matchedAttendeeNames.add(attendee);
+                }
+              }
+            }
+          }
+
+          // Unmatched attendees: names from the meeting that didn't match any contact
+          unmatchedAttendees = meetingAttendees
+            .split(',')
+            .map((n: string) => n.trim())
+            .filter((n: string) => n.length > 0 && !matchedAttendeeNames.has(n.toLowerCase()));
+
+          // Only use filtered list if we got at least one match
+          if (matched.length > 0) {
+            matchedContacts = matched;
+          }
+          // If zero matches, fall back to all contacts
+        }
+      }
+
+      // ── Track context richness ──
+      hasRealContext = signals.length > 0 || interactions.length > 0;
 
       const days = Math.floor(
         (Date.now() - new Date(deal.last_activity_at).getTime()) /
         (1000 * 60 * 60 * 24)
       );
 
-      const contactsText = contacts.length > 0
-        ? contacts.map(c => {
-            let line = `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${c.is_champion ? 'yes' : 'no'}`;
-            if (c.relationship_summary) {
-              line += `\n  Relationship: ${c.relationship_summary}`;
-            }
-            return line;
-          }).join('\n')
-        : 'No contacts logged yet.';
+      // Build contacts text with attendee awareness
+      let contactsText: string;
+      if (matchedContacts.length > 0) {
+        const contactLines = matchedContacts.map(c => {
+          let line = `${c.name}${c.title ? ` — ${c.title}` : ''} — champion: ${c.is_champion ? 'yes' : 'no'}`;
+          if (c.relationship_summary) {
+            line += `\n  Relationship: ${c.relationship_summary}`;
+          }
+          return line;
+        });
+        // Add unmatched attendees as plain names
+        if (unmatchedAttendees.length > 0) {
+          for (const name of unmatchedAttendees) {
+            contactLines.push(`${name} — (no contact record)`);
+          }
+        }
+        contactsText = contactLines.join('\n');
+      } else {
+        contactsText = 'No contacts logged yet.';
+      }
 
       const interactionsText = interactions.length > 0
         ? interactions.map(i => {
@@ -137,10 +214,10 @@ NEXT ACTION: ${deal.next_action ?? 'None set'}
 NOTES: ${deal.notes ?? 'None'}
 DAYS SINCE LAST ACTIVITY: ${days}
 
-CONTACTS:
+CONTACTS${meetingAttendees ? ' (MEETING ATTENDEES)' : ''}:
 ${contactsText}
 
-RECENT INTERACTIONS (last 5):
+RECENT INTERACTIONS (last 3):
 ${interactionsText}
 
 RECENT SIGNALS:
@@ -178,15 +255,23 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
     }
 
     // ── MICRO MODE: return 1-2 sentence JSON summary ──
+    // Phase 2: Anti-generic enforcement — if no real context, return null
     if (isMicro) {
+      if (!hasRealContext && !cachedPrompt) {
+        return NextResponse.json({ summary: null });
+      }
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: 150,
-        system: `You are preparing a senior sales professional for their next meeting. Based on the deal context, generate a 1-2 sentence summary of the situation and what to focus on. Be specific to this deal. No markdown. No structure. Just plain text.`,
+        system: `You are preparing a senior sales professional for their next meeting. Based on the deal context, generate a 1-2 sentence summary of the situation and what to focus on. You MUST reference at least one of: the deal name, account name, a specific signal, or a specific interaction. Be specific to this deal. No markdown. No structure. Just plain text. If the context is insufficient to say something specific, return exactly: null`,
         messages: [{ role: 'user', content: userPrompt }],
       });
-      const text = response.content[0].type === 'text' ? response.content[0].text : '';
-      return NextResponse.json({ summary: text.trim() });
+      const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
+      // If the model returned "null" or empty, don't pretend we have a summary
+      if (!text || text.toLowerCase() === 'null') {
+        return NextResponse.json({ summary: null });
+      }
+      return NextResponse.json({ summary: text });
     }
 
     // ── FULL MODE: Stream response ──

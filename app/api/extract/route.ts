@@ -88,13 +88,35 @@ function calculateSignalVelocity(
 // ── MAIN HANDLER ──────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    const { interactionId, userId } = await request.json();
+    const body = await request.json();
+    const interactionId = body.interactionId;
+    let userId = body.userId;
+
     if (!interactionId || !userId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Use service role for extraction worker — bypasses RLS
+    // Phase 5: Prefer session userId over body userId when available
     const cookieStore = await cookies();
+    try {
+      const sessionSupabase = createServerClient(
+        SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() { return cookieStore.getAll(); },
+            setAll() { /* read-only check */ },
+          },
+        }
+      );
+      const { data: { user } } = await sessionSupabase.auth.getUser();
+      if (user?.id) {
+        userId = user.id; // Trust session over body
+      }
+    } catch {
+      // Session check failed — continue with body userId
+      // Documented risk: body userId is trusted as fallback
+    }
     const supabase = createServerClient(
       SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,

@@ -322,6 +322,29 @@ export default function BriefingPage() {
 
   useEffect(() => {
     document.body.style.backgroundColor = '#F7F3EC';
+
+    // Phase 6: Clean up stale meeting_prompt_ack_ keys older than 24 hours
+    const ACK_TTL_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('meeting_prompt_ack_')) {
+        const val = localStorage.getItem(key);
+        // If stored as 'true' (no timestamp), check if old brief_ keys exist for same date
+        // Simplest approach: store timestamp going forward, treat 'true' as stale
+        if (val === 'true') {
+          // Migrate: replace 'true' with timestamp
+          localStorage.setItem(key, String(now));
+        } else if (val) {
+          const storedAt = parseInt(val, 10);
+          if (!isNaN(storedAt) && (now - storedAt) > ACK_TTL_MS) {
+            keysToRemove.push(key);
+          }
+        }
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
   }, []);
 
   // Tour trigger
@@ -365,12 +388,24 @@ export default function BriefingPage() {
       setCuriosityDismissed(true);
     }
 
+    // Check if meeting_prompt_ack_ is set (value is timestamp or legacy 'true')
+    const ackKey = `meeting_prompt_ack_${heroMeeting.id}`;
+    const ackVal = localStorage.getItem(ackKey);
+    if (ackVal) {
+      setCuriosityDismissed(true);
+    }
+
     // No deal — can't generate brief, show fallback
     if (!heroMeeting.deal_id) return;
 
     // Check micro brief cache first (instant render)
+    // Phase 4: Include deal updated_at in cache key for auto-invalidation
     const today = new Date().toISOString().split('T')[0];
-    const microCacheKey = `brief_${heroMeeting.id}_${today}`;
+    const dealForCache = allActiveDeals.find(d => d.id === heroMeeting.deal_id);
+    const dealUpdatedSuffix = dealForCache?.updated_at
+      ? `_${new Date(dealForCache.updated_at).getTime()}`
+      : '';
+    const microCacheKey = `brief_${heroMeeting.id}_${today}${dealUpdatedSuffix}`;
     const cachedMicro = localStorage.getItem(microCacheKey);
     if (cachedMicro) {
       setHeroBrief(cachedMicro);
@@ -431,13 +466,13 @@ export default function BriefingPage() {
       const hoursUntil = (new Date(heroMeeting.scheduled_at).getTime() - Date.now()) / 3600000;
       if (hoursUntil > 12) return;
 
-      // Strong context — generate micro brief
+      // Strong context — generate micro brief (pass meetingId for attendee awareness)
       setHeroBriefLoading(true);
       try {
         const response = await fetch('/api/prep', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dealId: heroMeeting.deal_id, userId, mode: 'micro' }),
+          body: JSON.stringify({ dealId: heroMeeting.deal_id, userId, mode: 'micro', meetingId: heroMeeting.id }),
         });
         if (response.ok) {
           const data = await response.json();
@@ -446,6 +481,7 @@ export default function BriefingPage() {
             setHeroBrief(data.summary);
             setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: data.summary }));
           }
+          // Phase 2: null summary = insufficient context, leave heroBrief as null (fallback UI)
         }
       } catch {
         // Fail silently — fallback UI handles this
@@ -635,7 +671,7 @@ export default function BriefingPage() {
       const response = await fetch('/api/prep', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dealId: meeting.deal_id, userId }),
+        body: JSON.stringify({ dealId: meeting.deal_id, userId, meetingId: meeting.id }),
         signal: controller.signal,
       });
 
@@ -719,43 +755,46 @@ export default function BriefingPage() {
     setCuriositySubmitting(true);
 
     try {
-      // 1. Save as interaction (note type)
-      await supabase.from('interactions').insert({
+      // 1. Save as interaction (note type) — capture the returned ID
+      const { data: insertedInteraction } = await supabase.from('interactions').insert({
         user_id: userId,
         deal_id: meeting.deal_id ?? null,
         type: 'note' as const,
         raw_content: curiosityAnswer.trim(),
         extraction_status: 'pending' as const,
-      });
+      }).select('id').single();
 
       // 2. Mark question as answered (never show again for this meeting)
       localStorage.setItem(`question_answered_${meeting.id}`, 'true');
-      localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, 'true');
+      localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, String(Date.now()));
       setCuriosityDismissed(true);
       setCuriosityAnswer('');
 
-      // 3. Trigger extraction if deal exists
-      if (meeting.deal_id) {
+      // 3. Trigger extraction if deal exists AND we got the interaction ID
+      if (meeting.deal_id && insertedInteraction?.id) {
         fetch('/api/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            interactionContent: curiosityAnswer.trim(),
-            dealId: meeting.deal_id,
+            interactionId: insertedInteraction.id,
             userId,
           }),
         }).catch(() => { /* background, non-blocking */ });
 
-        // 4. Regenerate micro brief now that we have context
+        // 4. Regenerate micro brief now that we have context (pass meetingId)
         const today = new Date().toISOString().split('T')[0];
-        const microCacheKey = `brief_${meeting.id}_${today}`;
+        const dealForCache = allActiveDeals.find(d => d.id === meeting.deal_id);
+        const dealUpdatedSuffix = dealForCache?.updated_at
+          ? `_${new Date(dealForCache.updated_at).getTime()}`
+          : '';
+        const microCacheKey = `brief_${meeting.id}_${today}${dealUpdatedSuffix}`;
 
         setHeroBriefLoading(true);
         try {
           const response = await fetch('/api/prep', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-no-cache': 'true' },
-            body: JSON.stringify({ dealId: meeting.deal_id, userId, mode: 'micro' }),
+            body: JSON.stringify({ dealId: meeting.deal_id, userId, mode: 'micro', meetingId: meeting.id }),
           });
           if (response.ok) {
             const data = await response.json();
@@ -764,15 +803,16 @@ export default function BriefingPage() {
               setHeroBrief(data.summary);
               setInlineBriefs(prev => ({ ...prev, [meeting.id]: data.summary }));
             }
+            // null summary = still insufficient context, fallback UI handles this
           }
         } catch {
-          // Fail silently
+          // Fail silently — fallback UI handles this
         } finally {
           setHeroBriefLoading(false);
         }
       }
     } catch {
-      // Fail silently
+      // Fail silently — never show error to user
     } finally {
       setCuriositySubmitting(false);
     }
