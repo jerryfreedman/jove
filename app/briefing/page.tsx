@@ -82,6 +82,33 @@ function pickCuriosityQuestion(meeting: MeetingRow): string {
   return "What's the goal for this meeting?";
 }
 
+// ── MEETING ASSISTANT STATE ──────────────────────────────
+interface MeetingAssistantState {
+  lifecycle: MeetingState;
+  has_strong_brief: boolean;
+  needs_brief_context: boolean;
+  needs_debrief_context: boolean;
+  debrief_done: boolean;
+}
+
+function deriveMeetingAssistantState(
+  meeting: MeetingRow,
+  signals: SignalRow[],
+  interactions: InteractionRow[],
+): MeetingAssistantState {
+  const lifecycle = getMeetingState(meeting);
+  const weak = isWeakContext(meeting, signals, interactions);
+  const minsUntil = (new Date(meeting.scheduled_at).getTime() - Date.now()) / 60000;
+
+  return {
+    lifecycle,
+    has_strong_brief: !!meeting.deal_id && !weak,
+    needs_brief_context: lifecycle === 'upcoming' && weak && minsUntil > 10,
+    needs_debrief_context: lifecycle === 'completed' && !meeting.debrief_completed,
+    debrief_done: meeting.debrief_completed === true,
+  };
+}
+
 // ── BRIEFING TEXT FOR COPY ─────────────────────────────────
 function buildBriefingText(
   meetings: MeetingRow[],
@@ -202,6 +229,7 @@ export default function BriefingPage() {
       signalsRes,
       streakRes,
       accountsRes,
+      interactionsRes,
     ] = await Promise.all([
       supabase
         .from('meetings')
@@ -247,6 +275,11 @@ export default function BriefingPage() {
         .from('accounts')
         .select('id, name')
         .eq('user_id', user.id),
+
+      supabase
+        .from('interactions')
+        .select('*')
+        .eq('user_id', user.id),
     ]);
 
     const fetchedMeetings     = (meetingsRes.data     ?? []) as MeetingRow[];
@@ -255,6 +288,7 @@ export default function BriefingPage() {
     const fetchedSignals      = (signalsRes.data      ?? []) as SignalRow[];
     const fetchedStreakLogs   = (streakRes.data       ?? []) as StreakLogRow[];
     const fetchedAccounts     = (accountsRes.data     ?? []) as { id: string; name: string }[];
+    const fetchedInteractions = (interactionsRes.data ?? []) as InteractionRow[];
 
     // Build account map
     const aMap: Record<string, string> = {};
@@ -266,6 +300,7 @@ export default function BriefingPage() {
     setTodaySignals(fetchedSignals);
     setStreakLogs(fetchedStreakLogs);
     setAccountMap(aMap);
+    setDealInteractions(fetchedInteractions);
 
     // Init meeting time displays
     const times: Record<string, string> = {};
@@ -695,6 +730,7 @@ export default function BriefingPage() {
 
       // 2. Mark question as answered (never show again for this meeting)
       localStorage.setItem(`question_answered_${meeting.id}`, 'true');
+      localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, 'true');
       setCuriosityDismissed(true);
       setCuriosityAnswer('');
 
@@ -806,6 +842,16 @@ export default function BriefingPage() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetings, tick]);
+
+  // ── PHASE 2: Track if hero is showing an assistant question — prevents duplicates elsewhere ──
+  const heroShowingQuestion = (() => {
+    if (!nextMeeting) return false;
+    const minsUntil = (new Date(nextMeeting.scheduled_at).getTime() - Date.now()) / 60000;
+    const weak = nextMeeting.deal_id
+      ? isWeakContext(nextMeeting, todaySignals.filter(s => s.deal_id === nextMeeting.deal_id), dealInteractions)
+      : true;
+    return weak && !heroBrief && !curiosityDismissed && minsUntil > 10 && !!nextMeeting.deal_id;
+  })();
 
   // ── SECTION CARD STYLE ───────────────────────────────
   const sectionLabel: React.CSSProperties = {

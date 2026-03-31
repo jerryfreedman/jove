@@ -77,6 +77,16 @@ function getDaysSinceActivity(deal: DealRow): number {
   );
 }
 
+// ── MEETING ASSISTANT STATE (lightweight — home only needs debrief awareness) ──
+function getMeetingLifecycle(meeting: MeetingRow): 'upcoming' | 'in_progress' | 'completed' {
+  const now = Date.now();
+  const start = new Date(meeting.scheduled_at).getTime();
+  const end = start + 60 * 60 * 1000;
+  if (now < start) return 'upcoming';
+  if (now <= end) return 'in_progress';
+  return 'completed';
+}
+
 // ── INTELLIGENCE LINES ───────────────────────────────────
 interface IntelLine {
   dot:   string;
@@ -815,7 +825,20 @@ export default function HomePage() {
       return { text: `Next: ${next.title} in ${rounded}min`, route: '/briefing' };
     }
 
-    // No meeting today or all past — silence
+    // Priority 3: Recently completed meeting needing debrief
+    const recentCompleted = todayMeetings
+      .filter(m => {
+        const start = new Date(m.scheduled_at).getTime();
+        const end = start + 60 * 60 * 1000;
+        return nowMs > end && !m.debrief_completed;
+      })
+      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+
+    if (recentCompleted.length > 0 && !localStorage.getItem(`meeting_prompt_ack_${recentCompleted[0].id}`)) {
+      return { text: `Debrief: ${recentCompleted[0].title}`, route: '/briefing' };
+    }
+
+    // No meeting context — silence
     return null;
   }, [data]);
 
@@ -855,7 +878,10 @@ export default function HomePage() {
     const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     const recentUnDebriefed = data.meetings.filter(m => {
       const mt = new Date(m.scheduled_at);
-      return mt < now && mt > twoHoursAgo && !m.debrief_completed;
+      if (mt >= now || mt <= twoHoursAgo || m.debrief_completed) return false;
+      // Respect cross-surface acknowledgment
+      if (localStorage.getItem(`meeting_prompt_ack_${m.id}`)) return false;
+      return true;
     });
 
     for (const meeting of recentUnDebriefed) {
@@ -1028,7 +1054,7 @@ export default function HomePage() {
 
   // ── DEBRIEF HANDLERS ──────────────────────────────────────
   const debriefMeeting = (!debriefDismissed && debriefMeetings.length > 0)
-    ? debriefMeetings[0]
+    ? debriefMeetings.find(m => !localStorage.getItem(`meeting_prompt_ack_${m.id}`)) ?? null
     : null;
 
   const handleDebriefNow = async (meeting: MeetingRow) => {
@@ -1036,6 +1062,7 @@ export default function HomePage() {
       .from('meetings')
       .update({ debrief_prompted_at: new Date().toISOString() })
       .eq('id', meeting.id);
+    localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, 'true');
     setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
     setCaptureInitialMode('debrief');
     setCaptureInitialText(
@@ -1049,6 +1076,7 @@ export default function HomePage() {
       .from('meetings')
       .update({ debrief_prompted_at: new Date().toISOString() })
       .eq('id', meeting.id);
+    localStorage.setItem(`meeting_prompt_ack_${meeting.id}`, 'true');
     setDebriefDismissed(true);
     setDebriefMeetings(prev => prev.filter(m => m.id !== meeting.id));
   };
