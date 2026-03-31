@@ -19,7 +19,9 @@ type CaptureMode =
   | 'draft_intent'
   | 'draft_output'
   | 'idea'
-  | 'deal_gate'
+  | 'classify'
+  | 'classify_existing'
+  | 'classify_new_deal'
   | 'done';
 
 interface CaptureSheetProps {
@@ -116,6 +118,12 @@ export default function CaptureSheet({
     extraData?: { saveToIdeas?: boolean; finalSentContent?: string };
     returnMode: CaptureMode;
   } | null>(null);
+
+  // ── NEW DEAL INLINE FORM STATE ──
+  const [newDealName, setNewDealName] = useState('');
+  const [newAccountName, setNewAccountName] = useState('');
+  const [newDealValue, setNewDealValue] = useState('');
+  const [creatingDeal, setCreatingDeal] = useState(false);
 
   // Slide up on mount
   useEffect(() => {
@@ -290,19 +298,107 @@ export default function CaptureSheet({
     }
   };
 
-  // ── SOFT DEAL GATE ────────────────────────────────────────
+  // ── CAPTURE CLASSIFICATION GATE ─────────────────────────────
   const handleSubmitWithGate = (
     type: InteractionType,
     content: string,
     extraData?: { saveToIdeas?: boolean; finalSentContent?: string },
   ) => {
-    const shouldGate =
-      !selectedDealId && !initialDealId && activeDeals.length > 0;
-    if (shouldGate) {
-      setPendingSave({ type, content, extraData, returnMode: mode });
-      setMode('deal_gate');
-    } else {
+    // If deal already selected (via dropdown or initialDealId), skip classification
+    if (selectedDealId || initialDealId) {
       saveCapture(type, content, extraData);
+      return;
+    }
+    // Show classification: existing deal / new deal / general intel
+    setPendingSave({ type, content, extraData, returnMode: mode });
+    // Smart prefill: extract likely company name from content
+    prefillFromContent(content);
+    setMode('classify');
+  };
+
+  // ── SMART PREFILL (Phase 5) ─────────────────────────────────
+  const prefillFromContent = (content: string) => {
+    if (!content.trim()) return;
+    // Look for common patterns: "call with Acme", "meeting with Acme Corp", "from Sarah at Acme"
+    const patterns = [
+      /(?:call|meeting|spoke|met|chat|sync)\s+with\s+([A-Z][A-Za-z0-9&.\-' ]{1,40})/i,
+      /(?:from|at|@)\s+([A-Z][A-Za-z0-9&.\-' ]{1,40}?)(?:\s+(?:about|regarding|re:|on|for))/i,
+      /(?:From|To|Cc):\s*[^<\n]*?(?:@([A-Za-z0-9\-]+)\.[a-z]{2,})/i,
+    ];
+    for (const pat of patterns) {
+      const match = content.match(pat);
+      if (match?.[1]) {
+        const name = match[1].trim().replace(/[.,;:!?]+$/, '');
+        if (name.length >= 2 && name.length <= 40) {
+          setNewAccountName(name);
+          setNewDealName(name);
+          return;
+        }
+      }
+    }
+  };
+
+  // ── CREATE NEW DEAL INLINE (Phase 3) ─────────────────────────
+  const handleCreateNewDeal = async () => {
+    if (!pendingSave || !newDealName.trim() || !newAccountName.trim()) return;
+    setCreatingDeal(true);
+    setError('');
+
+    try {
+      // Check if account already exists for this user
+      const { data: existingAccount } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('user_id', userId)
+        .ilike('name', newAccountName.trim())
+        .maybeSingle();
+
+      let accountId: string;
+
+      if (existingAccount) {
+        accountId = existingAccount.id;
+      } else {
+        // Create new account
+        const { data: newAccount, error: accountError } = await supabase
+          .from('accounts')
+          .insert({
+            user_id: userId,
+            name: newAccountName.trim(),
+          })
+          .select('id')
+          .single();
+
+        if (accountError || !newAccount) throw accountError ?? new Error('Account creation failed');
+        accountId = newAccount.id;
+      }
+
+      // Create deal with stage = Discovery
+      const { data: newDeal, error: dealError } = await supabase
+        .from('deals')
+        .insert({
+          user_id: userId,
+          account_id: accountId,
+          name: newDealName.trim(),
+          stage: 'Discovery',
+          value: newDealValue ? parseFloat(newDealValue) : null,
+        })
+        .select('id')
+        .single();
+
+      if (dealError || !newDeal) throw dealError ?? new Error('Deal creation failed');
+
+      // Save interaction linked to the new deal
+      setSelectedDealId(newDeal.id);
+      await saveCapture(pendingSave.type, pendingSave.content, pendingSave.extraData, newDeal.id);
+      setPendingSave(null);
+      setNewDealName('');
+      setNewAccountName('');
+      setNewDealValue('');
+    } catch (err) {
+      console.error('New deal creation error:', err);
+      setError('Could not create deal. Please try again.');
+    } finally {
+      setCreatingDeal(false);
     }
   };
 
@@ -1114,24 +1210,173 @@ export default function CaptureSheet({
           </div>
         )}
 
-        {/* ── DEAL ASSIGNMENT GATE ── */}
-        {!saved && mode === 'deal_gate' && pendingSave && (
+        {/* ── CAPTURE CLASSIFICATION — 3 PATHS ── */}
+        {!saved && mode === 'classify' && pendingSave && (
           <div style={{ padding: '16px 18px 0' }}>
             <p
               style={{
-                fontSize: 13,
+                fontFamily: FONTS.serif,
+                fontSize: 20,
+                fontWeight: 400,
+                color: COLORS.textPrimary,
+                marginBottom: 4,
+              }}
+            >
+              Where does this belong?
+            </p>
+            <p
+              style={{
+                fontSize: 12,
                 fontWeight: 300,
                 color: COLORS.textMid,
-                marginBottom: 14,
+                marginBottom: 16,
+              }}
+            >
+              Choose how to file this capture.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Tile 1 — Link to Existing Deal */}
+              {activeDeals.length > 0 && (
+                <button
+                  onClick={() => setMode('classify_existing')}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    background: COLORS.card,
+                    border: '0.5px solid rgba(232,160,48,0.18)',
+                    borderRadius: 12,
+                    padding: '14px 16px',
+                    cursor: 'pointer',
+                    fontFamily: FONTS.sans,
+                    transition: 'border-color 0.15s',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{'\uD83D\uDD17'}</span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: COLORS.textPrimary }}>
+                      Link to Deal
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 300, color: COLORS.textMid, marginTop: 2 }}>
+                      Attach to an existing deal
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {/* Tile 2 — Create New Deal */}
+              <button
+                onClick={() => setMode('classify_new_deal')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  background: COLORS.card,
+                  border: '0.5px solid rgba(232,160,48,0.18)',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                  fontFamily: FONTS.sans,
+                  transition: 'border-color 0.15s',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{'\u2795'}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: COLORS.textPrimary }}>
+                    Create New Deal
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 300, color: COLORS.textMid, marginTop: 2 }}>
+                    Start a new deal from this capture
+                  </div>
+                </div>
+              </button>
+
+              {/* Tile 3 — General Intel */}
+              <button
+                onClick={() => {
+                  saveCapture(pendingSave.type, pendingSave.content, pendingSave.extraData, null);
+                  setPendingSave(null);
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  background: COLORS.card,
+                  border: '0.5px solid rgba(232,160,48,0.18)',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                  fontFamily: FONTS.sans,
+                  transition: 'border-color 0.15s',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{'\uD83D\uDCCB'}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: COLORS.textPrimary }}>
+                    Save as General Note
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 300, color: COLORS.textMid, marginTop: 2 }}>
+                    No deal — save as general intelligence
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setMode(pendingSave.returnMode);
+                setPendingSave(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                marginTop: 10,
+                background: 'none',
+                border: 'none',
+                color: COLORS.textLight,
+                fontSize: 12,
+                fontWeight: 300,
+                cursor: 'pointer',
                 fontFamily: FONTS.sans,
               }}
             >
-              Add to a deal?
-            </p>
+              &lsaquo; Back
+            </button>
+          </div>
+        )}
+
+        {/* ── CLASSIFY → EXISTING DEAL PICKER ── */}
+        {!saved && mode === 'classify_existing' && pendingSave && (
+          <div style={{ padding: '16px 18px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <button
+                onClick={() => setMode('classify')}
+                style={{
+                  color: COLORS.textMid,
+                  fontSize: 19,
+                  cursor: 'pointer',
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                }}
+              >
+                &#8249;
+              </button>
+              <span style={{ fontSize: 16, fontWeight: 400, color: COLORS.textPrimary }}>
+                Link to Deal
+              </span>
+            </div>
 
             <div
               style={{
-                maxHeight: 220,
+                maxHeight: 280,
                 overflowY: 'auto',
                 marginBottom: 14,
               }}
@@ -1160,24 +1405,11 @@ export default function CaptureSheet({
                       transition: 'border-color 0.15s',
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 400,
-                        color: COLORS.textPrimary,
-                      }}
-                    >
+                    <span style={{ fontSize: 13, fontWeight: 400, color: COLORS.textPrimary }}>
                       {d.name}
                     </span>
                     {accountName && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 300,
-                          color: COLORS.textMid,
-                          marginLeft: 6,
-                        }}
-                      >
+                      <span style={{ fontSize: 12, fontWeight: 300, color: COLORS.textMid, marginLeft: 6 }}>
                         &middot; {accountName}
                       </span>
                     )}
@@ -1185,46 +1417,134 @@ export default function CaptureSheet({
                 );
               })}
             </div>
+          </div>
+        )}
 
-            <button
-              onClick={() => {
-                saveCapture(pendingSave.type, pendingSave.content, pendingSave.extraData, null);
-                setPendingSave(null);
-              }}
+        {/* ── CLASSIFY → NEW DEAL INLINE FORM ── */}
+        {!saved && mode === 'classify_new_deal' && pendingSave && (
+          <div style={{ padding: '16px 18px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <button
+                onClick={() => {
+                  setMode('classify');
+                  setError('');
+                }}
+                style={{
+                  color: COLORS.textMid,
+                  fontSize: 19,
+                  cursor: 'pointer',
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                }}
+              >
+                &#8249;
+              </button>
+              <span style={{ fontSize: 16, fontWeight: 400, color: COLORS.textPrimary }}>
+                Create New Deal
+              </span>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Deal name *"
+              value={newDealName}
+              onChange={(e) => setNewDealName(e.target.value)}
               style={{
                 width: '100%',
-                padding: '10px 0',
-                background: 'none',
-                border: 'none',
-                color: COLORS.textLight,
-                fontSize: 12,
-                fontWeight: 400,
-                cursor: 'pointer',
-                fontFamily: FONTS.sans,
-                marginBottom: 6,
-              }}
-            >
-              Skip &mdash; save without a deal
-            </button>
-
-            <button
-              onClick={() => {
-                setMode(pendingSave.returnMode);
-                setPendingSave(null);
-              }}
-              style={{
-                width: '100%',
-                padding: '8px 0',
-                background: 'none',
-                border: 'none',
-                color: COLORS.textLight,
-                fontSize: 12,
+                background: COLORS.card,
+                border: '0.5px solid rgba(232,160,48,0.22)',
+                borderRadius: 10,
+                padding: '11px 14px',
+                fontSize: 14,
                 fontWeight: 300,
-                cursor: 'pointer',
+                color: COLORS.textPrimary,
+                outline: 'none',
                 fontFamily: FONTS.sans,
+                marginBottom: 8,
+              }}
+            />
+
+            <input
+              type="text"
+              placeholder="Account name *"
+              value={newAccountName}
+              onChange={(e) => setNewAccountName(e.target.value)}
+              style={{
+                width: '100%',
+                background: COLORS.card,
+                border: '0.5px solid rgba(232,160,48,0.22)',
+                borderRadius: 10,
+                padding: '11px 14px',
+                fontSize: 14,
+                fontWeight: 300,
+                color: COLORS.textPrimary,
+                outline: 'none',
+                fontFamily: FONTS.sans,
+                marginBottom: 8,
+              }}
+            />
+
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="Value (optional)"
+              value={newDealValue}
+              onChange={(e) => setNewDealValue(e.target.value)}
+              style={{
+                width: '100%',
+                background: COLORS.card,
+                border: '0.5px solid rgba(232,160,48,0.22)',
+                borderRadius: 10,
+                padding: '11px 14px',
+                fontSize: 14,
+                fontWeight: 300,
+                color: COLORS.textPrimary,
+                outline: 'none',
+                fontFamily: FONTS.sans,
+                marginBottom: 12,
+              }}
+            />
+
+            {error && (
+              <p style={{ fontSize: 12, color: COLORS.red, marginBottom: 10 }}>
+                {error}
+              </p>
+            )}
+
+            <button
+              onClick={handleCreateNewDeal}
+              disabled={!newDealName.trim() || !newAccountName.trim() || creatingDeal}
+              style={{
+                width: '100%',
+                padding: '14px 0',
+                borderRadius: 12,
+                border: 'none',
+                background:
+                  newDealName.trim() && newAccountName.trim() && !creatingDeal
+                    ? 'linear-gradient(135deg, #C87820, #E09838)'
+                    : 'rgba(255,255,255,0.06)',
+                color:
+                  newDealName.trim() && newAccountName.trim() && !creatingDeal
+                    ? 'white'
+                    : COLORS.textLight,
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+                cursor:
+                  newDealName.trim() && newAccountName.trim() && !creatingDeal
+                    ? 'pointer'
+                    : 'default',
+                fontFamily: FONTS.sans,
+                transition: 'all 0.2s ease',
+                boxShadow:
+                  newDealName.trim() && newAccountName.trim() && !creatingDeal
+                    ? '0 4px 18px rgba(200,120,32,0.3)'
+                    : 'none',
               }}
             >
-              &lsaquo; Back
+              {creatingDeal ? 'Creating...' : 'Create Deal & Save'}
             </button>
           </div>
         )}
