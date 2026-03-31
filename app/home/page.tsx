@@ -636,7 +636,18 @@ export default function HomePage() {
 
         // ── QUESTION PATH ────────────────────────────────────
         case 'question': {
-          // Build message history for assistant
+          // Session 7: Optionally save if strong intel detected.
+          // A question that references a specific deal likely contains
+          // context worth capturing (e.g. "Budget is 50k, should I follow up?").
+          if (classification.matchedDealId && text.length > 40) {
+            chatSaveInteraction(text, classification.matchedDealId, 'note', {
+              intentType: 'mixed' as InteractionIntentType,
+              routingConfidence: 1,
+              routingMetadata: routingMeta,
+            });
+          }
+
+          // Always stream response — don't block on save
           const history = chatMessages
             .filter(m => !m.uiMode)
             .map(m => ({ role: m.role, content: m.content }));
@@ -717,10 +728,9 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            // Session 7: Hybrid — save silently, then decide response
+            // Session 7: Hybrid — save first, then decide response
             const isMixed = hasQuestionIntent(text);
-            // Save intel (fire-and-forget for mixed, awaited for pure)
-            chatSaveInteraction(text, classification.matchedDealId, 'note', {
+            await chatSaveInteraction(text, classification.matchedDealId, 'note', {
               intentType: isMixed ? 'mixed' as InteractionIntentType : 'capture',
               routingConfidence: 1,
               routingMetadata: routingMeta,
@@ -770,9 +780,9 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            // Session 7: Hybrid — save silently, then decide response
+            // Session 7: Hybrid — save first, then decide response
             const isMixed = hasQuestionIntent(text);
-            chatSaveInteraction(text, classification.matchedDealId, 'meeting_log', {
+            await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log', {
               meetingId: classification.matchedMeetingId,
               intentType: isMixed ? 'mixed' as InteractionIntentType : 'debrief',
               routingConfidence: 1,
@@ -804,9 +814,9 @@ export default function HomePage() {
 
         // ── GENERAL INTEL PATH ──────────────────────────────
         case 'general_intel': {
-          // Session 7: Hybrid — save silently, then decide response
+          // Session 7: Hybrid — save first, then decide response
           const isMixed = hasQuestionIntent(text);
-          chatSaveInteraction(text, null, 'note', {
+          await chatSaveInteraction(text, null, 'note', {
             intentType: isMixed ? 'mixed' as InteractionIntentType : 'general_intel',
             routingConfidence: 1,
             routingMetadata: routingMeta,
@@ -1533,6 +1543,10 @@ export default function HomePage() {
         @keyframes chatSpin {
           to { transform: rotate(360deg); }
         }
+        @keyframes typingDot {
+          0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+          30% { opacity: 1; transform: translateY(-3px); }
+        }
       `}</style>
 
       {/* ── WARM TINT LAYER (additive, gradient-based) ── */}
@@ -2232,6 +2246,35 @@ export default function HomePage() {
                   )}
                 </div>
               ))}
+
+              {/* Session 7: Subtle typing indicator while processing (pre-stream) */}
+              {chatProcessing && !chatStreaming && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  marginBottom: 10,
+                  paddingLeft: 2,
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    gap: 4,
+                    padding: '10px 14px',
+                    borderRadius: '16px 16px 16px 4px',
+                    background: 'rgba(240,235,224,0.06)',
+                    border: '0.5px solid rgba(240,235,224,0.06)',
+                  }}>
+                    {[0, 1, 2].map(i => (
+                      <div key={i} style={{
+                        width: 5,
+                        height: 5,
+                        borderRadius: '50%',
+                        background: 'rgba(240,235,224,0.35)',
+                        animation: `typingDot 1.2s ease-in-out ${i * 0.2}s infinite`,
+                      }} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Input row */}
