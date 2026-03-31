@@ -12,6 +12,7 @@ import type {
   DealRow,
   MeetingRow,
   SignalRow,
+  InteractionRow,
   StreakLogRow,
 } from '@/lib/types';
 import CaptureSheet from '@/components/capture/CaptureSheet';
@@ -57,6 +58,28 @@ function formatMeetingTime(meeting: MeetingRow): string {
   if (diffMins < 60) return `${time} · In ${diffMins} min`;
   const diffHrs = Math.round(diffMins / 60);
   return `${time} · In ${diffHrs}h`;
+}
+
+// ── WEAK CONTEXT DETECTION ────────────────────────────────
+function isWeakContext(
+  meeting: MeetingRow,
+  signals: SignalRow[],
+  interactions: InteractionRow[],
+): boolean {
+  if (!meeting.deal_id) return true;
+
+  const dealSignals = signals.filter(s => s.deal_id === meeting.deal_id);
+  const dealInteractions = interactions.filter(i => i.deal_id === meeting.deal_id);
+
+  if (dealSignals.length === 0 && dealInteractions.length === 0) return true;
+
+  return false;
+}
+
+// ── CURIOSITY QUESTION PICKER ─────────────────────────────
+function pickCuriosityQuestion(meeting: MeetingRow): string {
+  if (!meeting.attendees) return "Who's joining this call?";
+  return "What's the goal for this meeting?";
 }
 
 // ── BRIEFING TEXT FOR COPY ─────────────────────────────────
@@ -137,6 +160,14 @@ export default function BriefingPage() {
   // Hero brief state (auto-fetched on page load for next meeting only)
   const [heroBrief, setHeroBrief] = useState<string | null>(null);
   const [heroBriefLoading, setHeroBriefLoading] = useState(false);
+
+  // Curiosity question state
+  const [curiosityAnswer, setCuriosityAnswer] = useState('');
+  const [curiositySubmitting, setCuriositySubmitting] = useState(false);
+  const [curiosityDismissed, setCuriosityDismissed] = useState(false);
+
+  // Deal interactions for weak context detection
+  const [dealInteractions, setDealInteractions] = useState<InteractionRow[]>([]);
 
   // Tour refs
   const doThisFirstRef    = useRef<HTMLDivElement>(null);
@@ -281,53 +312,114 @@ export default function BriefingPage() {
     return () => clearInterval(interval);
   }, [meetings]);
 
-  // ── HERO BRIEF — auto-fetch for next meeting on load ──
+  // ── HERO BRIEF — cache-first micro brief with weak context detection ──
   useEffect(() => {
     if (loading || !userId) return;
 
-    // Find next upcoming/in-progress meeting with a deal
+    // Find next upcoming/in-progress meeting
     const heroMeeting = meetings.find(m => {
       const state = getMeetingState(m);
-      return (state === 'upcoming' || state === 'in_progress') && m.deal_id;
+      return state === 'upcoming' || state === 'in_progress';
     });
 
-    if (!heroMeeting || !heroMeeting.deal_id) return;
+    if (!heroMeeting) return;
 
-    // Check localStorage cache first
+    // Check if curiosity question was already answered for this meeting
+    const questionKey = `question_answered_${heroMeeting.id}`;
+    if (localStorage.getItem(questionKey)) {
+      setCuriosityDismissed(true);
+    }
+
+    // No deal — can't generate brief, show fallback
+    if (!heroMeeting.deal_id) return;
+
+    // Check micro brief cache first (instant render)
     const today = new Date().toISOString().split('T')[0];
-    const cacheKey = `jove_prep_${heroMeeting.deal_id}_${today}`;
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const brief = extractBriefSummary(cached);
-      setHeroBrief(brief);
-      // Also populate inlineBriefs cache
-      setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: brief }));
+    const microCacheKey = `brief_${heroMeeting.id}_${today}`;
+    const cachedMicro = localStorage.getItem(microCacheKey);
+    if (cachedMicro) {
+      setHeroBrief(cachedMicro);
+      setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: cachedMicro }));
       return;
     }
 
-    setHeroBriefLoading(true);
-    fetch('/api/prep', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dealId: heroMeeting.deal_id, userId }),
-    })
-      .then(async (response) => {
-        if (!response.ok || !response.body) return;
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          fullText += decoder.decode(value, { stream: true });
+    // Also check the full brief cache (backward compat)
+    const fullCacheKey = `jove_prep_${heroMeeting.deal_id}_${today}`;
+    const cachedFull = localStorage.getItem(fullCacheKey);
+    if (cachedFull) {
+      const brief = extractBriefSummary(cachedFull);
+      setHeroBrief(brief);
+      setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: brief }));
+      // Also store as micro cache for next instant load
+      localStorage.setItem(microCacheKey, brief);
+      return;
+    }
+
+    // Fetch deal interactions for weak context check
+    const checkAndFetch = async () => {
+      // Fetch signals + interactions for this deal to check weak context
+      const [sigRes, intRes] = await Promise.all([
+        supabase
+          .from('signals')
+          .select('*')
+          .eq('deal_id', heroMeeting.deal_id!)
+          .eq('user_id', userId)
+          .eq('is_duplicate', false)
+          .limit(10),
+        supabase
+          .from('interactions')
+          .select('*')
+          .eq('deal_id', heroMeeting.deal_id!)
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(5),
+      ]);
+
+      const dealSigs = (sigRes.data ?? []) as SignalRow[];
+      const dealInts = (intRes.data ?? []) as InteractionRow[];
+      setDealInteractions(dealInts);
+
+      // Check if context is weak
+      const weak = isWeakContext(heroMeeting, dealSigs, dealInts);
+      if (weak) {
+        // Don't generate — show curiosity question instead (unless within 10 min)
+        const minsUntil = (new Date(heroMeeting.scheduled_at).getTime() - Date.now()) / 60000;
+        if (minsUntil > 10) {
+          // Weak context — curiosity mode (no brief generation)
+          return;
         }
-        localStorage.setItem(cacheKey, fullText);
-        const brief = extractBriefSummary(fullText);
-        setHeroBrief(brief);
-        setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: brief }));
-      })
-      .catch(() => { /* fail silently */ })
-      .finally(() => setHeroBriefLoading(false));
+        // Within 10 min — fallback, no question
+        return;
+      }
+
+      // Check if meeting is within 12 hours
+      const hoursUntil = (new Date(heroMeeting.scheduled_at).getTime() - Date.now()) / 3600000;
+      if (hoursUntil > 12) return;
+
+      // Strong context — generate micro brief
+      setHeroBriefLoading(true);
+      try {
+        const response = await fetch('/api/prep', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dealId: heroMeeting.deal_id, userId, mode: 'micro' }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.summary) {
+            localStorage.setItem(microCacheKey, data.summary);
+            setHeroBrief(data.summary);
+            setInlineBriefs(prev => ({ ...prev, [heroMeeting.id]: data.summary }));
+          }
+        }
+      } catch {
+        // Fail silently — fallback UI handles this
+      } finally {
+        setHeroBriefLoading(false);
+      }
+    };
+
+    checkAndFetch();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, userId, meetings]);
 
@@ -584,6 +676,72 @@ export default function BriefingPage() {
     setCaptureMeetingId(meeting.id);
     setShowCapture(true);
   }, []);
+
+  // ── CURIOSITY QUESTION SUBMIT ────────────────────────
+  const handleCuriositySubmit = useCallback(async (meeting: MeetingRow) => {
+    if (!curiosityAnswer.trim() || !userId || curiositySubmitting) return;
+
+    setCuriositySubmitting(true);
+
+    try {
+      // 1. Save as interaction (note type)
+      await supabase.from('interactions').insert({
+        user_id: userId,
+        deal_id: meeting.deal_id ?? null,
+        type: 'note' as const,
+        raw_content: curiosityAnswer.trim(),
+        extraction_status: 'pending' as const,
+      });
+
+      // 2. Mark question as answered (never show again for this meeting)
+      localStorage.setItem(`question_answered_${meeting.id}`, 'true');
+      setCuriosityDismissed(true);
+      setCuriosityAnswer('');
+
+      // 3. Trigger extraction if deal exists
+      if (meeting.deal_id) {
+        fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interactionContent: curiosityAnswer.trim(),
+            dealId: meeting.deal_id,
+            userId,
+          }),
+        }).catch(() => { /* background, non-blocking */ });
+
+        // 4. Regenerate micro brief now that we have context
+        const today = new Date().toISOString().split('T')[0];
+        const microCacheKey = `brief_${meeting.id}_${today}`;
+
+        setHeroBriefLoading(true);
+        try {
+          const response = await fetch('/api/prep', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-no-cache': 'true' },
+            body: JSON.stringify({ dealId: meeting.deal_id, userId, mode: 'micro' }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.summary) {
+              localStorage.setItem(microCacheKey, data.summary);
+              setHeroBrief(data.summary);
+              setInlineBriefs(prev => ({ ...prev, [meeting.id]: data.summary }));
+            }
+          }
+        } catch {
+          // Fail silently
+        } finally {
+          setHeroBriefLoading(false);
+        }
+      }
+    } catch {
+      // Fail silently
+    } finally {
+      setCuriositySubmitting(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curiosityAnswer, userId, curiositySubmitting]);
 
   // ── DERIVED VALUES ───────────────────────────────────
   const streak = calculateStreak(streakLogs);
@@ -850,59 +1008,146 @@ export default function BriefingPage() {
                 {nextMeeting.title}
               </div>
 
-              {/* AI Brief (deal-linked) or Attendees (no deal) */}
-              {nextMeeting.deal_id ? (
-                <div style={{ marginBottom: 14 }}>
-                  {heroBriefLoading ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+              {/* AI Brief / Curiosity Question / Fallback */}
+              {(() => {
+                const minsUntil = (new Date(nextMeeting.scheduled_at).getTime() - Date.now()) / 60000;
+                const weak = nextMeeting.deal_id
+                  ? isWeakContext(nextMeeting, todaySignals.filter(s => s.deal_id === nextMeeting.deal_id), dealInteractions)
+                  : true;
+                const showQuestion = weak && !heroBrief && !curiosityDismissed && minsUntil > 10 && nextMeeting.deal_id;
+
+                return (
+                  <div style={{ marginBottom: 14 }}>
+                    {/* Loading state */}
+                    {heroBriefLoading ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                        <div style={{
+                          height: 11, borderRadius: 6,
+                          background: 'rgba(26,20,16,0.06)',
+                          animation: 'shimmer 1.5s ease-in-out infinite',
+                          width: '92%',
+                        }} />
+                        <div style={{
+                          height: 11, borderRadius: 6,
+                          background: 'rgba(26,20,16,0.06)',
+                          animation: 'shimmer 1.5s ease-in-out infinite',
+                          width: '68%',
+                        }} />
+                      </div>
+                    ) : heroBrief ? (
+                      /* Strong context — micro brief */
+                      <p style={{
+                        fontSize:   14,
+                        fontWeight: 300,
+                        color:      'rgba(26,20,16,0.56)',
+                        lineHeight: 1.65,
+                        margin:     '6px 0 0',
+                      }}>
+                        {heroBrief}
+                      </p>
+                    ) : showQuestion ? (
+                      /* Weak context — curiosity question */
+                      <div style={{ marginTop: 8 }}>
+                        <p style={{
+                          fontSize:     13,
+                          fontWeight:   400,
+                          color:        'rgba(26,20,16,0.52)',
+                          marginBottom: 8,
+                          lineHeight:   1.5,
+                        }}>
+                          {pickCuriosityQuestion(nextMeeting)}
+                        </p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            type="text"
+                            value={curiosityAnswer}
+                            onChange={(e) => setCuriosityAnswer(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleCuriositySubmit(nextMeeting);
+                              }
+                            }}
+                            placeholder="Type here..."
+                            style={{
+                              flex:          1,
+                              padding:       '8px 12px',
+                              borderRadius:  9,
+                              border:        '0.5px solid rgba(200,160,80,0.3)',
+                              background:    'rgba(255,255,255,0.7)',
+                              fontSize:      13,
+                              fontWeight:    300,
+                              color:         '#1A1410',
+                              outline:       'none',
+                              fontFamily:    "'DM Sans', sans-serif",
+                            }}
+                          />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCuriositySubmit(nextMeeting);
+                            }}
+                            disabled={!curiosityAnswer.trim() || curiositySubmitting}
+                            style={{
+                              padding:       '8px 14px',
+                              borderRadius:  9,
+                              border:        '0.5px solid rgba(200,160,80,0.4)',
+                              background:    curiosityAnswer.trim()
+                                ? 'rgba(232,160,48,0.12)'
+                                : 'rgba(26,20,16,0.04)',
+                              color:         curiosityAnswer.trim()
+                                ? COLORS.amber
+                                : 'rgba(26,20,16,0.2)',
+                              fontSize:      11,
+                              fontWeight:    700,
+                              letterSpacing: '1px',
+                              textTransform: 'uppercase',
+                              cursor:        curiosityAnswer.trim() ? 'pointer' : 'default',
+                              fontFamily:    "'DM Sans', sans-serif",
+                              transition:    'all 0.2s',
+                            }}
+                          >
+                            {curiositySubmitting ? '...' : '→'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : !nextMeeting.deal_id ? (
+                      /* No deal — simple fallback */
+                      <div style={{ marginTop: 4 }}>
+                        {nextMeeting.attendees && (
+                          <div style={{
+                            fontSize:     12,
+                            fontWeight:   300,
+                            color:        'rgba(26,20,16,0.44)',
+                            marginBottom: 4,
+                          }}>
+                            {nextMeeting.attendees}
+                          </div>
+                        )}
+                        <p style={{
+                          fontSize:   12,
+                          fontWeight: 300,
+                          color:      'rgba(26,20,16,0.36)',
+                          fontStyle:  'italic',
+                          margin:     '4px 0 0',
+                        }}>
+                          Add context to get a brief
+                        </p>
+                      </div>
+                    ) : nextMeeting.attendees ? (
+                      /* Fallback with attendees */
                       <div style={{
-                        height: 11, borderRadius: 6,
-                        background: 'rgba(26,20,16,0.06)',
-                        animation: 'shimmer 1.5s ease-in-out infinite',
-                        width: '92%',
-                      }} />
-                      <div style={{
-                        height: 11, borderRadius: 6,
-                        background: 'rgba(26,20,16,0.06)',
-                        animation: 'shimmer 1.5s ease-in-out infinite',
-                        width: '68%',
-                      }} />
-                    </div>
-                  ) : heroBrief ? (
-                    <p style={{
-                      fontSize:   14,
-                      fontWeight: 300,
-                      color:      'rgba(26,20,16,0.56)',
-                      lineHeight: 1.65,
-                      margin:     '6px 0 0',
-                    }}>
-                      {heroBrief}
-                    </p>
-                  ) : nextMeeting.attendees ? (
-                    <div style={{
-                      fontSize:   12,
-                      fontWeight: 300,
-                      color:      'rgba(26,20,16,0.44)',
-                      marginTop:  4,
-                    }}>
-                      {nextMeeting.attendees}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div style={{ marginBottom: 14 }}>
-                  {nextMeeting.attendees && (
-                    <div style={{
-                      fontSize:   12,
-                      fontWeight: 300,
-                      color:      'rgba(26,20,16,0.44)',
-                      marginTop:  4,
-                    }}>
-                      {nextMeeting.attendees}
-                    </div>
-                  )}
-                </div>
-              )}
+                        fontSize:   12,
+                        fontWeight: 300,
+                        color:      'rgba(26,20,16,0.44)',
+                        marginTop:  4,
+                      }}>
+                        {nextMeeting.attendees}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
 
               {/* Single CTA based on state */}
               <div style={{ display: 'flex', gap: 8 }}>

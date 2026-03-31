@@ -9,10 +9,12 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
-    const { dealId, userId } = await request.json();
+    const { dealId, userId, mode } = await request.json();
     if (!dealId || !userId) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
+
+    const isMicro = mode === 'micro';
 
     // Check context cache first (skip if x-no-cache header set)
     const noCache = request.headers.get('x-no-cache') === 'true';
@@ -175,7 +177,19 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
       setCached(cacheKey, userPrompt);
     }
 
-    // Stream response
+    // ── MICRO MODE: return 1-2 sentence JSON summary ──
+    if (isMicro) {
+      const response = await anthropic.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 150,
+        system: `You are preparing a senior sales professional for their next meeting. Based on the deal context, generate a 1-2 sentence summary of the situation and what to focus on. Be specific to this deal. No markdown. No structure. Just plain text.`,
+        messages: [{ role: 'user', content: userPrompt }],
+      });
+      const text = response.content[0].type === 'text' ? response.content[0].text : '';
+      return NextResponse.json({ summary: text.trim() });
+    }
+
+    // ── FULL MODE: Stream response ──
     const stream = await anthropic.messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 800,
