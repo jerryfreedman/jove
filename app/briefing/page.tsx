@@ -533,10 +533,12 @@ export default function BriefingPage() {
         }
 
         // Fetch recent briefing summaries for memory context
+        // Session 4: filter by category to exclude chat_summary rows
         const { data: recentSummaries } = await supabase
           .from('thread_summaries')
           .select('content, summary_date, confirmed_action_ids, snoozed_action_ids')
           .eq('user_id', userId!)
+          .or('category.eq.briefing_summary,category.is.null')
           .order('summary_date', { ascending: false })
           .limit(3);
 

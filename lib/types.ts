@@ -245,6 +245,9 @@ export type IdeaRow = {
   updated_at: string;
 };
 
+// ── Thread Summary Category ─────────────────────────────────
+export type ThreadSummaryCategory = 'briefing_summary' | 'chat_summary';
+
 export type ThreadSummaryRow = {
   id: string;
   user_id: string;
@@ -252,7 +255,29 @@ export type ThreadSummaryRow = {
   content: string;
   confirmed_action_ids: string[] | null;
   snoozed_action_ids: string[] | null;
+  /** Distinguishes briefing summaries from chat conversation summaries */
+  category: ThreadSummaryCategory | null;
+  /** Links to the chat thread that generated this summary */
+  thread_id: string | null;
+  /** For deal-scoped chat summaries */
+  deal_id: string | null;
+  /** Where the summarized conversation happened */
+  source_surface: ChatSourceSurface | null;
   created_at: string;
+};
+
+// ── Chat Threads (thread-level metadata) ────────────────────
+export type ChatThreadRow = {
+  id: string;
+  thread_id: string;
+  user_id: string;
+  source_surface: ChatSourceSurface;
+  primary_deal_id: string | null;
+  primary_meeting_id: string | null;
+  title: string | null;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
 };
 
 export type StreakLogRow = {

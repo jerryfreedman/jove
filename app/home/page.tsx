@@ -13,7 +13,7 @@ import {
   triggerExtraction,
   updateStreak,
 } from '@/lib/capture-utils';
-import { persistChatMessage, generateThreadId } from '@/lib/chat-persistence';
+import { persistChatMessage, generateThreadId, registerChatThread } from '@/lib/chat-persistence';
 import {
   getGreeting,
   getSceneForHour,
@@ -1038,6 +1038,15 @@ export default function HomePage() {
         streakLogs:   (streakRes.data ?? []) as StreakLogRow[],
         accountCount: accountCountRes.count ?? 0,
       });
+
+      // ── Session 4: Register homepage chat thread for durable metadata ──
+      if (authUser) {
+        registerChatThread(supabase, {
+          threadId: chatThreadIdRef.current,
+          userId: authUser.id,
+          sourceSurface: 'home_chat',
+        });
+      }
 
       // ── SILENT EXTRACTION RETRY ──────────────────────────
       // Re-fire extraction for the most recent stuck interaction (fire-and-forget)

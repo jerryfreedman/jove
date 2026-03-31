@@ -37,13 +37,15 @@ export async function POST(request: NextRequest) {
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Check if summary already exists for today
+    // Check if briefing summary already exists for today
+    // Session 4: filter by category to avoid matching chat_summary rows
     const { data: existing } = await supabase
       .from('thread_summaries')
       .select('id')
       .eq('user_id', userId)
       .eq('summary_date', today)
-      .single();
+      .or('category.eq.briefing_summary,category.is.null')
+      .maybeSingle();
 
     if (existing) {
       // Update existing
@@ -76,6 +78,9 @@ export async function POST(request: NextRequest) {
         content:              summaryContent,
         confirmed_action_ids: confirmedIds ?? [],
         snoozed_action_ids:   snoozedIds ?? [],
+        // ── Session 4: Explicit category for retrieval separation ──
+        category:             'briefing_summary',
+        source_surface:       'briefing',
       });
 
     return NextResponse.json({ created: true });

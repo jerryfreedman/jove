@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase';
 import { COLORS, FONTS, STAGE_STYLES } from '@/lib/design-system';
 import type { DealRow, AccountRow } from '@/lib/types';
 import { renderMarkdown } from '@/lib/renderMarkdown';
-import { persistChatMessage, generateThreadId } from '@/lib/chat-persistence';
+import { persistChatMessage, generateThreadId, registerChatThread } from '@/lib/chat-persistence';
 import SpotlightTour, { TourStop } from '@/components/onboarding/SpotlightTour';
 
 type Message = {
@@ -117,6 +117,14 @@ export default function DealChatPage() {
       setDeal(data as unknown as DealRow);
       setAccount(data.accounts as unknown as AccountRow);
 
+      // Register chat thread for durable metadata linkage
+      registerChatThread(supabase, {
+        threadId: chatThreadIdRef.current,
+        userId: user.id,
+        sourceSurface: 'deal_chat',
+        primaryDealId: dealId,
+      });
+
       // Check for interactions
       const { count } = await supabase
         .from('interactions')
@@ -159,6 +167,11 @@ export default function DealChatPage() {
         user_id: uid,
         summary_date: new Date().toISOString().split('T')[0],
         content: summary,
+        // ── Session 4: Thread retrieval structure ──
+        category: 'chat_summary',
+        thread_id: chatThreadIdRef.current,
+        deal_id: dealId,
+        source_surface: 'deal_chat',
       });
     } catch {
       // Fail silently
