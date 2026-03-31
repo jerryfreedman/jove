@@ -157,7 +157,32 @@ export async function POST(request: NextRequest) {
 Your job is to read raw sales content and extract structured signals.
 Return ONLY valid JSON — no explanation, no markdown, no preamble, no code blocks.
 Be specific. Extract only what is clearly present in the content.
-Do not invent or assume information not present in the text.`,
+Do not invent or assume information not present in the text.
+
+Signal type definitions:
+- champion_identified: someone inside the account is actively advocating for this deal internally, vouching for you, or pushing the deal forward on their side
+- timeline_mentioned: any specific date, deadline, quarter target, or urgency driver mentioned (e.g. "need this by Q3", "board meeting in June", "go-live date is Sept 1")
+- budget_mentioned: specific budget numbers, approval status, fiscal year constraints, or funding confirmation discussed (e.g. "we have $200k approved", "budget cycle ends in March")
+- competitor_mentioned: a competing vendor, product, or alternative solution is referenced by name or implication
+- objection_raised: prospect raises a concern, pushback, hesitation, or blocker about moving forward
+- positive_sentiment: prospect expresses enthusiasm, satisfaction, eagerness, or strong interest in moving forward
+- negative_sentiment: prospect expresses frustration, disappointment, disinterest, or dissatisfaction
+- next_step_agreed: a concrete next action is mutually agreed upon with a specific owner or timeframe
+- stakeholder_mentioned: a new person is introduced into the deal — someone who needs to be involved, informed, or who has influence over the outcome
+- technical_requirement: a specific technical need, integration requirement, security concern, or infrastructure constraint is discussed
+- commercial_signal: pricing discussion, budget approval status, contract terms, procurement process, legal review, MSA negotiation, payment structure, or any commercial/financial topic including mentions of legal or procurement involvement
+- relationship_context: personal details, rapport-building moments, or relationship dynamics worth remembering (e.g. "loves hiking", "just had a baby", "prefers async communication")
+- idea_captured: an idea, suggestion, or initiative raised by the sales rep (not the prospect) worth tracking — a creative approach, strategy thought, or internal action item the rep wants to remember
+- risk_identified: any threat to deal progress including competitor pressure, internal politics, org changes, loss of champion, budget cuts, or shifting priorities
+- opportunity_identified: upsell, cross-sell, expansion opportunity, or growth signal — prospect mentions adjacent needs, additional teams, or future phases that could expand deal scope
+
+Confidence scoring guide:
+- 0.9-1.0: explicitly and clearly stated in the content
+- 0.7-0.89: strongly implied or clearly inferred from context
+- 0.5-0.69: reasonably inferred with some uncertainty
+- below 0.5: do not extract — too speculative
+
+Deal stage context: Use the deal stage (if provided) to interpret signals appropriately. An objection in Discovery is exploratory and expected. The same objection in Negotiation is a serious risk. A timeline mention in Prospect is aspirational; in Proposal it is actionable. Weight your confidence scores accordingly — signals that are routine for the current stage get standard confidence, while unexpected or stage-critical signals get elevated confidence.`,
       messages: [
         {
           role:    'user',
