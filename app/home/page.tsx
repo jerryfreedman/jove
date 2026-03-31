@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase';
 import SceneBackground from '@/components/home/SceneBackground';
 import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
+import ControlSurface from '@/components/home/ControlSurface';
 import Logo from '@/components/ui/Logo';
 import {
   saveInteraction,
@@ -117,6 +118,9 @@ export default function HomePage() {
   const [isOffline, setIsOffline] = useState(false);
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [logoBloom, setLogoBloom] = useState(false);
+
+  // ── CONTROL SURFACE STATE ──────────────────────────────
+  const [controlOpen, setControlOpen] = useState(false);
 
   // ── CELESTIAL POSITION (single source of truth from SceneBackground) ──
   const [celestialPos, setCelestialPos] = useState<CelestialPosition>({
@@ -1783,6 +1787,51 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* ── CONTROL SURFACE ENTRY POINT (bottom-right orb) ── */}
+      {!chatOpen && !controlOpen && (
+        <div
+          onClick={() => setControlOpen(true)}
+          style={{
+            position:       'fixed',
+            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 82px)',
+            right:          22,
+            zIndex:         26,
+            width:          42,
+            height:         42,
+            borderRadius:   '50%',
+            background:     'rgba(15,20,32,0.55)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border:         '0.5px solid rgba(240,235,224,0.10)',
+            display:        'flex',
+            alignItems:     'center',
+            justifyContent: 'center',
+            cursor:         'pointer',
+            opacity:        visible ? 1 : 0,
+            transition:     'opacity 0.65s ease 0.36s, transform 0.15s ease, box-shadow 0.15s ease',
+            WebkitTapHighlightColor: 'transparent',
+            boxShadow:      '0 2px 12px rgba(0,0,0,0.25)',
+          }}
+          aria-label="Open overview"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
+            <rect x="10.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
+            <rect x="2" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
+            <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
+          </svg>
+        </div>
+      )}
+
+      {/* ── CONTROL SURFACE ────────────────────────── */}
+      <ControlSurface
+        open={controlOpen}
+        onClose={() => setControlOpen(false)}
+        allDeals={data?.allDeals ?? []}
+        urgentDeals={data?.urgentDeals ?? []}
+        meetings={data?.meetings ?? []}
+      />
 
       {/* ── CHAT BAR (bottom, calm entry point) ───────── */}
       {!chatOpen && (
