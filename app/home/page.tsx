@@ -31,6 +31,12 @@ import type {
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 interface HomeData {
   user:          UserRow | null;
   meetings:      MeetingRow[];
@@ -148,6 +154,64 @@ export default function HomePage() {
   // ── TOUR REFS ────────────────────────────────────────────
   const sunRef     = useRef<HTMLDivElement>(null);
   const logoRef    = useRef<HTMLDivElement>(null);
+
+  // ── CHAT STATE ──────────────────────────────────────────
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSheetVisible, setChatSheetVisible] = useState(false);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatIdCounter = useRef(0);
+
+  const openChat = useCallback(() => {
+    setChatOpen(true);
+    // Allow DOM to mount, then animate in
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setChatSheetVisible(true);
+        setTimeout(() => chatInputRef.current?.focus(), 320);
+      });
+    });
+  }, []);
+
+  const closeChat = useCallback(() => {
+    setChatSheetVisible(false);
+    setTimeout(() => {
+      setChatOpen(false);
+      // Preserve messages so reopening shows history
+    }, 340);
+  }, []);
+
+  const handleChatSubmit = useCallback(() => {
+    const text = chatInput.trim();
+    if (!text) return;
+
+    const userMsg: ChatMessage = {
+      id: `msg-${++chatIdCounter.current}`,
+      role: 'user',
+      content: text,
+    };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+
+    // Placeholder assistant response (to be replaced in Session 3)
+    setTimeout(() => {
+      const assistantMsg: ChatMessage = {
+        id: `msg-${++chatIdCounter.current}`,
+        role: 'assistant',
+        content: "I heard you. Intelligence is coming in the next session.",
+      };
+      setChatMessages(prev => [...prev, assistantMsg]);
+    }, 600);
+  }, [chatInput]);
+
+  // Auto-scroll chat to bottom on new messages
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages]);
 
   const h     = new Date().getHours();
   const scene = getSceneForHour(h);
@@ -1062,6 +1126,266 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* ── CHAT BAR (bottom, calm entry point) ───────── */}
+      {!chatOpen && (
+        <div
+          style={{
+            position:       'fixed',
+            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 20px)',
+            left:           0,
+            right:          0,
+            display:        'flex',
+            justifyContent: 'center',
+            zIndex:         25,
+            pointerEvents:  'none',
+            opacity:        visible ? 1 : 0,
+            transition:     `opacity 0.65s ease 0.30s`,
+          }}
+        >
+          <div
+            onClick={openChat}
+            style={{
+              width:          'calc(100% - 48px)',
+              maxWidth:       380,
+              pointerEvents:  'auto',
+              cursor:         'pointer',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+          <div
+            style={{
+              background:      'rgba(15,20,32,0.55)',
+              backdropFilter:  'blur(24px)',
+              WebkitBackdropFilter: 'blur(24px)',
+              borderRadius:    20,
+              border:          '0.5px solid rgba(240,235,224,0.08)',
+              padding:         '15px 20px',
+              display:         'flex',
+              alignItems:      'center',
+            }}
+          >
+            <span
+              style={{
+                fontFamily:    "'DM Sans', sans-serif",
+                fontSize:      14,
+                fontWeight:    300,
+                color:         'rgba(240,235,224,0.36)',
+                letterSpacing: '0.15px',
+              }}
+            >
+              Talk to Jove&hellip;
+            </span>
+          </div>
+        </div>
+        </div>
+      )}
+
+      {/* ── CHAT BOTTOM SHEET ──────────────────────── */}
+      {chatOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={closeChat}
+            style={{
+              position:       'fixed',
+              inset:          0,
+              zIndex:         290,
+              background:     chatSheetVisible ? 'rgba(4,8,14,0.55)' : 'rgba(4,8,14,0)',
+              backdropFilter: chatSheetVisible ? 'blur(14px)' : 'blur(0px)',
+              WebkitBackdropFilter: chatSheetVisible ? 'blur(14px)' : 'blur(0px)',
+              transition:     'background 0.32s ease, backdrop-filter 0.32s ease, -webkit-backdrop-filter 0.32s ease',
+            }}
+          />
+
+          {/* Sheet */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position:       'fixed',
+              bottom:         0,
+              left:           0,
+              right:          0,
+              zIndex:         300,
+              maxHeight:      '88dvh',
+              display:        'flex',
+              flexDirection:  'column',
+              background:     '#0f1420',
+              borderRadius:   '22px 22px 0 0',
+              borderTop:      '0.5px solid rgba(240,235,224,0.08)',
+              transform:      chatSheetVisible ? 'translateY(0)' : 'translateY(100%)',
+              transition:     'transform 0.32s cubic-bezier(.32,.72,0,1)',
+              fontFamily:     "'DM Sans', sans-serif",
+            }}
+          >
+            {/* Handle + close affordance */}
+            <div
+              style={{
+                display:        'flex',
+                justifyContent: 'center',
+                paddingTop:     12,
+                paddingBottom:  8,
+                flexShrink:     0,
+              }}
+            >
+              <div
+                onClick={closeChat}
+                style={{
+                  width:        36,
+                  height:       4,
+                  borderRadius: 2,
+                  background:   'rgba(240,235,224,0.14)',
+                  cursor:       'pointer',
+                }}
+              />
+            </div>
+
+            {/* Conversation area */}
+            <div
+              ref={chatScrollRef}
+              style={{
+                flex:         1,
+                overflowY:    'auto',
+                padding:      '0 20px 12px',
+                minHeight:    0,
+              }}
+            >
+              {chatMessages.length === 0 && (
+                <div
+                  style={{
+                    textAlign:     'center',
+                    paddingTop:    48,
+                    paddingBottom: 48,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily:    "'Cormorant Garamond', serif",
+                      fontSize:      16,
+                      fontWeight:    300,
+                      color:         'rgba(240,235,224,0.28)',
+                      letterSpacing: '0.2px',
+                    }}
+                  >
+                    What&apos;s on your mind?
+                  </span>
+                </div>
+              )}
+
+              {chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  style={{
+                    display:       'flex',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    marginBottom:  10,
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth:     '80%',
+                      padding:      '10px 14px',
+                      borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                      background:   msg.role === 'user'
+                        ? 'rgba(232,160,48,0.14)'
+                        : 'rgba(240,235,224,0.06)',
+                      border:       msg.role === 'user'
+                        ? '0.5px solid rgba(232,160,48,0.18)'
+                        : '0.5px solid rgba(240,235,224,0.06)',
+                      fontSize:     14,
+                      fontWeight:   300,
+                      lineHeight:   1.55,
+                      color:        msg.role === 'user'
+                        ? 'rgba(252,246,234,0.92)'
+                        : 'rgba(240,235,224,0.72)',
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Input row */}
+            <div
+              style={{
+                flexShrink:     0,
+                padding:        '8px 16px',
+                paddingBottom:  'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+                borderTop:      '0.5px solid rgba(240,235,224,0.06)',
+              }}
+            >
+              <div
+                style={{
+                  display:      'flex',
+                  alignItems:   'center',
+                  gap:          10,
+                  background:   'rgba(16,20,30,0.6)',
+                  border:       '0.5px solid rgba(240,235,224,0.08)',
+                  borderRadius: 16,
+                  padding:      '4px 6px 4px 16px',
+                }}
+              >
+                <input
+                  ref={chatInputRef}
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleChatSubmit();
+                    }
+                    if (e.key === 'Escape') {
+                      closeChat();
+                    }
+                  }}
+                  placeholder="Talk to Jove..."
+                  style={{
+                    flex:        1,
+                    background:  'transparent',
+                    border:      'none',
+                    outline:     'none',
+                    fontSize:    14,
+                    fontWeight:  300,
+                    color:       'rgba(252,246,234,0.92)',
+                    fontFamily:  "'DM Sans', sans-serif",
+                    padding:     '10px 0',
+                  }}
+                />
+                <button
+                  onClick={handleChatSubmit}
+                  disabled={!chatInput.trim()}
+                  style={{
+                    width:        36,
+                    height:       36,
+                    borderRadius: 12,
+                    border:       'none',
+                    background:   chatInput.trim()
+                      ? 'linear-gradient(135deg, #C87820, #E09838)'
+                      : 'rgba(255,255,255,0.04)',
+                    color:        chatInput.trim()
+                      ? 'white'
+                      : 'rgba(240,235,224,0.22)',
+                    fontSize:     16,
+                    cursor:       chatInput.trim() ? 'pointer' : 'default',
+                    display:      'flex',
+                    alignItems:   'center',
+                    justifyContent: 'center',
+                    transition:   'all 0.2s ease',
+                    flexShrink:   0,
+                  }}
+                  aria-label="Send message"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── FIRST VISIT OVERLAY ───────────────── */}
       {firstVisitVisible && (
