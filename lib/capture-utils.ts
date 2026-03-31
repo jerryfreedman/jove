@@ -1,12 +1,19 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { InteractionType } from '@/lib/types';
+import type {
+  InteractionType,
+  InteractionSourceSurface,
+  InteractionOrigin,
+  InteractionIntentType,
+  InteractionRoutingMetadata,
+} from '@/lib/types';
 import {
   STREAK_WEEKDAYS_ONLY,
   STREAK_MILESTONE_DAYS,
 } from '@/lib/constants';
 
 // ── SAVE INTERACTION ──────────────────────────────────────
-// Mirrors the exact insert structure from CaptureSheet.tsx
+// Central save path for interactions. Populates memory upgrade
+// fields (source_surface, origin, intent_type, etc.) when provided.
 export async function saveInteraction(
   supabase: SupabaseClient,
   params: {
@@ -14,18 +21,35 @@ export async function saveInteraction(
     dealId: string | null;
     type: InteractionType;
     rawContent: string;
+    // ── Session 2: Memory upgrade fields ──
+    sourceSurface?: InteractionSourceSurface | null;
+    meetingId?: string | null;
+    origin?: InteractionOrigin | null;
+    intentType?: InteractionIntentType | null;
+    routingConfidence?: number | null;
+    routingMetadata?: InteractionRoutingMetadata | null;
   },
 ): Promise<{ id: string } | null> {
+  const insert: Record<string, unknown> = {
+    user_id: params.userId,
+    deal_id: params.dealId,
+    contact_id: null,
+    type: params.type,
+    raw_content: params.rawContent.trim(),
+    extraction_status: 'pending',
+  };
+
+  // Populate memory upgrade fields when provided (null-safe)
+  if (params.sourceSurface != null) insert.source_surface = params.sourceSurface;
+  if (params.meetingId != null) insert.meeting_id = params.meetingId;
+  if (params.origin != null) insert.origin = params.origin;
+  if (params.intentType != null) insert.intent_type = params.intentType;
+  if (params.routingConfidence != null) insert.routing_confidence = params.routingConfidence;
+  if (params.routingMetadata != null) insert.routing_metadata = params.routingMetadata;
+
   const { data, error } = await supabase
     .from('interactions')
-    .insert({
-      user_id: params.userId,
-      deal_id: params.dealId,
-      contact_id: null,
-      type: params.type,
-      raw_content: params.rawContent.trim(),
-      extraction_status: 'pending',
-    })
+    .insert(insert)
     .select('id')
     .single();
 

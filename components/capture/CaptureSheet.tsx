@@ -225,6 +225,19 @@ export default function CaptureSheet({
         ? `[Meeting: ${meetingContext}] ${content.trim()}`
         : content.trim();
 
+      // Map CaptureSheet mode → intent_type
+      const intentTypeMap: Record<string, string> = {
+        debrief: 'debrief',
+        email: 'capture',
+        draft_context: 'draft_intent',
+        draft_intent: 'draft_intent',
+        draft_output: 'draft_intent',
+        idea: 'general_intel',
+        classify: 'capture',
+        classify_existing: 'capture',
+        classify_new_deal: 'capture',
+      };
+
       const insertPayload: Record<string, unknown> = {
         user_id: userId,
         deal_id: dealIdOverride !== undefined ? dealIdOverride : selectedDealId,
@@ -233,6 +246,10 @@ export default function CaptureSheet({
         raw_content: enrichedContent,
         final_sent_content: extraData?.finalSentContent ?? null,
         extraction_status: 'pending',
+        // ── Session 2: Memory upgrade fields ──
+        source_surface: 'capture_sheet',
+        origin: 'user',
+        intent_type: intentTypeMap[mode] ?? 'capture',
       };
 
       // Link interaction to meeting when meetingId is provided
@@ -422,6 +439,11 @@ export default function CaptureSheet({
         type: contextType,
         raw_content: draftContext.trim(),
         extraction_status: 'pending',
+        // ── Session 2: Memory upgrade fields ──
+        source_surface: 'capture_sheet',
+        origin: 'user',
+        intent_type: 'draft_intent',
+        ...(meetingId ? { meeting_id: meetingId } : {}),
       }).select('id').single();
 
       // Fire extraction for context interaction — fire and forget

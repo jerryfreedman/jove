@@ -91,6 +91,51 @@ export type ExtractionStatus =
   | 'complete'
   | 'failed';
 
+// ── Interaction Source Surfaces ──────────────────────────────
+export type InteractionSourceSurface =
+  | 'home_chat'
+  | 'deal_chat'
+  | 'bird'
+  | 'capture_sheet'
+  | 'briefing'
+  | 'system';
+
+// ── Interaction Origin ──────────────────────────────────────
+export type InteractionOrigin =
+  | 'user'
+  | 'assistant'
+  | 'system_extracted'
+  | 'user_confirmed';
+
+// ── Interaction Intent Type ─────────────────────────────────
+export type InteractionIntentType =
+  | 'question'
+  | 'capture'
+  | 'mixed'
+  | 'clarification'
+  | 'draft_intent'
+  | 'debrief'
+  | 'general_intel'
+  | 'update_confirmation';
+
+// ── Routing Metadata ────────────────────────────────────────
+export type InteractionRoutingMetadata = {
+  /** Deal IDs that were candidate matches at classification time */
+  matchedDealCandidates?: Array<{ dealId: string; dealName: string; score?: number }>;
+  /** Contact IDs that were candidate matches */
+  matchedContactCandidates?: Array<{ contactId: string; contactName: string }>;
+  /** Classifier bucket that was selected */
+  classifierBucket?: string;
+  /** Whether the path was auto-routed or user-clarified */
+  routingPath?: 'auto' | 'user_clarified';
+  /** Free-form ambiguity notes */
+  ambiguityNotes?: string;
+  /** The selected routing path description */
+  selectedPath?: string;
+  /** Any additional context */
+  [key: string]: unknown;
+};
+
 export type InteractionRow = {
   id: string;
   user_id: string;
@@ -102,6 +147,13 @@ export type InteractionRow = {
   final_sent_content: string | null;
   extraction_status: ExtractionStatus;
   extracted_at: string | null;
+  // ── Session 2: Memory upgrade fields ──
+  source_surface: InteractionSourceSurface | null;
+  meeting_id: string | null;
+  origin: InteractionOrigin | null;
+  intent_type: InteractionIntentType | null;
+  routing_confidence: number | null;
+  routing_metadata: InteractionRoutingMetadata | null;
   created_at: string;
 };
 

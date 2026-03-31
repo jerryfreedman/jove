@@ -762,6 +762,11 @@ export default function BriefingPage() {
         type: 'note' as const,
         raw_content: curiosityAnswer.trim(),
         extraction_status: 'pending' as const,
+        // ── Session 2: Memory upgrade fields ──
+        source_surface: 'briefing' as const,
+        origin: 'user' as const,
+        intent_type: 'clarification' as const,
+        meeting_id: meeting.id,
       }).select('id').single();
 
       // 2. Mark question as answered (never show again for this meeting)

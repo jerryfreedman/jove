@@ -26,6 +26,10 @@ import type {
   SignalRow,
   StreakLogRow,
   UserRow,
+  InteractionSourceSurface,
+  InteractionOrigin,
+  InteractionIntentType,
+  InteractionRoutingMetadata,
 } from '@/lib/types';
 import {
   classifyMessage,
@@ -264,6 +268,12 @@ export default function HomePage() {
     rawContent: string,
     dealId: string | null,
     type: 'note' | 'debrief' | 'meeting_log' = 'note',
+    memoryFields?: {
+      meetingId?: string | null;
+      intentType?: InteractionIntentType | null;
+      routingConfidence?: number | null;
+      routingMetadata?: InteractionRoutingMetadata | null;
+    },
   ): Promise<string | null> => {
     if (!data?.user) return null;
     try {
@@ -272,6 +282,12 @@ export default function HomePage() {
         dealId,
         type,
         rawContent,
+        sourceSurface: 'home_chat',
+        origin: 'user',
+        intentType: memoryFields?.intentType ?? null,
+        meetingId: memoryFields?.meetingId ?? null,
+        routingConfidence: memoryFields?.routingConfidence ?? null,
+        routingMetadata: memoryFields?.routingMetadata ?? null,
       });
       if (result?.id) {
         triggerExtraction(result.id, data.user.id);
@@ -414,7 +430,14 @@ export default function HomePage() {
       if (dealError || !newDeal) throw dealError ?? new Error('Deal creation failed');
 
       // Save original message as interaction on new deal
-      await chatSaveInteraction(originalText, newDeal.id, 'note');
+      await chatSaveInteraction(originalText, newDeal.id, 'note', {
+        intentType: 'capture',
+        routingConfidence: 1,
+        routingMetadata: {
+          classifierBucket: 'new_deal',
+          routingPath: 'user_clarified',
+        },
+      });
 
       // Acknowledge in chat
       addAndPersistAssistantMessage(
@@ -442,7 +465,19 @@ export default function HomePage() {
 
     try {
       const type = pending.classification.bucket === 'meeting_context' ? 'meeting_log' as const : 'note' as const;
-      await chatSaveInteraction(pending.originalText, selectedDealId, type);
+      const intentType = pending.classification.bucket === 'meeting_context' ? 'debrief' as const : 'capture' as const;
+      await chatSaveInteraction(pending.originalText, selectedDealId, type, {
+        meetingId: pending.classification.matchedMeetingId,
+        intentType,
+        routingConfidence: 1, // User clarified → high confidence
+        routingMetadata: {
+          classifierBucket: pending.classification.bucket,
+          routingPath: 'user_clarified',
+          ...(pending.classification.matchedDealId && pending.classification.matchedDealName
+            ? { matchedDealCandidates: [{ dealId: pending.classification.matchedDealId, dealName: pending.classification.matchedDealName }] }
+            : {}),
+        },
+      });
 
       const dealName = selectedDealId
         ? data?.allDeals.find(d => d.id === selectedDealId)?.name ?? null
@@ -561,7 +596,17 @@ export default function HomePage() {
             );
           } else {
             // For now, email drafts save as interaction + respond
-            await chatSaveInteraction(text, classification.matchedDealId, 'note');
+            await chatSaveInteraction(text, classification.matchedDealId, 'note', {
+              intentType: 'draft_intent',
+              routingConfidence: classification.confidence === 'high' ? 1 : 0.5,
+              routingMetadata: {
+                classifierBucket: classification.bucket,
+                routingPath: 'auto',
+                ...(classification.matchedDealId && classification.matchedDealName
+                  ? { matchedDealCandidates: [{ dealId: classification.matchedDealId, dealName: classification.matchedDealName }] }
+                  : {}),
+              },
+            });
             const history = chatMessages
               .filter(m => !m.uiMode)
               .map(m => ({ role: m.role, content: m.content }));
@@ -590,7 +635,17 @@ export default function HomePage() {
         // ── EXISTING DEAL UPDATE (Phase 3) ──────────────────
         case 'existing_deal_update': {
           const type = 'note' as const;
-          await chatSaveInteraction(text, classification.matchedDealId, type);
+          await chatSaveInteraction(text, classification.matchedDealId, type, {
+            intentType: 'capture',
+            routingConfidence: classification.confidence === 'high' ? 1 : 0.5,
+            routingMetadata: {
+              classifierBucket: classification.bucket,
+              routingPath: 'auto',
+              ...(classification.matchedDealId && classification.matchedDealName
+                ? { matchedDealCandidates: [{ dealId: classification.matchedDealId, dealName: classification.matchedDealName }] }
+                : {}),
+            },
+          });
           const ack = getAcknowledgment(
             classification.bucket,
             classification.matchedDealName,
@@ -616,7 +671,18 @@ export default function HomePage() {
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
-            await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log');
+            await chatSaveInteraction(text, classification.matchedDealId, 'meeting_log', {
+              meetingId: classification.matchedMeetingId,
+              intentType: 'debrief',
+              routingConfidence: classification.confidence === 'high' ? 1 : 0.5,
+              routingMetadata: {
+                classifierBucket: classification.bucket,
+                routingPath: 'auto',
+                ...(classification.matchedDealId && classification.matchedDealName
+                  ? { matchedDealCandidates: [{ dealId: classification.matchedDealId, dealName: classification.matchedDealName }] }
+                  : {}),
+              },
+            });
             const ack = getAcknowledgment(
               classification.bucket,
               classification.matchedDealName,
@@ -632,7 +698,14 @@ export default function HomePage() {
 
         // ── GENERAL INTEL PATH (Phase 5) ────────────────────
         case 'general_intel': {
-          await chatSaveInteraction(text, null, 'note');
+          await chatSaveInteraction(text, null, 'note', {
+            intentType: 'general_intel',
+            routingConfidence: classification.confidence === 'high' ? 1 : 0.5,
+            routingMetadata: {
+              classifierBucket: classification.bucket,
+              routingPath: 'auto',
+            },
+          });
           addAndPersistAssistantMessage(
             getAcknowledgment('general_intel', null, null),
             { saved: true },
@@ -1095,6 +1168,10 @@ export default function HomePage() {
         dealId: finalDealId,
         type: 'note',
         rawContent: '[Bird question: ' + questionText + '] ' + birdModalInput.trim(),
+        sourceSurface: 'bird',
+        origin: 'user',
+        intentType: 'clarification',
+        meetingId: birdQuestion.meetingId ?? null,
       });
 
       if (result?.id) {
@@ -1907,7 +1984,15 @@ export default function HomePage() {
                             setChatMessages(prev => prev.map(m =>
                               m.id === msg.id ? { ...m, uiMode: undefined } : m
                             ));
-                            await chatSaveInteraction(newDealForm.originalText, null, 'note');
+                            await chatSaveInteraction(newDealForm.originalText, null, 'note', {
+                              intentType: 'general_intel',
+                              routingConfidence: 1,
+                              routingMetadata: {
+                                classifierBucket: 'new_deal',
+                                routingPath: 'user_clarified',
+                                ambiguityNotes: 'User declined new deal creation, saved as general intel',
+                              },
+                            });
                             setChatMessages(prev => [...prev, {
                               id: `msg-${++chatIdCounter.current}`,
                               role: 'assistant',

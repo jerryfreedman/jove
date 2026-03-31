@@ -364,11 +364,15 @@ export default function DealDetailPage() {
     // Save close reason as a signal
     if (closeReason.trim()) {
       const { data: closeInteraction } = await supabase.from('interactions').insert({
-        user_id:          userId,
-        deal_id:          dealId,
-        type:             'note',
-        raw_content:      `${closeType}: ${closeReason.trim()}`,
-        extraction_status:'pending',
+        user_id:           userId,
+        deal_id:           dealId,
+        type:              'note',
+        raw_content:       `${closeType}: ${closeReason.trim()}`,
+        extraction_status: 'pending',
+        // ── Session 2: Memory upgrade fields ──
+        source_surface:    'deal_chat',
+        origin:            'user',
+        intent_type:       'capture',
       }).select('id').single();
 
       // Fire extraction for close reason — fire and forget

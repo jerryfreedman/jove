@@ -340,6 +340,10 @@ export default function DealChatPage() {
         type: 'note',
         raw_content: chip.to,
         extraction_status: 'pending',
+        // ── Session 2: Memory upgrade fields ──
+        source_surface: 'deal_chat',
+        origin: 'user_confirmed',
+        intent_type: 'update_confirmation',
       }).select('id').single();
 
       // Fire extraction for chip interaction — fire and forget
@@ -402,6 +406,10 @@ export default function DealChatPage() {
       raw_content: msg.content,
       final_sent_content: body,
       extraction_status: 'pending',
+      // ── Session 2: Memory upgrade fields ──
+      source_surface: 'deal_chat',
+      origin: 'user',
+      intent_type: 'capture',
     }).select('id').single();
 
     // Fire extraction for logged email — fire and forget
@@ -437,6 +445,10 @@ export default function DealChatPage() {
       type: 'note',
       raw_content: msg.content.trim(),
       extraction_status: 'pending',
+      // ── Session 2: Memory upgrade fields ──
+      source_surface: 'deal_chat',
+      origin: 'user',
+      intent_type: 'capture',
     }).select('id').single();
 
     if (!noteInteraction?.id) return;
