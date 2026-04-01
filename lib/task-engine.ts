@@ -139,19 +139,17 @@ export function generateDealTasks(deals: DealRow[]): SystemTask[] {
 
     const daysSince = getDaysSince(deal.last_activity_at);
 
-    // ── DEAL NEXT STEP ──
-    // Active deal with no next action defined
+    // ── NEXT STEP ──
+    // Active item with no next action defined
     if (!deal.next_action && daysSince <= STALE_DAYS_REENGAGE) {
-      // Priority based on deal stage and value
-      let priority = 20;
-      if (deal.stage === 'Negotiation' || deal.stage === 'Proposal') priority = 12;
-      if (deal.value && deal.value >= 10000) priority -= 3;
+      // Priority based on staleness only — no stage or value weighting
+      const priority = daysSince > 7 ? 14 : 20;
 
       tasks.push({
         id: `nextstep_${deal.id}`,
         type: 'deal_next_step',
         title: `Define next step for ${deal.name}`,
-        subtitle: `${deal.stage} · no action set`,
+        subtitle: 'no action set',
         contextId: deal.id,
         priority,
         action: { kind: 'open_deal', dealId: deal.id },
@@ -160,13 +158,10 @@ export function generateDealTasks(deals: DealRow[]): SystemTask[] {
     }
 
     // ── REENGAGE ──
-    // Deal stale beyond threshold
+    // Item stale beyond threshold
     if (daysSince > STALE_DAYS_REENGAGE) {
-      // Priority: staleness + value
-      let priority = 18;
-      if (daysSince > 21) priority = 14;
-      if (deal.value && deal.value >= 10000) priority -= 2;
-      if (deal.stage === 'Negotiation' || deal.stage === 'Proposal') priority -= 3;
+      // Priority based on staleness only — no value or stage weighting
+      const priority = daysSince > 21 ? 14 : 18;
 
       tasks.push({
         id: `reengage_${deal.id}`,

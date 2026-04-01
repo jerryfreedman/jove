@@ -9,7 +9,7 @@ import {
 import {
   evaluateModulePriority,
   isNeedsAttention,
-  type ModulePriorityResult,
+  type SurfaceEvalResult,
 } from '@/lib/module-priority';
 import type { DealRow, MeetingRow, UserDomainProfile } from '@/lib/types';
 import {
@@ -228,7 +228,7 @@ export default function ControlSurface({
   }, [openSurface]);
 
   // ── Evaluate decision surface (low data state only) ──
-  const priority = useMemo<ModulePriorityResult>(() => {
+  const priority = useMemo<SurfaceEvalResult>(() => {
     return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: effectiveTaskCount });
   }, [allDeals, urgentDeals, meetings, effectiveTaskCount]);
 
@@ -265,8 +265,9 @@ export default function ControlSurface({
           _sortKey: 0,
         });
         placed.add(`task-${task.id}`);
-        // If task is linked to a meeting, mark that meeting as covered
+        // Mark linked entities so they don't duplicate into other zones
         if (task.meetingId) placed.add(`meeting-${task.meetingId}`);
+        if (task.dealId) placed.add(`deal-${task.dealId}`);
       }
     } else if (usingFallback) {
       for (const task of legacySystemTasks.slice(0, 5)) {
@@ -280,6 +281,14 @@ export default function ControlSurface({
           _sortKey: 0,
         });
         placed.add(`legacy-${task.id}`);
+        // Mark linked entities so they don't duplicate into other zones
+        if (task.contextId) {
+          if (task.type === 'meeting_prep' || task.type === 'meeting_followup') {
+            placed.add(`meeting-${task.contextId}`);
+          } else {
+            placed.add(`deal-${task.contextId}`);
+          }
+        }
       }
     }
 
@@ -335,8 +344,8 @@ export default function ControlSurface({
     }
 
     // ── EVERYTHING ELSE ─────────────────────────────────────
-    // Remaining items: lower-priority tasks, non-urgent deals.
-    // Collapsed by default. Accessible, not overwhelming.
+    // Remaining items not already placed by tasks or attention logic.
+    // Collapsed by default. Sorted by recency. No subcategories.
     const everythingElseItems: SurfaceItem[] = [];
 
     // Remaining active deals not already placed
@@ -398,35 +407,33 @@ export default function ControlSurface({
     if (ok) refetchTasks();
   };
 
-  // ── SESSION 12A: UNIFIED ROW RENDERER ────────────────────
-  // Every item looks the same. No type labels, no domain jargon.
-  // Just: title + optional time + optional actions.
+  // ── SESSION 12B: UNIFIED ROW RENDERER ─────────────────────
+  // Every row is identical in structure: title + time + actions.
+  // No type labels. No weight differences between zones.
+  // Consistent padding, font, truncation across all items.
 
-  const renderRow = (item: SurfaceItem, zone: 'what_matters' | 'coming_up' | 'everything_else') => {
+  const ROW_STYLE = {
+    background: 'rgba(240,235,224,0.03)',
+    border: '0.5px solid rgba(240,235,224,0.06)',
+    borderRadius: 12,
+    padding: '11px 14px',
+    transition: 'border-color 0.15s ease, opacity 0.2s ease',
+  } as const;
+
+  const renderRow = (item: SurfaceItem) => {
     const isPending = item.taskActions ? taskActionPending === item.taskActions.taskId : false;
     const isMeeting = item.id.startsWith('meeting-');
     const meetingId = isMeeting ? item.id.replace('meeting-', '') : null;
     const isExpanded = meetingId ? expandedMeetingId === meetingId : false;
-
-    // Subtle visual distinction by zone — not type
-    const bgBase = zone === 'what_matters'
-      ? 'rgba(240,235,224,0.04)'
-      : 'rgba(240,235,224,0.03)';
-    const borderBase = zone === 'what_matters'
-      ? 'rgba(240,235,224,0.08)'
-      : 'rgba(240,235,224,0.06)';
 
     return (
       <div
         key={item.id}
         onClick={item.onClick}
         style={{
-          background: isExpanded ? 'rgba(240,235,224,0.05)' : bgBase,
-          border: `0.5px solid ${isExpanded ? 'rgba(240,235,224,0.10)' : borderBase}`,
-          borderRadius: 12,
-          padding: '12px 14px',
+          ...ROW_STYLE,
+          borderColor: isExpanded ? 'rgba(240,235,224,0.10)' : undefined,
           cursor: item.onClick ? 'pointer' : 'default',
-          transition: 'border-color 0.15s ease, opacity 0.2s ease',
           opacity: isPending ? 0.4 : 1,
         }}
       >
@@ -452,16 +459,13 @@ export default function ControlSurface({
                 style={{
                   fontSize: 11,
                   fontWeight: 400,
-                  color: item.emphasis
-                    ? COLORS.amber
-                    : 'rgba(240,235,224,0.42)',
+                  color: item.emphasis ? COLORS.amber : 'rgba(240,235,224,0.42)',
                 }}
               >
                 {item.time}
               </span>
             )}
 
-            {/* Task actions: Done + Dismiss (persistent tasks only) */}
             {item.taskActions && (
               <>
                 <button
@@ -505,7 +509,7 @@ export default function ControlSurface({
           </div>
         </div>
 
-        {/* Meeting inline actions (expand on tap) */}
+        {/* Inline actions — expand on tap, no page navigation */}
         {isMeeting && isExpanded && meetingId && (
           <div
             style={{
@@ -513,21 +517,20 @@ export default function ControlSurface({
               gap: 6,
               marginTop: 10,
               paddingTop: 10,
-              borderTop: '0.5px solid rgba(240,235,224,0.08)',
+              borderTop: '0.5px solid rgba(240,235,224,0.06)',
               flexWrap: 'wrap',
             }}
           >
             <button
               onClick={(e) => { e.stopPropagation(); completeMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
-                padding: '7px 14px',
+                padding: '6px 12px',
                 borderRadius: 8,
                 border: '0.5px solid rgba(72,200,120,0.3)',
                 background: 'rgba(72,200,120,0.08)',
                 color: COLORS.green,
                 fontSize: 11,
                 fontWeight: 600,
-                letterSpacing: '0.5px',
                 cursor: 'pointer',
                 fontFamily: FONTS.sans,
               }}
@@ -537,14 +540,13 @@ export default function ControlSurface({
             <button
               onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meetingId); }}
               style={{
-                padding: '7px 14px',
+                padding: '6px 12px',
                 borderRadius: 8,
                 border: '0.5px solid rgba(56,184,200,0.3)',
                 background: 'rgba(56,184,200,0.08)',
                 color: COLORS.teal,
                 fontSize: 11,
                 fontWeight: 600,
-                letterSpacing: '0.5px',
                 cursor: 'pointer',
                 fontFamily: FONTS.sans,
               }}
@@ -554,43 +556,18 @@ export default function ControlSurface({
             <button
               onClick={(e) => { e.stopPropagation(); cancelMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
-                padding: '7px 14px',
+                padding: '6px 12px',
                 borderRadius: 8,
                 border: '0.5px solid rgba(224,88,64,0.25)',
                 background: 'rgba(224,88,64,0.06)',
                 color: COLORS.red,
                 fontSize: 11,
                 fontWeight: 600,
-                letterSpacing: '0.5px',
                 cursor: 'pointer',
                 fontFamily: FONTS.sans,
               }}
             >
               Cancel
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const meetingRow = meetings.find(m => m.id === meetingId);
-                meetingRow?.deal_id
-                  ? openSurface('deal-prep', { dealId: meetingRow.deal_id })
-                  : openSurface('briefing');
-              }}
-              style={{
-                padding: '7px 14px',
-                borderRadius: 8,
-                border: '0.5px solid rgba(240,235,224,0.12)',
-                background: 'rgba(240,235,224,0.04)',
-                color: 'rgba(240,235,224,0.52)',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.5px',
-                cursor: 'pointer',
-                fontFamily: FONTS.sans,
-                marginLeft: 'auto',
-              }}
-            >
-              Open
             </button>
           </div>
         )}
@@ -599,26 +576,27 @@ export default function ControlSurface({
   };
 
   // ── ZONE RENDERERS ──────────────────────────────────────
+  // Consistent header style across all zones.
+  // Uniform gap between rows (5px). No visual weight differences.
+
+  const ZONE_HEADER = {
+    fontSize: 10,
+    fontWeight: 600 as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '1.2px',
+    marginBottom: 8,
+    paddingLeft: 2,
+  };
 
   const renderWhatMatters = () => {
     if (whatMatters.length === 0) return null;
     return (
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '1.4px',
-            color: COLORS.amber,
-            marginBottom: 10,
-            paddingLeft: 2,
-          }}
-        >
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ ...ZONE_HEADER, color: COLORS.amber }}>
           {labels.whatMatters}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {whatMatters.map(item => renderRow(item, 'what_matters'))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {whatMatters.map(item => renderRow(item))}
         </div>
       </div>
     );
@@ -627,22 +605,12 @@ export default function ControlSurface({
   const renderComingUp = () => {
     if (comingUp.length === 0) return null;
     return (
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '1.2px',
-            color: 'rgba(240,235,224,0.36)',
-            marginBottom: 10,
-            paddingLeft: 2,
-          }}
-        >
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ ...ZONE_HEADER, color: 'rgba(240,235,224,0.36)' }}>
           {labels.comingUp}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {comingUp.map(item => renderRow(item, 'coming_up'))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {comingUp.map(item => renderRow(item))}
         </div>
       </div>
     );
@@ -655,13 +623,9 @@ export default function ControlSurface({
         <div
           onClick={() => setEverythingElseOpen(prev => !prev)}
           style={{
-            fontSize: 10,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '1.2px',
+            ...ZONE_HEADER,
             color: 'rgba(240,235,224,0.24)',
-            marginBottom: everythingElseOpen ? 10 : 0,
-            paddingLeft: 2,
+            marginBottom: everythingElseOpen ? 8 : 0,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -676,48 +640,44 @@ export default function ControlSurface({
         </div>
 
         {everythingElseOpen && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {everythingElse.map(item => renderRow(item, 'everything_else'))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {everythingElse.map(item => renderRow(item))}
           </div>
         )}
       </div>
     );
   };
 
-  // ── DEEP LINKS (subtle footer, not a primary section) ───
-  const deepLinkStyle = {
+  // ── SURFACE ACCESS (secondary, not navigation) ──────────
+  // Minimal row of access points. Not a nav menu.
+  // Feels like part of the surface, not a router.
+  const accessStyle = {
     flex: 1,
-    padding: '12px 0',
-    borderRadius: 12,
-    border: '0.5px solid rgba(240,235,224,0.08)',
-    background: 'rgba(240,235,224,0.03)',
-    color: 'rgba(240,235,224,0.56)',
-    fontSize: 12,
+    padding: '10px 0',
+    borderRadius: 10,
+    border: 'none',
+    background: 'transparent',
+    color: 'rgba(240,235,224,0.32)',
+    fontSize: 11,
     fontWeight: 500 as const,
     cursor: 'pointer' as const,
     fontFamily: FONTS.sans,
-    transition: 'border-color 0.15s ease',
-    letterSpacing: '0.2px',
+    transition: 'color 0.15s ease',
   };
 
-  const renderDeepLinks = () => (
-    <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', paddingTop: 4 }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <button onClick={() => openSurface('deals')} style={deepLinkStyle}>
-          {labels.allDeals}
+  const renderAccess = () => (
+    <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', paddingTop: 8 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button onClick={() => openSurface('deals')} style={accessStyle}>
+          {labels.allItems}
         </button>
-        <button onClick={() => openSurface('meetings')} style={deepLinkStyle}>
+        <button onClick={() => openSurface('meetings')} style={accessStyle}>
           {labels.meetings}
         </button>
-        <button onClick={() => openSurface('ideas')} style={deepLinkStyle}>
+        <button onClick={() => openSurface('ideas')} style={accessStyle}>
           Ideas
         </button>
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => openSurface('briefing')} style={deepLinkStyle}>
-          Briefing
-        </button>
-        <button onClick={() => openSurface('settings')} style={deepLinkStyle}>
+        <button onClick={() => openSurface('settings')} style={accessStyle}>
           {labels.settings}
         </button>
       </div>
@@ -725,11 +685,12 @@ export default function ControlSurface({
   );
 
   // ── EMPTY STATE ─────────────────────────────────────────
+  // Intentional, not broken. Feels like calm, not absence.
   const renderEmptyState = () => (
     <div
       style={{
         textAlign: 'center',
-        padding: '28px 24px 20px',
+        padding: '32px 24px 24px',
       }}
     >
       <div
@@ -737,28 +698,28 @@ export default function ControlSurface({
           fontFamily: FONTS.serif,
           fontSize: 17,
           fontWeight: 300,
-          color: 'rgba(252,246,234,0.44)',
+          color: 'rgba(252,246,234,0.40)',
           lineHeight: 1.5,
         }}
       >
         {isLowDataState
           ? 'Your world is taking shape.'
-          : "You're clear."}
+          : "You\u2019re clear."}
       </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 300,
-          color: 'rgba(240,235,224,0.22)',
-          lineHeight: 1.5,
-          maxWidth: 260,
-          margin: '6px auto 0',
-        }}
-      >
-        {isLowDataState
-          ? "Add what\u2019s happening and I\u2019ll organize it."
-          : 'Nothing urgent right now.'}
-      </div>
+      {isLowDataState && (
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 300,
+            color: 'rgba(240,235,224,0.20)',
+            lineHeight: 1.5,
+            maxWidth: 240,
+            margin: '8px auto 0',
+          }}
+        >
+          Add what&apos;s happening and it will organize here.
+        </div>
+      )}
     </div>
   );
 
@@ -824,13 +785,13 @@ export default function ControlSurface({
           />
         </div>
 
-        {/* Scrollable content — one continuous surface */}
+        {/* Scrollable content — one continuous surface, no hard dividers */}
         <div
           style={{
             flex: 1,
             overflowY: 'auto',
             overflowX: 'hidden',
-            padding: '0 18px 8px',
+            padding: '0 16px 6px',
             minHeight: 0,
             WebkitOverflowScrolling: 'touch',
           }}
@@ -840,12 +801,12 @@ export default function ControlSurface({
               {renderWhatMatters()}
               {renderComingUp()}
               {renderEverythingElse()}
-              {renderDeepLinks()}
+              {renderAccess()}
             </>
           ) : (
             <>
               {renderEmptyState()}
-              {renderDeepLinks()}
+              {renderAccess()}
             </>
           )}
         </div>
