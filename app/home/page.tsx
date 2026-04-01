@@ -7,6 +7,7 @@ import SceneBackground from '@/components/home/SceneBackground';
 import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import ControlSurface from '@/components/home/ControlSurface';
+import FocusOverlay from '@/components/home/FocusOverlay';
 import { SurfaceProvider, useSurface } from '@/components/surfaces/SurfaceManager';
 import SurfaceRenderer from '@/components/surfaces/SurfaceRenderer';
 // Logo removed — Session 4: world-first homepage, no app chrome
@@ -136,6 +137,9 @@ function HomePageInner() {
 
   // ── CONTROL SURFACE STATE ──────────────────────────────
   const [controlOpen, setControlOpen] = useState(false);
+
+  // ── SESSION 13A: FOCUS OVERLAY STATE ────────────────────
+  const [focusOverlayOpen, setFocusOverlayOpen] = useState(false);
 
   // ── CELESTIAL POSITION (single source of truth from SceneBackground) ──
   const [celestialPos, setCelestialPos] = useState<CelestialPosition>({
@@ -1772,7 +1776,7 @@ function HomePageInner() {
               breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div
             ref={sunRef}
-            onClick={() => surfaceNavigateTo('briefing')}
+            onClick={() => setFocusOverlayOpen(prev => !prev)}
             onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.92)'; }}
             onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
             onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
@@ -1796,7 +1800,7 @@ function HomePageInner() {
               transition:   'transform 0.15s ease',
               WebkitTapHighlightColor: 'transparent',
             }}
-            aria-label="Tap for briefing"
+            aria-label="What matters right now"
           >
           </div>
 
@@ -1990,6 +1994,15 @@ function HomePageInner() {
         urgentDeals={data?.urgentDeals ?? []}
         meetings={data?.meetings ?? []}
         userId={data?.user?.id ?? null}
+      />
+
+      {/* ── SESSION 13A: FOCUS OVERLAY (sun → instant clarity) ── */}
+      <FocusOverlay
+        open={focusOverlayOpen}
+        onClose={() => setFocusOverlayOpen(false)}
+        userId={data?.user?.id ?? null}
+        urgentDeals={data?.urgentDeals ?? []}
+        allDeals={data?.allDeals ?? []}
       />
 
       {/* ── SURFACE RENDERER (deep surfaces: deals, meetings, ideas, etc.) ── */}
