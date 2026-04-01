@@ -1914,6 +1914,7 @@ function HomePageInner() {
         allDeals={data?.allDeals ?? []}
         urgentDeals={data?.urgentDeals ?? []}
         meetings={data?.meetings ?? []}
+        userId={data?.user?.id ?? null}
       />
 
       {/* ── SURFACE RENDERER (deep surfaces: deals, meetings, ideas, etc.) ── */}

@@ -24,6 +24,7 @@ import { useMeetingStore } from '@/lib/meeting-store';
 import { useMeetingActions } from '@/lib/meeting-actions';
 import { useTaskEngine } from '@/lib/task-engine';
 import type { TaskAction } from '@/lib/task-types';
+import { useWhatMattersTasks, markTaskDone, skipTask, type DisplayTask } from '@/lib/task-queries';
 import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
@@ -37,6 +38,8 @@ interface ControlSurfaceProps {
   urgentDeals: DealWithAccount[];
   meetings: MeetingRow[];
   domainProfile?: UserDomainProfile;
+  /** Session 11C: User ID for persistent task reads. */
+  userId?: string | null;
 }
 
 // ── HELPERS ────────────────────────────────────────────────
@@ -89,6 +92,7 @@ export default function ControlSurface({
   urgentDeals,
   meetings,
   domainProfile,
+  userId,
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -144,8 +148,38 @@ export default function ControlSurface({
     setRescheduleTarget(null);
   }, [rescheduleTarget, rescheduleMeeting]);
 
-  // ── SESSION 9: System-derived task engine ──
-  const systemTasks = useTaskEngine(allDeals);
+  // ── SESSION 9: System-derived task engine (legacy fallback) ──
+  const legacySystemTasks = useTaskEngine(allDeals);
+
+  // ── SESSION 11C: Persistent task reads from DB ──
+  const { tasks: dbTasks, loading: dbTasksLoading, refetch: refetchTasks } = useWhatMattersTasks(userId ?? null, 5);
+
+  // ── SESSION 11C: Unified task list — DB primary, legacy fallback ──
+  // If DB has tasks, use them. If DB is empty/loading but legacy has tasks, show legacy.
+  // This prevents blank "What Matters" during migration.
+  const [taskActionPending, setTaskActionPending] = useState<string | null>(null);
+
+  const { unifiedTasks, usingFallback } = useMemo(() => {
+    // DB tasks available and non-empty → use them
+    if (!dbTasksLoading && dbTasks.length > 0) {
+      return { unifiedTasks: dbTasks, usingFallback: false };
+    }
+    // DB still loading → show legacy as temporary bridge
+    if (dbTasksLoading && legacySystemTasks.length > 0) {
+      return { unifiedTasks: null, usingFallback: true };
+    }
+    // DB loaded but empty, legacy has tasks → fallback
+    if (!dbTasksLoading && dbTasks.length === 0 && legacySystemTasks.length > 0) {
+      return { unifiedTasks: null, usingFallback: true };
+    }
+    // Both empty → nothing
+    return { unifiedTasks: dbTasks, usingFallback: false };
+  }, [dbTasks, dbTasksLoading, legacySystemTasks]);
+
+  // Combined task count for module priority
+  const effectiveTaskCount = usingFallback
+    ? legacySystemTasks.length
+    : (unifiedTasks?.length ?? 0);
 
   // ── SESSION 9: Task action handler ──
   // IMPORTANT: All hooks must be called before the early return below.
@@ -175,9 +209,10 @@ export default function ControlSurface({
   }, [openSurface]);
 
   // ── ADAPTIVE MODULE PRIORITY ────────────────────────────
+  // Session 11C: Use effective task count (DB primary, legacy fallback)
   const priority = useMemo<ModulePriorityResult>(() => {
-    return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: systemTasks.length });
-  }, [allDeals, urgentDeals, meetings, systemTasks.length]);
+    return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: effectiveTaskCount });
+  }, [allDeals, urgentDeals, meetings, effectiveTaskCount]);
 
   // ── Session 7: Meeting store for status-aware filtering ──
   const meetingStoreData = useMeetingStore(state => state.meetings);
@@ -253,12 +288,206 @@ export default function ControlSurface({
     },
   };
 
-  // ── SESSION 10: "WHAT MATTERS" ──────────────────────────
-  // Unified section: system tasks + attention items, max 5 total
-  const whatMattersItems = systemTasks.length > 0 || attentionItems.length > 0;
+  // ── SESSION 11C: "WHAT MATTERS" — unified persistent + fallback ──
+  const whatMattersItems = effectiveTaskCount > 0 || attentionItems.length > 0;
+
+  // ── SESSION 11C: Helpers for persistent task display ──
+  // Resolve accent for a DisplayTask (no source_type jargon in UI)
+  const getTaskAccent = (task: DisplayTask) => {
+    if (task.sourceType && TASK_ACCENT[task.sourceType]) return TASK_ACCENT[task.sourceType];
+    // User-created tasks get a neutral accent
+    return {
+      color: 'rgba(240,235,224,0.60)',
+      bg: 'rgba(240,235,224,0.04)',
+      border: 'rgba(240,235,224,0.10)',
+    };
+  };
+
+  // Format due_at for display
+  const formatDueAt = (dueAt: string | null): string | null => {
+    if (!dueAt) return null;
+    const d = new Date(dueAt);
+    const now = new Date();
+    const diffMs = d.getTime() - now.getTime();
+    const diffMin = Math.floor(diffMs / (1000 * 60));
+    if (diffMin < 0) return 'overdue';
+    if (diffMin < 60) return `in ${diffMin}m`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `in ${diffH}h`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD === 0) return 'today';
+    if (diffD === 1) return 'tomorrow';
+    return `in ${diffD}d`;
+  };
+
+  // Handle task done/skip with optimistic UI
+  const handleTaskDone = useCallback(async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTaskActionPending(taskId);
+    const ok = await markTaskDone(taskId);
+    setTaskActionPending(null);
+    if (ok) refetchTasks();
+  }, [refetchTasks]);
+
+  const handleTaskSkip = useCallback(async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTaskActionPending(taskId);
+    const ok = await skipTask(taskId);
+    setTaskActionPending(null);
+    if (ok) refetchTasks();
+  }, [refetchTasks]);
+
+  // ── Render a single persistent task row (Session 11C) ──
+  const renderPersistentTaskRow = (task: DisplayTask) => {
+    const accent = getTaskAccent(task);
+    const timeLabel = formatDueAt(task.dueAt);
+    const isPending = taskActionPending === task.id;
+
+    return (
+      <div
+        key={task.id}
+        onClick={() => task.action ? handleTaskAction(task.action) : undefined}
+        style={{
+          background: accent.bg,
+          border: `0.5px solid ${accent.border}`,
+          borderRadius: 12,
+          padding: '13px 14px',
+          cursor: task.action ? 'pointer' : 'default',
+          transition: 'border-color 0.15s ease, opacity 0.2s ease',
+          opacity: isPending ? 0.4 : 1,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 400,
+              color: 'rgba(252,246,234,0.88)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {task.title}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 10, flexShrink: 0 }}>
+            {timeLabel && (
+              <span style={{ fontSize: 11, fontWeight: 500, color: accent.color }}>
+                {timeLabel}
+              </span>
+            )}
+            {/* Minimal actions: Done + Dismiss */}
+            <button
+              onClick={(e) => handleTaskDone(task.id, e)}
+              disabled={isPending}
+              style={{
+                padding: '3px 8px',
+                borderRadius: 6,
+                border: '0.5px solid rgba(72,200,120,0.25)',
+                background: 'rgba(72,200,120,0.08)',
+                color: COLORS.green,
+                fontSize: 10,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+                lineHeight: '1.3',
+              }}
+            >
+              Done
+            </button>
+            <button
+              onClick={(e) => handleTaskSkip(task.id, e)}
+              disabled={isPending}
+              style={{
+                padding: '3px 6px',
+                borderRadius: 6,
+                border: '0.5px solid rgba(240,235,224,0.10)',
+                background: 'rgba(240,235,224,0.03)',
+                color: 'rgba(240,235,224,0.32)',
+                fontSize: 10,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+                lineHeight: '1.3',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Render a single legacy system task row (unchanged from Session 10) ──
+  const renderLegacyTaskRow = (task: typeof legacySystemTasks[number]) => {
+    const accent = TASK_ACCENT[task.type] ?? TASK_ACCENT.deal_next_step;
+    return (
+      <div
+        key={task.id}
+        onClick={() => handleTaskAction(task.action)}
+        style={{
+          background: accent.bg,
+          border: `0.5px solid ${accent.border}`,
+          borderRadius: 12,
+          padding: '13px 14px',
+          cursor: 'pointer',
+          transition: 'border-color 0.15s ease',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 400,
+              color: 'rgba(252,246,234,0.88)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {task.title}
+          </span>
+          {task.timeRelevance && (
+            <span style={{ fontSize: 11, fontWeight: 500, color: accent.color, marginLeft: 10, flexShrink: 0 }}>
+              {task.timeRelevance}
+            </span>
+          )}
+        </div>
+        {task.subtitle && (
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 300,
+              color: 'rgba(240,235,224,0.38)',
+              marginTop: 3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {task.subtitle}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderWhatMatters = () => {
     if (!whatMattersItems) return null;
+
+    // Determine task slots used (max 5 total including attention items)
+    const taskSlots = usingFallback
+      ? legacySystemTasks.slice(0, 5)
+      : (unifiedTasks ?? []).slice(0, 5);
+    const taskSlotsUsed = taskSlots.length;
+    const attentionSlots = taskSlotsUsed < 5
+      ? attentionItems.slice(0, 5 - taskSlotsUsed)
+      : [];
 
     return (
       <div key="what_matters" style={{ marginBottom: 24 }}>
@@ -276,72 +505,14 @@ export default function ControlSurface({
           {labels.whatMatters}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {/* System tasks first */}
-          {systemTasks.slice(0, 5).map((task) => {
-            const accent = TASK_ACCENT[task.type] ?? TASK_ACCENT.deal_next_step;
-            return (
-              <div
-                key={task.id}
-                onClick={() => handleTaskAction(task.action)}
-                style={{
-                  background: accent.bg,
-                  border: `0.5px solid ${accent.border}`,
-                  borderRadius: 12,
-                  padding: '13px 14px',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s ease',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 400,
-                      color: 'rgba(252,246,234,0.88)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      flex: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    {task.title}
-                  </span>
-                  {task.timeRelevance && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 500,
-                        color: accent.color,
-                        marginLeft: 10,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {task.timeRelevance}
-                    </span>
-                  )}
-                </div>
-                {task.subtitle && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 300,
-                      color: 'rgba(240,235,224,0.38)',
-                      marginTop: 3,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {task.subtitle}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {/* Tasks: DB-backed or legacy fallback */}
+          {usingFallback
+            ? legacySystemTasks.slice(0, 5).map(renderLegacyTaskRow)
+            : (unifiedTasks ?? []).slice(0, 5).map(renderPersistentTaskRow)
+          }
 
           {/* Attention items — only if space remains under 5 total */}
-          {systemTasks.length < 5 && attentionItems.slice(0, 5 - systemTasks.length).map((deal) => {
+          {attentionSlots.map((deal) => {
             const days = getDaysSince(deal.last_activity_at);
             return (
               <div
@@ -734,8 +905,8 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── SESSION 10: EMPTY / CLEAR STATE ─────────────────────
-  // Direct voice. No fluff.
+  // ── SESSION 11C: EMPTY / CLEAR STATE (universal) ────────
+  // Neutral language. No sales-specific hints.
   const hasContent = whatMattersItems || upcomingMeetings.length > 0 || topDeals.length > 0;
 
   const renderEmptyState = () => (
@@ -756,9 +927,9 @@ export default function ControlSurface({
       >
         {isLowDataState
           ? 'Your world is taking shape.'
-          : "You\u2019re clear."}
+          : "Nothing pressing."}
       </div>
-      {isLowDataState && (
+      {isLowDataState ? (
         <div
           style={{
             fontSize: 12,
@@ -769,7 +940,20 @@ export default function ControlSurface({
             margin: '8px auto 0',
           }}
         >
-          {`Add ${labels.allDeals.toLowerCase()} and meetings to get started.`}
+          Add what&apos;s happening and Jove will organize it.
+        </div>
+      ) : (
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 300,
+            color: 'rgba(240,235,224,0.20)',
+            lineHeight: 1.5,
+            maxWidth: 260,
+            margin: '6px auto 0',
+          }}
+        >
+          You&apos;re clear.
         </div>
       )}
     </div>

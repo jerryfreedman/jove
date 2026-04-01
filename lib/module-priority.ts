@@ -47,7 +47,7 @@ export interface ModulePriorityInput {
   allDeals: DealWithAccount[];
   urgentDeals: DealWithAccount[];
   meetings: MeetingRow[];
-  /** Session 9: Number of system-derived tasks from useTaskEngine */
+  /** Session 9+11C: Number of active tasks (persistent DB or fallback system-derived) */
   systemTaskCount?: number;
 }
 
@@ -195,14 +195,14 @@ export function evaluateModulePriority(input: ModulePriorityInput): ModulePriori
 
   const modules: ModuleVisibility[] = [];
 
-  // --- SYSTEM TASKS (Session 9) ---
-  // Highest priority module: derived intelligence tasks
+  // --- TASKS (Session 9 + 11C) ---
+  // Highest priority module: real persistent tasks (user + system)
   if (hasSystemTasks) {
     modules.push({
       id: 'system_tasks',
       shouldShow: true,
       priority: 2,   // above everything else
-      reason: `${input.systemTaskCount} system-derived task(s) need action`,
+      reason: `${input.systemTaskCount} task(s) need action`,
       isProminent: false,
     });
   } else {
@@ -210,7 +210,7 @@ export function evaluateModulePriority(input: ModulePriorityInput): ModulePriori
       id: 'system_tasks',
       shouldShow: false,
       priority: 2,
-      reason: 'No system tasks derived — module hidden',
+      reason: 'No active tasks — module hidden',
       isProminent: false,
     });
   }
