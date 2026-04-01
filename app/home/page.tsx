@@ -1810,7 +1810,8 @@ export default function HomePage() {
             zIndex:         25,
             pointerEvents:  'none',
             opacity:        visible ? 1 : 0,
-            transition:     `opacity 0.65s ease 0.30s`,
+            transform:      visible ? 'translateY(0)' : 'translateY(12px)',
+            transition:     `opacity 0.7s ease 0.32s, transform 0.7s cubic-bezier(.32,.72,0,1) 0.32s`,
           }}
         >
           <div
