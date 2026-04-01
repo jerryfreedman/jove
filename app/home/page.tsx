@@ -1792,6 +1792,9 @@ export default function HomePage() {
       {!controlOpen && (
         <div
           onClick={() => setControlOpen(true)}
+          onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.90)'; }}
+          onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+          onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
           style={{
             position:       'fixed',
             bottom:         'calc(env(safe-area-inset-bottom, 0px) + 88px)',
@@ -1800,19 +1803,20 @@ export default function HomePage() {
             width:          42,
             height:         42,
             borderRadius:   '50%',
-            background:     'rgba(15,20,32,0.55)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border:         '0.5px solid rgba(240,235,224,0.10)',
+            background:     'rgba(15,20,32,0.48)',
+            backdropFilter: 'blur(32px) saturate(1.4)',
+            WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
+            border:         '0.5px solid rgba(240,235,224,0.11)',
+            borderTop:      '0.5px solid rgba(240,235,224,0.16)',
             display:        'flex',
             alignItems:     'center',
             justifyContent: 'center',
             cursor:         'pointer',
             opacity:        chatOpen ? 0 : visible ? 1 : 0,
             pointerEvents:  chatOpen ? 'none' : 'auto',
-            transition:     'opacity 0.4s ease, transform 0.15s ease, box-shadow 0.15s ease',
+            transition:     'opacity 0.4s ease, transform 0.18s ease, box-shadow 0.18s ease',
             WebkitTapHighlightColor: 'transparent',
-            boxShadow:      '0 2px 12px rgba(0,0,0,0.25)',
+            boxShadow:      '0 2px 16px rgba(0,0,0,0.18), 0 0.5px 0 rgba(240,235,224,0.04) inset',
           }}
           aria-label="Open overview"
         >
@@ -1862,22 +1866,28 @@ export default function HomePage() {
           >
           <div
             style={{
-              background:      'rgba(15,20,32,0.55)',
-              backdropFilter:  'blur(24px)',
-              WebkitBackdropFilter: 'blur(24px)',
-              borderRadius:    20,
-              border:          '0.5px solid rgba(240,235,224,0.08)',
+              background:      'rgba(15,20,32,0.48)',
+              backdropFilter:  'blur(32px) saturate(1.4)',
+              WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
+              borderRadius:    22,
+              border:          '0.5px solid rgba(240,235,224,0.11)',
+              borderTop:       '0.5px solid rgba(240,235,224,0.16)',
               padding:         '15px 20px',
               display:         'flex',
               alignItems:      'center',
+              boxShadow:       '0 2px 16px rgba(0,0,0,0.18), 0 0.5px 0 rgba(240,235,224,0.04) inset',
+              transition:      'transform 0.18s ease, box-shadow 0.18s ease',
             }}
+            onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.975)'; }}
+            onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+            onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
           >
             <span
               style={{
                 fontFamily:    "'DM Sans', sans-serif",
                 fontSize:      14,
                 fontWeight:    300,
-                color:         'rgba(240,235,224,0.36)',
+                color:         'rgba(240,235,224,0.38)',
                 letterSpacing: '0.15px',
               }}
             >
@@ -1917,9 +1927,12 @@ export default function HomePage() {
               maxHeight:      '88dvh',
               display:        'flex',
               flexDirection:  'column',
-              background:     '#0f1420',
+              background:     'rgba(13,17,28,0.92)',
+              backdropFilter: 'blur(40px) saturate(1.3)',
+              WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
               borderRadius:   '22px 22px 0 0',
-              borderTop:      '0.5px solid rgba(240,235,224,0.08)',
+              borderTop:      '0.5px solid rgba(240,235,224,0.10)',
+              boxShadow:      '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.04) inset',
               transform:      chatSheetVisible ? 'translateY(0)' : 'translateY(100%)',
               transition:     'transform 0.32s cubic-bezier(.32,.72,0,1)',
               fontFamily:     "'DM Sans', sans-serif",
@@ -2270,10 +2283,12 @@ export default function HomePage() {
                   display:      'flex',
                   alignItems:   'center',
                   gap:          10,
-                  background:   'rgba(16,20,30,0.6)',
-                  border:       '0.5px solid rgba(240,235,224,0.08)',
+                  background:   'rgba(16,20,30,0.55)',
+                  border:       '0.5px solid rgba(240,235,224,0.09)',
+                  borderTop:    '0.5px solid rgba(240,235,224,0.13)',
                   borderRadius: 16,
                   padding:      '4px 6px 4px 16px',
+                  boxShadow:    '0 1px 8px rgba(0,0,0,0.12), 0 0.5px 0 rgba(240,235,224,0.03) inset',
                 }}
               >
                 <input
@@ -2324,6 +2339,9 @@ export default function HomePage() {
                     justifyContent: 'center',
                     transition:   'all 0.2s ease',
                     flexShrink:   0,
+                    boxShadow:    chatInput.trim() && !chatProcessing && !chatStreaming
+                      ? '0 1px 6px rgba(200,120,32,0.3)'
+                      : 'none',
                   }}
                   aria-label="Send message"
                 >
