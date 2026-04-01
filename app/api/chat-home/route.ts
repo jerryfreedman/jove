@@ -5,6 +5,10 @@ import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
 import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
+// Session 11B: Task intent detection + creation
+import { detectTaskIntent } from '@/lib/task-intent';
+import { parseTaskTime, formatDueAt } from '@/lib/task-time-parser';
+import { createUserTask } from '@/lib/task-persistence';
 
 export const maxDuration = 30;
 
@@ -22,6 +26,10 @@ type ResponseContext = {
   linkedDealName?: string | null;
   createdDealId?: string | null;
   ambiguity?: boolean;
+  // Session 11B: Task creation context
+  taskCreated?: boolean;
+  taskTitle?: string | null;
+  taskDueLabel?: string | null;
 };
 
 /**
@@ -46,6 +54,54 @@ export async function POST(request: NextRequest) {
 
     if (!userId || !messages?.length) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+    }
+
+    // ── Session 11B: Task intent detection on latest user message ──
+    // Detect task intent server-side so we can create the task and
+    // inject confirmation context for the LLM in the same request.
+    let taskContext: { created: boolean; title: string; dueLabel: string | null } | null = null;
+    const latestUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    if (latestUserMsg) {
+      const taskIntent = detectTaskIntent(latestUserMsg.content);
+      if (taskIntent) {
+        // Parse time if present
+        const dueAt = taskIntent.rawTimePart
+          ? parseTaskTime(taskIntent.rawTimePart)
+          : null;
+
+        // Create the Supabase client for task write
+        const taskCookieStore = await cookies();
+        const taskSupabase = createServerClient(
+          SUPABASE_URL,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            cookies: {
+              getAll() { return taskCookieStore.getAll(); },
+              setAll(cookiesToSet) {
+                try {
+                  cookiesToSet.forEach(({ name, value, options }) =>
+                    taskCookieStore.set(name, value, options)
+                  );
+                } catch {}
+              },
+            },
+          }
+        );
+
+        const result = await createUserTask(taskSupabase, userId, {
+          title: taskIntent.title,
+          dueAt,
+          dealId: dealId ?? null,
+        });
+
+        if (result) {
+          taskContext = {
+            created: true,
+            title: taskIntent.title,
+            dueLabel: dueAt ? formatDueAt(dueAt) : null,
+          };
+        }
+      }
     }
 
     // Session 5: Context cache for data context (keyed by dealId or 'general')
@@ -236,13 +292,34 @@ ${dedupedSignals.length > 0
     }
 
     // ── Build final system prompt: static rules + per-message responseContext + cached data ──
-    const responseCtxBlock = responseContext
+    // Session 11B: Merge task creation context into response context
+    const mergedResponseContext = responseContext
+      ? {
+          ...responseContext,
+          ...(taskContext?.created ? {
+            taskCreated: true,
+            taskTitle: taskContext.title,
+            taskDueLabel: taskContext.dueLabel,
+          } : {}),
+        }
+      : taskContext?.created
+        ? {
+            classification: 'task_creation',
+            actionTaken: 'none' as const,
+            taskCreated: true,
+            taskTitle: taskContext.title,
+            taskDueLabel: taskContext.dueLabel,
+          }
+        : null;
+
+    const responseCtxBlock = mergedResponseContext
       ? `
 SYSTEM CONTEXT:
-- Classification: ${responseContext.classification}
-- Action taken: ${responseContext.actionTaken ?? 'none'}
-- Linked deal: ${responseContext.linkedDealName ?? responseContext.linkedDealId ?? 'none'}
-- Ambiguity: ${responseContext.ambiguity ?? false}
+- Classification: ${mergedResponseContext.classification}
+- Action taken: ${mergedResponseContext.actionTaken ?? 'none'}
+- Linked deal: ${mergedResponseContext.linkedDealName ?? mergedResponseContext.linkedDealId ?? 'none'}
+- Ambiguity: ${mergedResponseContext.ambiguity ?? false}
+${mergedResponseContext.taskCreated ? `- Task created: "${mergedResponseContext.taskTitle}"${mergedResponseContext.taskDueLabel ? ` (due ${mergedResponseContext.taskDueLabel})` : ''}` : ''}
 `
       : '';
 
@@ -286,6 +363,11 @@ RULES:
 Subject: [subject line]
 
 [email body]
+16. When a task was created (see SYSTEM CONTEXT), confirm it briefly and naturally. Examples:
+    - "Got it — I added that as a task for tomorrow."
+    - "Added. That's now on your list."
+    - "I captured that. No due time yet — want me to add one?"
+    Do NOT say "task created" or use system language. Sound human.
 
 ---
 

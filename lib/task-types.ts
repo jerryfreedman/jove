@@ -1,7 +1,8 @@
-// ── SESSION 9: SYSTEM-DERIVED TASK TYPES ────────────────────
-// Tasks are NEVER user-created.
-// Tasks are derived from system state: meetings, deals, activity.
-// They represent what the user should do next.
+// ── SESSION 9 + 11B: TASK TYPES ─────────────────────────────
+// SystemTask: derived from system state (meetings, deals, activity).
+// Session 11B: Tasks can now also be user-created via chat.
+// The SystemTask type below represents the in-memory derivation shape.
+// For persisted tasks, see TaskRow in types.ts.
 
 export type TaskType =
   | 'meeting_prep'       // upcoming meeting needs preparation

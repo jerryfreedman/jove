@@ -47,8 +47,10 @@ function formatTimeSince(ms: number): string {
 }
 
 // ── TASK GENERATORS ─────────────────────────────────────────
+// Exported for server-side use in task sync (Session 11B).
+// The hook below wraps these for client-side React usage.
 
-function generateMeetingTasks(meetings: Meeting[]): SystemTask[] {
+export function generateMeetingTasks(meetings: Meeting[]): SystemTask[] {
   const now = Date.now();
   const tasks: SystemTask[] = [];
 
@@ -124,7 +126,7 @@ function generateMeetingTasks(meetings: Meeting[]): SystemTask[] {
   return tasks;
 }
 
-function generateDealTasks(deals: DealRow[]): SystemTask[] {
+export function generateDealTasks(deals: DealRow[]): SystemTask[] {
   const tasks: SystemTask[] = [];
   const now = Date.now();
 
@@ -213,4 +215,32 @@ export function useTaskEngine(deals: DealRow[]): SystemTask[] {
 
     return deduped.slice(0, MAX_TASKS);
   }, [meetingStoreData, deals]);
+}
+
+// ── PURE DERIVATION (SERVER-SIDE) ──────────────────────────
+// Session 11B: Same logic as useTaskEngine but without React hooks.
+// Used by the task sync API route for server-side persistence.
+
+export function deriveSystemTasks(
+  meetings: Meeting[],
+  deals: DealRow[],
+): SystemTask[] {
+  const meetingTasks = generateMeetingTasks(meetings);
+  const dealTasks = generateDealTasks(deals);
+
+  const all = [...meetingTasks, ...dealTasks]
+    .sort((a, b) => a.priority - b.priority);
+
+  const seen = new Set<string>();
+  const deduped: SystemTask[] = [];
+  for (const task of all) {
+    const dedupeKey = task.contextId ?? task.id;
+    const typeKey = `${dedupeKey}_${task.type.startsWith('meeting') ? 'meeting' : 'deal'}`;
+    if (!seen.has(typeKey)) {
+      seen.add(typeKey);
+      deduped.push(task);
+    }
+  }
+
+  return deduped.slice(0, MAX_TASKS);
 }
