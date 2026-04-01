@@ -338,3 +338,32 @@ export type SignalWithRelations = SignalRow & {
 export type MeetingWithDeal = MeetingRow & {
   deals?: DealRow | null;
 };
+
+// ── Task Types (Session 11A: Universal Primitive) ───────────
+
+export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'skipped';
+export type TaskSource = 'user' | 'system';
+export type TaskSourceType =
+  | 'meeting_prep'
+  | 'meeting_followup'
+  | 'deal_next_step'
+  | 'reengage'
+  | 'item_next_step';
+
+export type TaskRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  status: TaskStatus;
+  priority: number | null;
+  due_at: string | null;
+  item_id: string | null;
+  deal_id: string | null;
+  meeting_id: string | null;
+  source: TaskSource;
+  source_type: TaskSourceType | null;
+  action: Record<string, unknown> | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
