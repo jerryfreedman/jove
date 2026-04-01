@@ -179,6 +179,27 @@ function HomePageInner() {
   );
   const [firstVisitOpacity, setFirstVisitOpacity] = useState(1);
 
+  // ── SESSION 6: FIRST-USE HINT SYSTEM (behavioral, no UI) ──
+  // Tracks which subtle hints have fired this session (not persisted across sessions
+  // except for the first-ever visit). These hints amplify existing animations briefly.
+  const hintStateRef = useRef({
+    /** True if this is the very first app load ever */
+    isFirstEverVisit: typeof window !== 'undefined'
+      ? localStorage.getItem('jove_first_visit_shown') !== 'true'
+      : false,
+    /** Sun hint: stronger initial pulse (fires once per session on first load) */
+    sunHintFired: false,
+    /** Bird hint: brief emphasis when bird first becomes interactive */
+    birdHintFired: false,
+    /** Chat hint: subtle prominence boost after idle (~4s without interaction) */
+    chatHintFired: false,
+    /** Timestamp of page becoming visible */
+    pageVisibleAt: 0,
+  });
+  const [sunFirstUseHint, setSunFirstUseHint] = useState(false);
+  const [birdFirstUseHint, setBirdFirstUseHint] = useState(false);
+  const [chatBarHint, setChatBarHint] = useState(false);
+
   // ── TOUR REFS ────────────────────────────────────────────
   const sunRef     = useRef<HTMLDivElement>(null);
   // logoRef removed — Session 4
@@ -903,6 +924,42 @@ function HomePageInner() {
     };
   }, [firstVisitVisible]);
 
+  // ── SESSION 6: FIRST-USE BEHAVIORAL HINTS ──────────────────
+  // Sun hint: on first load, use a slightly stronger glow for 2 cycles (~8s)
+  useEffect(() => {
+    if (hintStateRef.current.sunHintFired) return;
+    hintStateRef.current.sunHintFired = true;
+    hintStateRef.current.pageVisibleAt = Date.now();
+    setSunFirstUseHint(true);
+    // Revert to normal glow after ~8 seconds
+    const t = setTimeout(() => setSunFirstUseHint(false), 8000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Chat hint: if user hasn't interacted within ~4s, subtly boost chat bar
+  useEffect(() => {
+    if (hintStateRef.current.chatHintFired) return;
+    const t = setTimeout(() => {
+      if (hintStateRef.current.chatHintFired) return;
+      hintStateRef.current.chatHintFired = true;
+      setChatBarHint(true);
+      // Revert after the settle animation plays (~1.2s)
+      setTimeout(() => setChatBarHint(false), 1200);
+    }, 4000);
+
+    // If user opens chat or interacts before 4s, cancel
+    const cancel = () => {
+      clearTimeout(t);
+      hintStateRef.current.chatHintFired = true;
+    };
+    window.addEventListener('pointerdown', cancel, { once: true });
+
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('pointerdown', cancel);
+    };
+  }, []);
+
   // Sync body background with sky top color so the area behind
   // the iOS status bar shows the correct color.
   useEffect(() => {
@@ -1226,6 +1283,15 @@ function HomePageInner() {
   }, [data, assistantTrigger]);
   birdQuestionRef.current = birdQuestion;
 
+  // ── SESSION 6: Bird first-use hint — brief emphasis when bird first becomes interactive
+  useEffect(() => {
+    if (!birdQuestion || hintStateRef.current.birdHintFired) return;
+    hintStateRef.current.birdHintFired = true;
+    setBirdFirstUseHint(true);
+    const t = setTimeout(() => setBirdFirstUseHint(false), 3000);
+    return () => clearTimeout(t);
+  }, [birdQuestion]);
+
   // ── BIRD CAPTURE HANDLER ──────────────────────────────────
   // Core bird save logic — accepts explicit dealId
   const executeBirdSave = async (finalDealId: string | null) => {
@@ -1420,7 +1486,7 @@ function HomePageInner() {
       }}
     >
       <SceneBackground onCelestialPosition={setCelestialPos} />
-      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} />
+      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
       {/* Only interactive when bird has a valid curiosity target */}
@@ -1573,6 +1639,7 @@ function HomePageInner() {
       {(scene.sun.opacity > 0 || isNight) ? (
         <>
           {/* Subtle glow ring — discoverable without being explicit */}
+          {/* Session 6: first-use hint uses stronger pulse for ~8s, then reverts */}
           <div
             style={{
               position:     'absolute',
@@ -1582,15 +1649,17 @@ function HomePageInner() {
               height:       72,
               borderRadius: '50%',
               background:   isNight
-                ? 'radial-gradient(circle, rgba(200,210,230,0.12) 0%, transparent 70%)'
-                : 'radial-gradient(circle, rgba(250,200,70,0.12) 0%, transparent 70%)',
+                ? 'radial-gradient(circle, rgba(200,210,230,0.14) 0%, transparent 70%)'
+                : 'radial-gradient(circle, rgba(250,200,70,0.14) 0%, transparent 70%)',
               zIndex:       14,
               pointerEvents:'none',
-              animation:    isImminent
-                ? 'celestialGlowImminent 2.5s ease-in-out infinite'
-                : isNight
-                  ? 'celestialGlow 10s ease-in-out infinite'
-                  : 'celestialGlow 6s ease-in-out infinite',
+              animation:    sunFirstUseHint
+                ? 'celestialGlowFirstUse 3.5s ease-in-out infinite'
+                : isImminent
+                  ? 'celestialGlowImminent 2.5s ease-in-out infinite'
+                  : isNight
+                    ? 'celestialGlow 10s ease-in-out infinite'
+                    : 'celestialGlow 6s ease-in-out infinite',
             }}
           />
 
@@ -1743,12 +1812,18 @@ function HomePageInner() {
               color:         textSecondary,
               letterSpacing: '0.2px',
               lineHeight:    '1.5',
-              opacity:       homepageIntelligenceLine.trigger ? 1 : 0.7,
+              opacity:       homepageIntelligenceLine.trigger ? 1 : 0.55,
               transition:    'opacity 0.4s ease',
+              // Session 6: actionable state — subtle shimmer + underline
               ...(homepageIntelligenceLine.trigger ? {
                 textDecoration: 'underline',
-                textDecorationColor: scene.lightText ? 'rgba(252,246,234,0.18)' : 'rgba(40,30,20,0.15)',
+                textDecorationColor: scene.lightText ? 'rgba(252,246,234,0.22)' : 'rgba(40,30,20,0.18)',
                 textUnderlineOffset: '3px',
+                backgroundImage: scene.lightText
+                  ? 'linear-gradient(90deg, transparent 0%, rgba(252,246,234,0.06) 50%, transparent 100%)'
+                  : 'linear-gradient(90deg, transparent 0%, rgba(40,30,20,0.04) 50%, transparent 100%)',
+                backgroundSize: '200% 100%',
+                animation: 'intelligenceShimmer 6s ease-in-out infinite',
               } : {}),
             }}>
               {homepageIntelligenceLine.text}
@@ -1815,6 +1890,9 @@ function HomePageInner() {
       <SurfaceRenderer />
 
       {/* ── UNIFIED INTERACTION BAR — floating object in the world ───────── */}
+      {/* Session 6: chat bar is the primary action entry point.
+          - Subtle settle animation on first load (chatBarHint)
+          - Slightly boosted border glow during hint to increase salience */}
       {!chatOpen && (
         <div
           style={{
@@ -1837,6 +1915,9 @@ function HomePageInner() {
               maxWidth:       480,
               pointerEvents:  'auto',
               WebkitTapHighlightColor: 'transparent',
+              ...(chatBarHint ? {
+                animation: 'chatBarSettle 1.2s ease-out forwards',
+              } : {}),
             }}
           >
           <div
@@ -1845,13 +1926,16 @@ function HomePageInner() {
               backdropFilter:  'blur(32px) saturate(1.4)',
               WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
               borderRadius:    24,
-              border:          '0.5px solid rgba(240,235,224,0.09)',
-              borderTop:       '0.5px solid rgba(240,235,224,0.14)',
+              border:          chatBarHint ? '0.5px solid rgba(240,235,224,0.16)' : '0.5px solid rgba(240,235,224,0.09)',
+              borderTop:       chatBarHint ? '0.5px solid rgba(240,235,224,0.22)' : '0.5px solid rgba(240,235,224,0.14)',
               padding:         '5px 6px 5px 5px',
               display:         'flex',
               alignItems:      'center',
               gap:             0,
-              boxShadow:       '0 6px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.12), 0 0.5px 0 rgba(240,235,224,0.03) inset',
+              boxShadow:       chatBarHint
+                ? '0 6px 32px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.14), 0 0.5px 0 rgba(240,235,224,0.06) inset'
+                : '0 6px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.12), 0 0.5px 0 rgba(240,235,224,0.03) inset',
+              transition:      'border 0.6s ease, box-shadow 0.6s ease',
             }}
           >
             {/* Control surface entry — left side */}

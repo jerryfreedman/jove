@@ -57,6 +57,10 @@ interface AmbientBirdProps {
   reactionSourceRef?: React.MutableRefObject<'save' | 'ambient'>;
   positionRef?: React.MutableRefObject<{ x: number; y: number }>;
   pulseTrigger?: number;
+  /** Session 6: Whether the bird currently has an active question */
+  isInteractive?: boolean;
+  /** Session 6: First-use hint — brief emphasis when bird first becomes interactive */
+  firstUseHint?: boolean;
 }
 
 export default function AmbientBird({
@@ -65,6 +69,8 @@ export default function AmbientBird({
   reactionSourceRef,
   positionRef,
   pulseTrigger = 0,
+  isInteractive = false,
+  firstUseHint = false,
 }: AmbientBirdProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const birdPositionRef = useRef({ x: 0, y: 0 });
@@ -512,16 +518,31 @@ export default function AmbientBird({
           viewBox="0 0 32 14"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
+          style={{
+            // Session 6: subtle visual difference when bird has active question
+            // Interactive: slightly brighter stroke + gentle glow animation
+            // First-use hint: uses a more prominent animation for ~3s
+            ...(firstUseHint ? {
+              animation: 'birdInteractiveGlow 1.5s ease-in-out infinite',
+            } : isInteractive ? {
+              filter: 'brightness(1.2) drop-shadow(0 0 4px rgba(232,160,48,0.15))',
+              transition: 'filter 1.2s ease',
+            } : {
+              filter: 'brightness(1) drop-shadow(0 0 0px transparent)',
+              transition: 'filter 1.2s ease',
+            }),
+          }}
         >
           {/* Minimal bird silhouette — M-shape, two gentle arcs */}
           {/* Wing control points animated by rAF loop via pathElRef */}
           <path
             ref={pathElRef}
             d="M0,11 Q7,1 16,8 Q25,1 32,11"
-            stroke="rgba(247,243,236,0.6)"
+            stroke={isInteractive ? 'rgba(247,243,236,0.78)' : 'rgba(247,243,236,0.6)'}
             strokeWidth="1.8"
             fill="none"
             strokeLinecap="round"
+            style={{ transition: 'stroke 1.2s ease' }}
           />
         </svg>
       </div>
