@@ -5,7 +5,7 @@
 // Shows 1–3 highest priority items. No scrolling. No categories.
 // Tap outside to close. Feels instant and obvious.
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { COLORS, FONTS } from '@/lib/design-system';
 import { useWhatMattersTasks } from '@/lib/task-queries';
 import { useTaskEngine } from '@/lib/task-engine';
@@ -70,10 +70,31 @@ export default function FocusOverlay({
   const [visible, setVisible] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
 
+  // Session 13C: One-time "Focus on this." hint — shown only on very first sun tap
+  const [showFocusHint, setShowFocusHint] = useState(false);
+  const focusHintShownRef = useRef(false);
+
   // ── OPEN / CLOSE ANIMATION ──────────────────────────────
   useEffect(() => {
     if (open) {
       setVisible(true);
+      // Session 13C: Check if this is the first-ever sun tap
+      if (!focusHintShownRef.current) {
+        const hasSeenFocus = typeof window !== 'undefined'
+          ? localStorage.getItem('jove_sun_first_tap') === 'true'
+          : true;
+        if (!hasSeenFocus) {
+          focusHintShownRef.current = true;
+          setShowFocusHint(true);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('jove_sun_first_tap', 'true');
+          }
+          // Auto-hide after 2.5s
+          setTimeout(() => setShowFocusHint(false), 2500);
+        } else {
+          focusHintShownRef.current = true;
+        }
+      }
       // Next frame: trigger CSS transition
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -82,6 +103,7 @@ export default function FocusOverlay({
       });
     } else {
       setAnimateIn(false);
+      setShowFocusHint(false);
       const timer = setTimeout(() => setVisible(false), 200);
       return () => clearTimeout(timer);
     }
@@ -179,6 +201,25 @@ export default function FocusOverlay({
           gap: isEmpty ? 0 : 14,
         }}
       >
+        {/* Session 13C: One-time focus hint — subtle reinforcement */}
+        {showFocusHint && (
+          <div
+            style={{
+              fontFamily: FONTS.sans,
+              fontSize: 11,
+              fontWeight: 300,
+              color: 'rgba(240,235,224,0.32)',
+              textAlign: 'center',
+              letterSpacing: '0.3px',
+              marginBottom: isEmpty ? 0 : -4,
+              opacity: showFocusHint ? 1 : 0,
+              transition: 'opacity 0.6s ease',
+            }}
+          >
+            Focus on this.
+          </div>
+        )}
+
         {isEmpty ? (
           /* ── EMPTY STATE ──────────────────────────── */
           <div style={{ textAlign: 'center' }}>

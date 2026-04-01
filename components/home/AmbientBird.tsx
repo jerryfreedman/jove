@@ -61,6 +61,8 @@ interface AmbientBirdProps {
   isInteractive?: boolean;
   /** Session 6: First-use hint — brief emphasis when bird first becomes interactive */
   firstUseHint?: boolean;
+  /** Session 13C: First-run discovery pulse — draws attention on first app load */
+  discoverPulse?: boolean;
 }
 
 export default function AmbientBird({
@@ -71,6 +73,7 @@ export default function AmbientBird({
   pulseTrigger = 0,
   isInteractive = false,
   firstUseHint = false,
+  discoverPulse = false,
 }: AmbientBirdProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const birdPositionRef = useRef({ x: 0, y: 0 });
@@ -522,14 +525,16 @@ export default function AmbientBird({
             // Session 6: subtle visual difference when bird has active question
             // Interactive: slightly brighter stroke + gentle glow animation
             // First-use hint: uses a more prominent animation for ~3s
-            ...(firstUseHint ? {
+            // Session 13C: discoverPulse on first load, idle glow always
+            ...(discoverPulse ? {
+              animation: 'birdDiscoverPulse 3s ease-in-out infinite',
+            } : firstUseHint ? {
               animation: 'birdInteractiveGlow 1.5s ease-in-out infinite',
             } : isInteractive ? {
               filter: 'brightness(1.2) drop-shadow(0 0 4px rgba(232,160,48,0.15))',
               transition: 'filter 1.2s ease',
             } : {
-              filter: 'brightness(1) drop-shadow(0 0 0px transparent)',
-              transition: 'filter 1.2s ease',
+              animation: 'birdIdleGlow 8s ease-in-out infinite',
             }),
           }}
         >
@@ -538,7 +543,7 @@ export default function AmbientBird({
           <path
             ref={pathElRef}
             d="M0,11 Q7,1 16,8 Q25,1 32,11"
-            stroke={isInteractive ? 'rgba(247,243,236,0.78)' : 'rgba(247,243,236,0.6)'}
+            stroke={isInteractive ? 'rgba(247,243,236,0.78)' : discoverPulse ? 'rgba(247,243,236,0.72)' : 'rgba(247,243,236,0.65)'}
             strokeWidth="1.8"
             fill="none"
             strokeLinecap="round"

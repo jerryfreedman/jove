@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { COLORS } from '@/lib/design-system';
+import { COLORS, FONTS } from '@/lib/design-system';
 
 // ── SESSION 13B: BIRD CAPTURE OVERLAY ──────────────────────
 // Lightweight, instant capture moment.
@@ -48,7 +48,14 @@ export default function CaptureOverlay({
   const [value, setValue] = useState('');
   const [placeholder] = useState(() => randomFrom(PLACEHOLDERS));
   const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [capturedText, setCapturedText] = useState<string | null>(null);
   const [animateIn, setAnimateIn] = useState(false);
+  // Session 13C: Track first-ever capture for stronger reinforcement
+  const isFirstCaptureRef = useRef(
+    typeof window !== 'undefined'
+      ? localStorage.getItem('jove_bird_first_capture') !== 'true'
+      : false
+  );
 
   // ── AUTO-FOCUS on open ────────────────────────────────────
   useEffect(() => {
@@ -75,16 +82,29 @@ export default function CaptureOverlay({
     // Fire submission
     await onSubmit(trimmed);
 
-    // Show brief confirmation
-    const msg = randomFrom(CONFIRMATIONS);
-    setConfirmation(msg);
+    // Session 13C: First capture gets stronger reinforcement — "Added [text]"
+    const isFirst = isFirstCaptureRef.current;
+    if (isFirst) {
+      isFirstCaptureRef.current = false;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jove_bird_first_capture', 'true');
+      }
+      // Truncate for display
+      const display = trimmed.length > 30 ? trimmed.slice(0, 30) + '…' : trimmed;
+      setConfirmation(`Added "${display}"`);
+      setCapturedText(trimmed);
+    } else {
+      setConfirmation(randomFrom(CONFIRMATIONS));
+      setCapturedText(null);
+    }
     setValue('');
 
-    // Auto-close after confirmation fades
+    // Auto-close after confirmation fades (slightly longer for first capture)
     setTimeout(() => {
       setConfirmation(null);
+      setCapturedText(null);
       onClose();
-    }, 1200);
+    }, isFirst ? 1600 : 1200);
   }, [value, saving, onSubmit, onClose]);
 
   // ── KEY HANDLING ──────────────────────────────────────────
@@ -148,13 +168,15 @@ export default function CaptureOverlay({
           <div
             style={{
               textAlign: 'center',
-              padding: '12px 0',
-              fontFamily: "'Cormorant Garamond', serif",
-              fontSize: 18,
+              padding: capturedText ? '10px 0' : '12px 0',
+              fontFamily: FONTS?.serif ?? "'Cormorant Garamond', serif",
+              fontSize: capturedText ? 16 : 18,
               fontWeight: 400,
               color: COLORS.amberLight,
               opacity: 1,
-              animation: 'captureConfirmFade 1.2s ease forwards',
+              animation: capturedText
+                ? 'captureConfirmFade 1.6s ease forwards'
+                : 'captureConfirmFade 1.2s ease forwards',
             }}
           >
             {confirmation}

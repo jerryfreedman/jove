@@ -105,6 +105,21 @@ body {
   50%      { filter: brightness(1.25) drop-shadow(0 0 6px rgba(232,160,48,0.2)); }
 }
 
+/* Session 13C: Bird idle glow — very subtle, always-on aliveness */
+@keyframes birdIdleGlow {
+  0%, 100% { filter: brightness(1) drop-shadow(0 0 0px transparent); }
+  50%      { filter: brightness(1.08) drop-shadow(0 0 2px rgba(247,243,236,0.08)); }
+}
+
+/* Session 13C: Bird first-run discovery pulse — draws attention on first load */
+@keyframes birdDiscoverPulse {
+  0%   { filter: brightness(1) drop-shadow(0 0 0px transparent); }
+  25%  { filter: brightness(1.3) drop-shadow(0 0 8px rgba(232,160,48,0.25)); }
+  50%  { filter: brightness(1.05) drop-shadow(0 0 2px rgba(232,160,48,0.08)); }
+  75%  { filter: brightness(1.25) drop-shadow(0 0 6px rgba(232,160,48,0.2)); }
+  100% { filter: brightness(1) drop-shadow(0 0 0px transparent); }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

@@ -218,6 +218,11 @@ function HomePageInner() {
   const [sunFirstUseHint, setSunFirstUseHint] = useState(false);
   const [birdFirstUseHint, setBirdFirstUseHint] = useState(false);
   const [chatBarHint, setChatBarHint] = useState(false);
+  // Session 13C: Bird discovery pulse — draws attention on first app load (5s)
+  const [birdDiscoverPulse, setBirdDiscoverPulse] = useState(false);
+  // Session 13C: "Anything else?" hint — shown once after first bird capture
+  const [anythingElseHint, setAnythingElseHint] = useState(false);
+  const anythingElseShownRef = useRef(false);
 
   // ── TOUR REFS ────────────────────────────────────────────
   const sunRef     = useRef<HTMLDivElement>(null);
@@ -1041,14 +1046,18 @@ function HomePageInner() {
 
   // ── SESSION 6: FIRST-USE BEHAVIORAL HINTS ──────────────────
   // Sun hint: on first load, use a slightly stronger glow for 2 cycles (~8s)
+  // Session 13C: Bird discovery pulse — runs in parallel with sun hint
   useEffect(() => {
     if (hintStateRef.current.sunHintFired) return;
     hintStateRef.current.sunHintFired = true;
     hintStateRef.current.pageVisibleAt = Date.now();
     setSunFirstUseHint(true);
-    // Revert to normal glow after ~8 seconds
+    // Session 13C: Bird discovery pulse — slightly delayed to stagger with sun
+    const birdDelay = setTimeout(() => setBirdDiscoverPulse(true), 800);
+    // Revert to normal glow after ~8 seconds (sun) and ~5 seconds (bird)
     const t = setTimeout(() => setSunFirstUseHint(false), 8000);
-    return () => clearTimeout(t);
+    const birdRevert = setTimeout(() => setBirdDiscoverPulse(false), 5800);
+    return () => { clearTimeout(t); clearTimeout(birdDelay); clearTimeout(birdRevert); };
   }, []);
 
   // Chat hint: if user hasn't interacted within ~4s, subtly boost chat bar
@@ -1153,6 +1162,31 @@ function HomePageInner() {
     rafId = requestAnimationFrame(track);
     return () => cancelAnimationFrame(rafId);
   }, []);
+
+  // ── SESSION 13C: "Anything else?" hint after first bird capture ──
+  useEffect(() => {
+    // When captureOpen goes from true → false, check if first capture just happened
+    if (!captureOpen && !anythingElseShownRef.current) {
+      const hasCapture = typeof window !== 'undefined'
+        ? localStorage.getItem('jove_bird_first_capture') === 'true'
+        : false;
+      const hasShownHint = typeof window !== 'undefined'
+        ? localStorage.getItem('jove_anything_else_shown') === 'true'
+        : false;
+      if (hasCapture && !hasShownHint) {
+        anythingElseShownRef.current = true;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('jove_anything_else_shown', 'true');
+        }
+        // Delay slightly so the capture overlay fully closes first
+        const t = setTimeout(() => {
+          setAnythingElseHint(true);
+          setTimeout(() => setAnythingElseHint(false), 2500);
+        }, 400);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [captureOpen]);
 
   // ── GLOBAL CAPTURE PULSE ON RETURN ────────────────────
   useEffect(() => {
@@ -1681,7 +1715,7 @@ function HomePageInner() {
       }}
     >
       <SceneBackground onCelestialPosition={setCelestialPos} />
-      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} />
+      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} discoverPulse={birdDiscoverPulse} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
       {/* Session 13B: Always interactive — opens capture overlay.
@@ -1714,10 +1748,13 @@ function HomePageInner() {
           cursor:       'pointer',
           willChange:   'transform',
           WebkitTapHighlightColor: 'transparent',
+          // Session 13C: Always show a subtle hitbox glow so bird feels tappable
           ...(birdQuestion ? {
             boxShadow: '0 0 14px 6px rgba(232,160,48,0.15)',
             animation: 'celestialGlow 4s ease-in-out infinite',
-          } : {}),
+          } : {
+            boxShadow: '0 0 8px 4px rgba(247,243,236,0.04)',
+          }),
         }}
         aria-label={birdQuestion ? 'Tap bird to answer' : 'Tap bird to capture'}
       />
@@ -2682,6 +2719,35 @@ function HomePageInner() {
         onSubmit={handleCaptureSubmit}
         saving={captureSaving}
       />
+
+      {/* ── SESSION 13C: "Anything else?" hint after first capture ── */}
+      {anythingElseHint && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 72px)',
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            zIndex: 26,
+            pointerEvents: 'none',
+            animation: 'fadeUp 0.4s ease forwards',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Cormorant Garamond', serif",
+              fontSize: 14,
+              fontWeight: 300,
+              color: 'rgba(240,235,224,0.35)',
+              letterSpacing: '0.2px',
+            }}
+          >
+            Anything else?
+          </div>
+        </div>
+      )}
 
       {/* ── BIRD CAPTURE MODAL (legacy curiosity questions) ── */}
       {birdModalOpen && birdQuestion && (
