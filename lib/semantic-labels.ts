@@ -101,14 +101,15 @@ export function getEntityLabelSingular(
 
 export function getControlSurfaceLabels(profile: UserDomainProfile = DEFAULT_DOMAIN_PROFILE) {
   const primary = getEntityLabel('primary', profile);
+  const contact = getEntityLabel('contact', profile);
   return {
-    // Zone headers
-    whatMatters: 'What matters',
-    comingUp: 'Coming up',
-    everythingElse: 'Everything else',
-    // Surface access labels (domain-adaptive, neutral by default)
-    allItems: `All ${primary.toLowerCase()}`,
-    meetings: 'Calendar',
+    // Session 14D: State-surface section headers
+    needsAttention: 'Needs attention',
+    whatsNext: "What\u2019s next",
+    activeItems: `Active ${primary.toLowerCase()}`,
+    people: contact,
+    momentum: 'Momentum',
+    // Minimal settings access (not primary navigation)
     settings: 'Settings',
   };
 }

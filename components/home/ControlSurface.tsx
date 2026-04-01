@@ -16,7 +16,7 @@ import {
   isNeedsAttention,
   type SurfaceEvalResult,
 } from '@/lib/module-priority';
-import type { DealRow, MeetingRow, UserDomainProfile } from '@/lib/types';
+import type { DealRow, MeetingRow, UserDomainProfile, ContactRow } from '@/lib/types';
 import {
   DEFAULT_DOMAIN_PROFILE,
   getControlSurfaceLabels,
@@ -42,16 +42,23 @@ interface ControlSurfaceProps {
   domainProfile?: UserDomainProfile;
   /** Session 11C: User ID for persistent task reads. */
   userId?: string | null;
+  /** Session 14D: Recent contacts for People section. */
+  contacts?: ContactRow[];
+  /** Session 14D: Tasks completed today for momentum. */
+  completedTodayCount?: number;
+  /** Session 14D: Current streak days. */
+  streakDays?: number;
 }
 
-// ── SESSION 12A: UNIFIED SURFACE ITEM ──────────────────────
-// Every row on the surface is the same shape.
-// No type labels. No "task" vs "meeting" vs "deal" distinction.
+// ── SESSION 14D: SURFACE ITEM ─────────────────────────────
+// Every row is the same shape. No type labels. No "task" vs "meeting" distinction.
 // Just: a thing to handle or be aware of.
 
 interface SurfaceItem {
   id: string;
   title: string;
+  /** Subtitle / secondary text. */
+  subtitle?: string;
   /** Time indicator (if relevant). */
   time?: string;
   /** Subtle emphasis for urgency. */
@@ -61,8 +68,8 @@ interface SurfaceItem {
   taskActions?: {
     taskId: string;
   };
-  /** Internal: used for deduplication & zone assignment. Not displayed. */
-  _zone: 'what_matters' | 'coming_up' | 'everything_else';
+  /** Internal: zone assignment (not displayed). */
+  _zone: 'attention' | 'next' | 'active' | 'people';
   /** Internal: sort key within a zone. Lower = higher. */
   _sortKey: number;
 }
@@ -116,6 +123,11 @@ function getDaysSince(dateStr: string): number {
   );
 }
 
+function isWithinHours(dateStr: string, hours: number): boolean {
+  const diff = new Date(dateStr).getTime() - Date.now();
+  return diff > 0 && diff <= hours * 60 * 60 * 1000;
+}
+
 // ── COMPONENT ──────────────────────────────────────────────
 export default function ControlSurface({
   open,
@@ -125,10 +137,12 @@ export default function ControlSurface({
   meetings,
   domainProfile,
   userId,
+  contacts,
+  completedTodayCount,
+  streakDays,
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [everythingElseOpen, setEverythingElseOpen] = useState(false);
   const labels = useMemo(
     () => getControlSurfaceLabels(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
     [domainProfile],
@@ -213,24 +227,21 @@ export default function ControlSurface({
         if (action.dealId) {
           openSurface('deal-prep', { dealId: action.dealId });
         }
-        // Session 14B: no fallback to briefing — content is already here
         break;
       case 'open_chat':
         if (action.dealId) {
           openSurface('deal-chat', { dealId: action.dealId });
         }
-        // Session 14B: no fallback to briefing — content is already here
         break;
       case 'open_deal':
         openSurface('deal-detail', { dealId: action.dealId });
         break;
       case 'open_briefing':
-        // Session 14B: briefing content unified into control panel
         break;
     }
   }, [openSurface]);
 
-  // ── Evaluate decision surface (low data state only) ──
+  // ── Evaluate data state ──
   const priority = useMemo<SurfaceEvalResult>(() => {
     return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: effectiveTaskCount });
   }, [allDeals, urgentDeals, meetings, effectiveTaskCount]);
@@ -238,53 +249,130 @@ export default function ControlSurface({
   // ── Meeting store for status-aware filtering ──
   const meetingStoreData = useMeetingStore(state => state.meetings);
 
-  // ── SESSION 12A: BUILD UNIFIED SURFACE ───────────────────
-  // All items flow into 3 zones. No module concept. No type labels.
-  // Each item appears in exactly ONE zone.
+  // ── SESSION 14D: BUILD STATE SURFACE ────────────────────
+  // 5 sections. Each item appears in exactly ONE section.
+  // Sections are: attention, next, active, people, momentum.
+  // No navigation. No CRM. Just: what matters right now.
 
-  const { whatMatters, comingUp, everythingElse } = useMemo(() => {
+  const { attention, next, active, people } = useMemo(() => {
     const now = new Date();
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
-
-    // Track IDs to enforce no-duplication
     const placed = new Set<string>();
 
-    // ── WHAT MATTERS ────────────────────────────────────────
-    // Tasks (DB-backed or legacy) are the primary content here.
-    // These already include meeting prep, follow-ups, and stale items.
-    const whatMattersItems: SurfaceItem[] = [];
+    // ── 1. WHAT NEEDS ATTENTION ─────────────────────────────
+    // Overdue tasks, tasks due soon, blocked items.
+    // Strongest visual emphasis. Always visible if non-empty.
+    const attentionItems: SurfaceItem[] = [];
 
+    // First: overdue + due-soon tasks from DB
     if (!usingFallback && unifiedTasks) {
-      for (const task of unifiedTasks.slice(0, 5)) {
-        whatMattersItems.push({
+      for (const task of unifiedTasks) {
+        if (attentionItems.length >= 5) break;
+        const isOverdue = task.dueAt ? new Date(task.dueAt).getTime() < now.getTime() : false;
+        const isDueSoon = task.dueAt ? isWithinHours(task.dueAt, 4) : false;
+        // Include: overdue, due soon, or high priority (1-5)
+        if (isOverdue || isDueSoon || (task.priority !== null && task.priority <= 5)) {
+          attentionItems.push({
+            id: `task-${task.id}`,
+            title: task.title,
+            time: formatDueAt(task.dueAt) ?? undefined,
+            emphasis: isOverdue,
+            onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
+            taskActions: { taskId: task.id },
+            _zone: 'attention',
+            _sortKey: isOverdue ? -1 : 0,
+          });
+          placed.add(`task-${task.id}`);
+          if (task.meetingId) placed.add(`meeting-${task.meetingId}`);
+          if (task.dealId) placed.add(`deal-${task.dealId}`);
+        }
+      }
+    } else if (usingFallback) {
+      for (const task of legacySystemTasks.slice(0, 5)) {
+        if (attentionItems.length >= 5) break;
+        // Legacy tasks with priority <= 5 are urgent
+        if (task.priority <= 8) {
+          attentionItems.push({
+            id: `legacy-${task.id}`,
+            title: task.title,
+            time: task.timeRelevance ?? undefined,
+            emphasis: task.priority <= 2,
+            onClick: () => handleTaskAction(task.action),
+            _zone: 'attention',
+            _sortKey: task.priority,
+          });
+          placed.add(`legacy-${task.id}`);
+          if (task.contextId) {
+            if (task.type === 'meeting_prep' || task.type === 'meeting_followup') {
+              placed.add(`meeting-${task.contextId}`);
+            } else {
+              placed.add(`deal-${task.contextId}`);
+            }
+          }
+        }
+      }
+    }
+
+    // Fill remaining attention slots with stale items needing re-engagement
+    if (attentionItems.length < 5) {
+      const attentionCandidates = urgentDeals.length > 0
+        ? urgentDeals
+        : allDeals.filter(isNeedsAttention);
+      const remaining = 5 - attentionItems.length;
+      for (const deal of attentionCandidates.slice(0, remaining)) {
+        if (placed.has(`deal-${deal.id}`)) continue;
+        const days = getDaysSince(deal.last_activity_at);
+        attentionItems.push({
+          id: `attn-${deal.id}`,
+          title: deal.name,
+          subtitle: 'needs follow-up',
+          time: `${days}d ago`,
+          emphasis: days > 14,
+          onClick: () => openSurface('deal-detail', { dealId: deal.id }),
+          _zone: 'attention',
+          _sortKey: 1,
+        });
+        placed.add(`deal-${deal.id}`);
+      }
+    }
+
+    // ── 2. WHAT'S NEXT ──────────────────────────────────────
+    // Next 1–3 tasks + next upcoming meeting (near-term only).
+    // Must feel actionable. Must be time-relevant.
+    const nextItems: SurfaceItem[] = [];
+
+    // Remaining DB tasks not already in attention
+    if (!usingFallback && unifiedTasks) {
+      for (const task of unifiedTasks) {
+        if (nextItems.length >= 3) break;
+        if (placed.has(`task-${task.id}`)) continue;
+        nextItems.push({
           id: `task-${task.id}`,
           title: task.title,
           time: formatDueAt(task.dueAt) ?? undefined,
-          emphasis: task.dueAt ? new Date(task.dueAt).getTime() < now.getTime() : false,
+          emphasis: false,
           onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
           taskActions: { taskId: task.id },
-          _zone: 'what_matters',
+          _zone: 'next',
           _sortKey: 0,
         });
         placed.add(`task-${task.id}`);
-        // Mark linked entities so they don't duplicate into other zones
         if (task.meetingId) placed.add(`meeting-${task.meetingId}`);
         if (task.dealId) placed.add(`deal-${task.dealId}`);
       }
     } else if (usingFallback) {
-      for (const task of legacySystemTasks.slice(0, 5)) {
-        whatMattersItems.push({
+      for (const task of legacySystemTasks) {
+        if (nextItems.length >= 3) break;
+        if (placed.has(`legacy-${task.id}`)) continue;
+        nextItems.push({
           id: `legacy-${task.id}`,
           title: task.title,
           time: task.timeRelevance ?? undefined,
           emphasis: false,
           onClick: () => handleTaskAction(task.action),
-          _zone: 'what_matters',
-          _sortKey: 0,
+          _zone: 'next',
+          _sortKey: task.priority,
         });
         placed.add(`legacy-${task.id}`);
-        // Mark linked entities so they don't duplicate into other zones
         if (task.contextId) {
           if (task.type === 'meeting_prep' || task.type === 'meeting_followup') {
             placed.add(`meeting-${task.contextId}`);
@@ -295,94 +383,102 @@ export default function ControlSurface({
       }
     }
 
-    // If task slots remain (< 5), fill with urgent attention items
-    // These are deals that need re-engagement — surfaced as actionable items
-    if (whatMattersItems.length < 5) {
-      const attentionCandidates = urgentDeals.length > 0
-        ? urgentDeals
-        : allDeals.filter(isNeedsAttention);
-      const remaining = 5 - whatMattersItems.length;
-      for (const deal of attentionCandidates.slice(0, remaining)) {
-        const days = getDaysSince(deal.last_activity_at);
-        whatMattersItems.push({
-          id: `attn-${deal.id}`,
-          title: deal.name,
-          time: `${days}d ago`,
-          emphasis: days > 14,
-          onClick: () => openSurface('deal-detail', { dealId: deal.id }),
-          _zone: 'what_matters',
-          _sortKey: 1,
-        });
-        placed.add(`deal-${deal.id}`);
-      }
-    }
-
-    // ── COMING UP ───────────────────────────────────────────
-    // Strictly time-based. Next few hours / today.
-    // No priority logic — just temporal clarity.
+    // Next upcoming meeting (only near-term: within 6 hours)
     const upcomingMeetings = meetings
       .filter(m => {
         if (placed.has(`meeting-${m.id}`)) return false;
         const storeMeeting = meetingStoreData[m.id];
         if (storeMeeting) {
-          return storeMeeting.status === 'scheduled' && storeMeeting.startTime >= now.getTime() - 2 * 60 * 60 * 1000;
+          return storeMeeting.status === 'scheduled' && storeMeeting.startTime >= now.getTime();
         }
         return new Date(m.scheduled_at) >= now;
       })
+      .filter(m => isWithinHours(m.scheduled_at, 6))
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
-      .slice(0, 3);
+      .slice(0, 2);
 
-    const comingUpItems: SurfaceItem[] = upcomingMeetings.map((m, i) => ({
-      id: `meeting-${m.id}`,
-      title: m.title,
-      time: formatMeetingTime(m.scheduled_at),
-      emphasis: minutesUntil(m.scheduled_at) <= 60,
-      onClick: () => setExpandedMeetingId(prev => prev === m.id ? null : m.id),
-      _zone: 'coming_up' as const,
-      _sortKey: i,
-    }));
-
-    for (const item of comingUpItems) {
-      placed.add(item.id);
+    for (const m of upcomingMeetings) {
+      if (nextItems.length >= 4) break;
+      nextItems.push({
+        id: `meeting-${m.id}`,
+        title: m.title,
+        time: formatMeetingTime(m.scheduled_at),
+        emphasis: minutesUntil(m.scheduled_at) <= 60,
+        onClick: () => setExpandedMeetingId(prev => prev === m.id ? null : m.id),
+        _zone: 'next',
+        _sortKey: 10 + (new Date(m.scheduled_at).getTime() - now.getTime()),
+      });
+      placed.add(`meeting-${m.id}`);
     }
 
-    // ── EVERYTHING ELSE ─────────────────────────────────────
-    // Remaining items not already placed by tasks or attention logic.
-    // Collapsed by default. Sorted by recency. No subcategories.
-    const everythingElseItems: SurfaceItem[] = [];
+    // ── 3. ACTIVE ITEMS ─────────────────────────────────────
+    // User's ongoing work/life. Lightweight. Max 5 visible.
+    // No pipeline UI. No heavy stats. Simple status.
+    const activeItems: SurfaceItem[] = [];
 
-    // Remaining active deals not already placed
     const remainingDeals = allDeals
       .filter(d => {
         if (placed.has(`deal-${d.id}`)) return false;
         return d.stage !== 'Closed Won' && d.stage !== 'Closed Lost';
       })
-      .sort((a, b) => {
-        // Sort by last activity (most recent first)
-        return new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime();
-      })
-      .slice(0, 8);
+      .sort((a, b) => new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime())
+      .slice(0, 5);
 
     for (const deal of remainingDeals) {
       const days = getDaysSince(deal.last_activity_at);
-      everythingElseItems.push({
+      // Neutral status: active, waiting, done — no CRM stage labels
+      const status = deal.snoozed_until && new Date(deal.snoozed_until) > now
+        ? 'waiting'
+        : 'active';
+      activeItems.push({
         id: `deal-${deal.id}`,
         title: deal.name,
+        subtitle: status === 'waiting' ? 'waiting' : undefined,
         time: days === 0 ? 'today' : `${days}d`,
         emphasis: false,
         onClick: () => openSurface('deal-detail', { dealId: deal.id }),
-        _zone: 'everything_else',
+        _zone: 'active',
         _sortKey: days,
       });
     }
 
+    // ── 4. PEOPLE (LIGHT CONTEXT) ───────────────────────────
+    // Recent interactions, people needing follow-up.
+    // Lightweight, contextual. No CRM tables.
+    const peopleItems: SurfaceItem[] = [];
+
+    if (contacts && contacts.length > 0) {
+      const recentContacts = contacts
+        .filter(c => c.last_interaction_at)
+        .sort((a, b) => {
+          const aTime = a.last_interaction_at ? new Date(a.last_interaction_at).getTime() : 0;
+          const bTime = b.last_interaction_at ? new Date(b.last_interaction_at).getTime() : 0;
+          return bTime - aTime;
+        })
+        .slice(0, 3);
+
+      for (const contact of recentContacts) {
+        const days = contact.last_interaction_at ? getDaysSince(contact.last_interaction_at) : 0;
+        peopleItems.push({
+          id: `person-${contact.id}`,
+          title: contact.name,
+          subtitle: contact.title ?? undefined,
+          time: days === 0 ? 'today' : `${days}d ago`,
+          emphasis: false,
+          _zone: 'people',
+          _sortKey: days,
+        });
+      }
+    }
+
     return {
-      whatMatters: whatMattersItems,
-      comingUp: comingUpItems,
-      everythingElse: everythingElseItems,
+      attention: attentionItems,
+      next: nextItems,
+      active: activeItems,
+      people: peopleItems,
     };
   }, [
-    allDeals, urgentDeals, meetings, meetingStoreData,
+    allDeals, urgentDeals, meetings, meetingStoreData, contacts,
     unifiedTasks, usingFallback, legacySystemTasks,
     handleTaskAction, openSurface,
   ]);
@@ -391,7 +487,7 @@ export default function ControlSurface({
   if (!open) return null;
 
   const { isLowDataState } = priority;
-  const hasContent = whatMatters.length > 0 || comingUp.length > 0 || everythingElse.length > 0;
+  const hasContent = attention.length > 0 || next.length > 0 || active.length > 0 || people.length > 0;
 
   // ── Task actions (done/skip) ──
   const handleTaskDone = async (taskId: string, e: React.MouseEvent) => {
@@ -410,16 +506,15 @@ export default function ControlSurface({
     if (ok) refetchTasks();
   };
 
-  // ── SESSION 12B: UNIFIED ROW RENDERER ─────────────────────
-  // Every row is identical in structure: title + time + actions.
-  // No type labels. No weight differences between zones.
-  // Consistent padding, font, truncation across all items.
+  // ── SESSION 14D: UNIFIED ROW RENDERER ─────────────────────
+  // Every row is identical: title + subtitle + time + actions.
+  // Consistent across all sections. Tighter density.
 
   const ROW_STYLE = {
     background: 'rgba(240,235,224,0.025)',
     border: '0.5px solid rgba(240,235,224,0.04)',
-    borderRadius: 14,
-    padding: '11px 14px',
+    borderRadius: 12,
+    padding: '10px 13px',
     transition: TRANSITIONS.row,
   } as const;
 
@@ -442,20 +537,34 @@ export default function ControlSurface({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 400,
-              color: 'rgba(252,246,234,0.88)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
-            {item.title}
-          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 400,
+                color: 'rgba(252,246,234,0.88)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+            >
+              {item.title}
+            </span>
+            {item.subtitle && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 400,
+                  color: 'rgba(240,235,224,0.28)',
+                  marginTop: 1,
+                  display: 'block',
+                }}
+              >
+                {item.subtitle}
+              </span>
+            )}
+          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             {item.time && (
@@ -515,14 +624,14 @@ export default function ControlSurface({
           </div>
         </div>
 
-        {/* Inline actions — expand on tap, no page navigation */}
+        {/* Inline meeting actions — expand on tap, no navigation */}
         {isMeeting && isExpanded && meetingId && (
           <div
             style={{
               display: 'flex',
               gap: 6,
-              marginTop: 10,
-              paddingTop: 10,
+              marginTop: 8,
+              paddingTop: 8,
               borderTop: '0.5px solid rgba(240,235,224,0.04)',
               flexWrap: 'wrap',
             }}
@@ -531,8 +640,8 @@ export default function ControlSurface({
               className="jove-tap"
               onClick={(e) => { e.stopPropagation(); completeMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
-                padding: '6px 12px',
-                borderRadius: 8,
+                padding: '5px 11px',
+                borderRadius: 7,
                 border: '0.5px solid rgba(72,200,120,0.3)',
                 background: 'rgba(72,200,120,0.08)',
                 color: COLORS.green,
@@ -548,8 +657,8 @@ export default function ControlSurface({
               className="jove-tap"
               onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meetingId); }}
               style={{
-                padding: '6px 12px',
-                borderRadius: 8,
+                padding: '5px 11px',
+                borderRadius: 7,
                 border: '0.5px solid rgba(56,184,200,0.3)',
                 background: 'rgba(56,184,200,0.08)',
                 color: COLORS.teal,
@@ -565,8 +674,8 @@ export default function ControlSurface({
               className="jove-tap"
               onClick={(e) => { e.stopPropagation(); cancelMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
-                padding: '6px 12px',
-                borderRadius: 8,
+                padding: '5px 11px',
+                borderRadius: 7,
                 border: '0.5px solid rgba(224,88,64,0.25)',
                 background: 'rgba(224,88,64,0.06)',
                 color: COLORS.red,
@@ -584,124 +693,142 @@ export default function ControlSurface({
     );
   };
 
-  // ── ZONE RENDERERS ──────────────────────────────────────
-  // Consistent header style across all zones.
-  // Uniform gap between rows (5px). No visual weight differences.
+  // ── SECTION RENDERERS ──────────────────────────────────
+  // Consistent header style. Tighter spacing. Sections collapse if empty.
 
-  const ZONE_HEADER = {
+  const SECTION_HEADER = {
     fontSize: 10,
     fontWeight: 600 as const,
     textTransform: 'uppercase' as const,
     letterSpacing: '1.2px',
-    marginBottom: 8,
+    marginBottom: 7,
     paddingLeft: 2,
   };
 
-  const renderWhatMatters = () => {
-    if (whatMatters.length === 0) return null;
+  const renderAttention = () => {
+    if (attention.length === 0) return null;
     return (
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ ...ZONE_HEADER, color: COLORS.amber }}>
-          {labels.whatMatters}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ ...SECTION_HEADER, color: COLORS.amber }}>
+          {labels.needsAttention}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          {whatMatters.map(item => renderRow(item))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {attention.map(item => renderRow(item))}
         </div>
       </div>
     );
   };
 
-  const renderComingUp = () => {
-    if (comingUp.length === 0) return null;
+  const renderNext = () => {
+    if (next.length === 0) return null;
     return (
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ ...ZONE_HEADER, color: 'rgba(240,235,224,0.36)' }}>
-          {labels.comingUp}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.48)' }}>
+          {labels.whatsNext}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          {comingUp.map(item => renderRow(item))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {next.map(item => renderRow(item))}
         </div>
       </div>
     );
   };
 
-  const renderEverythingElse = () => {
-    if (everythingElse.length === 0) return null;
+  const renderActive = () => {
+    if (active.length === 0) return null;
     return (
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.32)' }}>
+          {labels.activeItems}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {active.map(item => renderRow(item))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPeople = () => {
+    if (people.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.28)' }}>
+          {labels.people}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {people.map(item => renderRow(item))}
+        </div>
+      </div>
+    );
+  };
+
+  // ── 5. MOMENTUM (OPTIONAL) ────────────────────────────────
+  // Tasks completed today, streaks. Lightweight, rewarding.
+  const renderMomentum = () => {
+    const hasCompletions = completedTodayCount !== undefined && completedTodayCount > 0;
+    const hasStreak = streakDays !== undefined && streakDays > 1;
+    if (!hasCompletions && !hasStreak) return null;
+
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.24)' }}>
+          {labels.momentum}
+        </div>
         <div
-          onClick={() => setEverythingElseOpen(prev => !prev)}
           style={{
-            ...ZONE_HEADER,
-            color: 'rgba(240,235,224,0.24)',
-            marginBottom: everythingElseOpen ? 8 : 0,
-            cursor: 'pointer',
+            ...ROW_STYLE,
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
-            transition: TRANSITIONS.button,
+            gap: 14,
           }}
         >
-          {labels.everythingElse}
-          <span style={{ fontSize: 9, opacity: 0.6 }}>
-            {everythingElseOpen ? '−' : '+'}
-          </span>
+          {hasCompletions && (
+            <span style={{ fontSize: 12, color: COLORS.green, fontWeight: 500 }}>
+              {completedTodayCount} done today
+            </span>
+          )}
+          {hasStreak && (
+            <span style={{ fontSize: 12, color: COLORS.amber, fontWeight: 500 }}>
+              {streakDays}d streak
+            </span>
+          )}
         </div>
-
-        {everythingElseOpen && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {everythingElse.map(item => renderRow(item))}
-          </div>
-        )}
       </div>
     );
   };
 
-  // ── SURFACE ACCESS (secondary, not navigation) ──────────
-  // Minimal row of access points. Not a nav menu.
-  // Feels like part of the surface, not a router.
-  const accessStyle = {
-    flex: 1,
-    padding: '10px 0',
-    borderRadius: 10,
-    border: 'none',
-    background: 'transparent',
-    color: 'rgba(240,235,224,0.32)',
-    fontSize: 11,
-    fontWeight: 500 as const,
-    cursor: 'pointer' as const,
-    fontFamily: FONTS.sans,
-    transition: TRANSITIONS.button,
-  };
-
-  const renderAccess = () => (
-    <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', paddingTop: 8 }}>
-      <div style={{ display: 'flex', gap: 4 }}>
-        <button className="jove-tap" onClick={() => openSurface('deals')} style={accessStyle}>
-          {labels.allItems}
-        </button>
-        <button className="jove-tap" onClick={() => openSurface('meetings')} style={accessStyle}>
-          {labels.meetings}
-        </button>
-        <button className="jove-tap" onClick={() => openSurface('ideas')} style={accessStyle}>
-          Ideas
-        </button>
-        <button className="jove-tap" onClick={() => openSurface('settings')} style={accessStyle}>
-          {labels.settings}
-        </button>
-      </div>
+  // ── MINIMAL SETTINGS ACCESS ─────────────────────────────
+  // Not a nav menu. Just a single settings entry point.
+  const renderSettingsAccess = () => (
+    <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', paddingTop: 4 }}>
+      <button
+        className="jove-tap"
+        onClick={() => openSurface('settings')}
+        style={{
+          width: '100%',
+          padding: '8px 0',
+          borderRadius: 10,
+          border: 'none',
+          background: 'transparent',
+          color: 'rgba(240,235,224,0.20)',
+          fontSize: 11,
+          fontWeight: 500,
+          cursor: 'pointer',
+          fontFamily: FONTS.sans,
+          transition: TRANSITIONS.button,
+        }}
+      >
+        {labels.settings}
+      </button>
     </div>
   );
 
-  // ── SESSION 12C: ZERO STATE + EMPTY STATE ────────────────
-  // Zero state: calm, confident, minimal. Not a tutorial.
-  // Low data: "You're clear beyond this." — calm, not empty.
-  // Full clear: "You're clear." — intentional, not broken.
+  // ── SESSION 14D: SMART EMPTY STATE ──────────────────────
+  // No "all clear" dead screens. Smart prompts that feel useful.
   const renderEmptyState = () => (
     <div
       style={{
         textAlign: 'center',
-        padding: '32px 24px 24px',
+        padding: '28px 24px 20px',
       }}
     >
       <div
@@ -709,32 +836,34 @@ export default function ControlSurface({
           fontFamily: FONTS.serif,
           fontSize: 17,
           fontWeight: 300,
-          color: 'rgba(252,246,234,0.40)',
+          color: 'rgba(252,246,234,0.44)',
           lineHeight: 1.5,
         }}
       >
         {isLowDataState
-          ? 'What\u2019s going on today?'
-          : "You\u2019re clear."}
+          ? 'What\u2019s on your mind?'
+          : 'What are you working on today?'}
       </div>
-      {isLowDataState && (
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 300,
-            color: 'rgba(240,235,224,0.20)',
-            lineHeight: 1.5,
-            maxWidth: 240,
-            margin: '8px auto 0',
-          }}
-        >
-          Tell me anything — I&apos;ll organize it.
-        </div>
-      )}
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 300,
+          color: 'rgba(240,235,224,0.22)',
+          lineHeight: 1.5,
+          maxWidth: 260,
+          margin: '8px auto 0',
+        }}
+      >
+        {isLowDataState
+          ? 'Add something you\u2019re working on'
+          : 'Tell me what\u2019s coming up'}
+      </div>
     </div>
   );
 
   // ── RENDER ──────────────────────────────────────────────
+  // Dynamic ordering: filled sections first, empty sections collapse.
+  // attention → next → active → people → momentum
   return (
     <>
       {/* Backdrop */}
@@ -751,7 +880,7 @@ export default function ControlSurface({
         }}
       />
 
-      {/* Sheet — reduced top padding, content sits higher */}
+      {/* Sheet */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -774,13 +903,13 @@ export default function ControlSurface({
           fontFamily: FONTS.sans,
         }}
       >
-        {/* Handle — tighter padding */}
+        {/* Handle */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'center',
             paddingTop: 10,
-            paddingBottom: 12,
+            paddingBottom: 10,
             flexShrink: 0,
           }}
         >
@@ -796,7 +925,7 @@ export default function ControlSurface({
           />
         </div>
 
-        {/* Scrollable content — one continuous surface, no hard dividers */}
+        {/* Scrollable content — one continuous surface */}
         <div
           style={{
             flex: 1,
@@ -809,31 +938,17 @@ export default function ControlSurface({
         >
           {hasContent ? (
             <>
-              {renderWhatMatters()}
-              {renderComingUp()}
-              {renderEverythingElse()}
-              {/* Session 12C: Low data calm reinforcement — only when sparse */}
-              {isLowDataState && whatMatters.length > 0 && whatMatters.length <= 3 && comingUp.length === 0 && everythingElse.length === 0 && (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '12px 0 4px',
-                }}>
-                  <span style={{
-                    fontFamily: FONTS.serif,
-                    fontSize: 13,
-                    fontWeight: 300,
-                    color: 'rgba(240,235,224,0.20)',
-                  }}>
-                    You&apos;re clear beyond this.
-                  </span>
-                </div>
-              )}
-              {renderAccess()}
+              {renderAttention()}
+              {renderNext()}
+              {renderActive()}
+              {renderPeople()}
+              {renderMomentum()}
+              {renderSettingsAccess()}
             </>
           ) : (
             <>
               {renderEmptyState()}
-              {renderAccess()}
+              {renderSettingsAccess()}
             </>
           )}
         </div>
