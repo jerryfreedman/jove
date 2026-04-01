@@ -48,6 +48,8 @@ import {
   type MessageBucket,
 } from '@/lib/chat-intelligence';
 import { renderMarkdown } from '@/lib/renderMarkdown';
+import { useMeetingStore } from '@/lib/meeting-store';
+import { detectMeetingMutation, applyMeetingMutation } from '@/lib/meeting-mutations';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -677,6 +679,29 @@ function HomePageInner() {
         return;
       }
 
+      // ── SESSION 7: MEETING MUTATION DETECTION ─────────────────
+      // Before full classification, check if user is mutating meeting state.
+      // This layer intercepts cancel/complete/move intents.
+      const meetingMutation = detectMeetingMutation(text);
+      if (meetingMutation) {
+        const result = applyMeetingMutation(meetingMutation);
+
+        // Stream a conversational response with grounded awareness
+        const history = [...previousMessages, { role: 'user' as const, content: text }];
+        await streamAssistantResponse(history, result.meetingId ? undefined : null, {
+          classification: `meeting_mutation_${meetingMutation.type}`,
+          actionTaken: result.success ? 'saved' : 'none',
+          linkedDealId: result.meetingId
+            ? useMeetingStore.getState().getMeetingById(result.meetingId)?.dealId ?? null
+            : null,
+        });
+
+        // Trigger data refresh so UI updates
+        setHomeRefreshKey(k => k + 1);
+        setChatProcessing(false);
+        return;
+      }
+
       // Phase 1: Classify message
       const classification = classifyMessage(
         text,
@@ -1173,15 +1198,20 @@ function HomePageInner() {
 
       const activeDeals = (allDealsRes.data ?? []) as unknown as DealWithAccount[];
 
+      const rawMeetings = (meetingsRes.data ?? []) as MeetingRow[];
+
       setData({
         user:         userRes.data as UserRow | null,
-        meetings:     (meetingsRes.data ?? []) as MeetingRow[],
+        meetings:     rawMeetings,
         urgentDeals:  (urgentDealsRes.data ?? []) as unknown as DealWithAccount[],
         allDeals:     activeDeals,
         signals:      (signalRes.data ?? []) as SignalRow[],
         streakLogs:   (streakRes.data ?? []) as StreakLogRow[],
         accountCount: accountCountRes.count ?? 0,
       });
+
+      // ── Session 7: Ingest meetings into central meeting store ──
+      useMeetingStore.getState().ingestMeetings(rawMeetings);
 
       // ── Session 4: Register homepage chat thread for durable metadata ──
       if (authUser) {

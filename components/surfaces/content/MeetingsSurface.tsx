@@ -6,6 +6,11 @@ import { COLORS } from '@/lib/design-system';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import CaptureSheet from '@/components/capture/CaptureSheet';
 import type { MeetingRow, DealRow } from '@/lib/types';
+import { useMeetingStore } from '@/lib/meeting-store';
+import { useMeetingActions } from '@/lib/meeting-actions';
+import MeetingRowActions from '@/components/meetings/MeetingRowActions';
+import RescheduleSheet from '@/components/meetings/RescheduleSheet';
+import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
 function formatScheduledAt(dateStr: string): string {
   const d    = new Date(dateStr);
@@ -49,6 +54,27 @@ export default function MeetingsSurface() {
   // Capture bridge state
   const [captureMeeting, setCaptureMeeting] = useState<MeetingRow | null>(null);
   const [contextAddedIds, setContextAddedIds] = useState<Set<string>>(new Set());
+
+  // Session 8: Meeting actions (shared layer)
+  const { completeMeeting: completeAction, cancelMeeting: cancelAction, rescheduleMeeting: rescheduleAction } = useMeetingActions();
+  const [rescheduleTarget, setRescheduleTarget] = useState<{
+    meetingId: string;
+    title: string;
+    startTime: number;
+  } | null>(null);
+
+  const handleRescheduleOpen = useCallback((meetingId: string) => {
+    const row = meetings.find(m => m.id === meetingId);
+    const title = row?.title ?? 'Meeting';
+    const startTime = row ? new Date(row.scheduled_at).getTime() : Date.now();
+    setRescheduleTarget({ meetingId, title, startTime });
+  }, [meetings]);
+
+  const handleRescheduleConfirm = useCallback((newTime: number) => {
+    if (!rescheduleTarget) return;
+    rescheduleAction(rescheduleTarget.meetingId, newTime);
+    setRescheduleTarget(null);
+  }, [rescheduleTarget, rescheduleAction]);
 
   // Screenshot import
   const [importing, setImporting]     = useState(false);
@@ -180,9 +206,26 @@ export default function MeetingsSurface() {
     fetchData();
   };
 
+  // Session 7: Meeting store for status-aware categorization
+  const meetingStoreData = useMeetingStore(state => state.meetings);
+
   const now      = new Date();
-  const upcoming = meetings.filter(m => new Date(m.scheduled_at) >= now);
-  const past     = meetings.filter(m => new Date(m.scheduled_at) < now);
+  // Session 7: Filter upcoming to only show scheduled meetings
+  const upcoming = meetings.filter(m => {
+    const storeMeeting = meetingStoreData[m.id];
+    if (storeMeeting && storeMeeting.status !== 'scheduled') return false;
+    return new Date(m.scheduled_at) >= now;
+  });
+  const past     = meetings.filter(m => {
+    const storeMeeting = meetingStoreData[m.id];
+    if (storeMeeting && (storeMeeting.status === 'cancelled' || storeMeeting.status === 'moved')) return false;
+    return new Date(m.scheduled_at) < now;
+  });
+  // Session 7: Cancelled meetings section
+  const cancelled = meetings.filter(m => {
+    const storeMeeting = meetingStoreData[m.id];
+    return storeMeeting?.status === 'cancelled';
+  });
 
   const inputStyle: React.CSSProperties = {
     width:        '100%',
@@ -214,14 +257,30 @@ export default function MeetingsSurface() {
           cursor:       'pointer',
           backdropFilter: 'blur(10px)',
         }}>
+        {/* Session 8: Title + actions row */}
         <div style={{
-          fontFamily:   "'Cormorant Garamond', serif",
-          fontSize:     17,
-          fontWeight:   400,
-          color:        '#E0D7C8',
-          marginBottom: 4,
+          display:        'flex',
+          alignItems:     'flex-start',
+          justifyContent: 'space-between',
+          gap:            8,
+          marginBottom:   4,
         }}>
-          {meeting.title}
+          <div style={{
+            fontFamily:   "'Cormorant Garamond', serif",
+            fontSize:     17,
+            fontWeight:   400,
+            color:        '#E0D7C8',
+            flex:         1,
+          }}>
+            {meeting.title}
+          </div>
+          <MeetingRowActions
+            meetingId={meeting.id}
+            meetingTitle={meeting.title}
+            onComplete={completeAction}
+            onCancel={cancelAction}
+            onReschedule={handleRescheduleOpen}
+          />
         </div>
         {hasContext && (
           <div style={{
@@ -289,6 +348,7 @@ export default function MeetingsSurface() {
   };
 
   return (
+    <>
     <div style={{
       display:     'flex',
       flexDirection: 'column',
@@ -519,6 +579,24 @@ export default function MeetingsSurface() {
           </div>
         )}
 
+        {/* Session 7: Cancelled meetings section */}
+        {cancelled.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+              letterSpacing: '1.2px', color: 'rgba(200,120,80,0.5)',
+              marginBottom: 8, paddingLeft: 2,
+            }}>
+              Cancelled
+            </div>
+            {cancelled.map(m => (
+              <div key={m.id} style={{ opacity: 0.4 }}>
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} onAddContext={() => setCaptureMeeting(m)} />
+              </div>
+            ))}
+          </div>
+        )}
+
         {!loading && meetings.length === 0 && !showConfirm && (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <p style={{
@@ -722,6 +800,17 @@ export default function MeetingsSurface() {
         />
       )}
     </div>
+
+    {/* Session 8: Reschedule sheet + action toast */}
+    <RescheduleSheet
+      open={!!rescheduleTarget}
+      meetingTitle={rescheduleTarget?.title ?? ''}
+      currentStartTime={rescheduleTarget?.startTime ?? Date.now()}
+      onConfirm={handleRescheduleConfirm}
+      onClose={() => setRescheduleTarget(null)}
+    />
+    <MeetingActionToast />
+    </>
   );
 }
 

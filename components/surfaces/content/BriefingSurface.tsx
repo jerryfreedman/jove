@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase';
+import { useMeetingStore } from '@/lib/meeting-store';
 import { calculateStreak } from '@/lib/streak';
 import {
   COLORS,
@@ -16,6 +17,10 @@ import type {
 } from '@/lib/types';
 import CaptureSheet from '@/components/capture/CaptureSheet';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
+import { useMeetingActions } from '@/lib/meeting-actions';
+import MeetingRowActions from '@/components/meetings/MeetingRowActions';
+import RescheduleSheet from '@/components/meetings/RescheduleSheet';
+import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
 // ── MEETING LIFECYCLE ─────────────────────────────────────
 type MeetingState = 'upcoming' | 'in_progress' | 'completed';
@@ -197,6 +202,27 @@ export default function BriefingSurface() {
   // Abort ref for inline brief streaming
   const briefAbortRef = useRef<AbortController | null>(null);
 
+  // Session 8: Meeting actions (shared layer)
+  const { completeMeeting: completeAction, cancelMeeting: cancelAction, rescheduleMeeting: rescheduleAction } = useMeetingActions();
+  const [rescheduleTarget, setRescheduleTarget] = useState<{
+    meetingId: string;
+    title: string;
+    startTime: number;
+  } | null>(null);
+
+  const handleRescheduleOpen = useCallback((meetingId: string) => {
+    const row = meetings.find(m => m.id === meetingId);
+    const title = row?.title ?? 'Meeting';
+    const startTime = row ? new Date(row.scheduled_at).getTime() : Date.now();
+    setRescheduleTarget({ meetingId, title, startTime });
+  }, [meetings]);
+
+  const handleRescheduleConfirm = useCallback((newTime: number) => {
+    if (!rescheduleTarget) return;
+    rescheduleAction(rescheduleTarget.meetingId, newTime);
+    setRescheduleTarget(null);
+  }, [rescheduleTarget, rescheduleAction]);
+
   // ── FETCH DATA ─────────────────────────────────────────
   const fetchData = useCallback(async () => {
     try {
@@ -287,7 +313,14 @@ export default function BriefingSurface() {
     const aMap: Record<string, string> = {};
     for (const a of fetchedAccounts) aMap[a.id] = a.name;
 
-    setMeetings(fetchedMeetings);
+    // Session 7: Ingest into meeting store and filter out cancelled/completed
+    useMeetingStore.getState().ingestMeetings(fetchedMeetings);
+    const storeState = useMeetingStore.getState().meetings;
+    const filteredMeetings = fetchedMeetings.filter(m => {
+      const sm = storeState[m.id];
+      return !sm || sm.status === 'scheduled';
+    });
+    setMeetings(filteredMeetings);
     setAttentionDeals(fetchedAttention);
     setAllActiveDeals(fetchedAllDeals);
     setTodaySignals(fetchedSignals);
@@ -1075,16 +1108,31 @@ export default function BriefingSurface() {
                 )}
               </div>
 
-              {/* Title — large, serif */}
+              {/* Title — large, serif + Session 8 actions */}
               <div style={{
-                fontFamily:   "'Cormorant Garamond', serif",
-                fontSize:     24,
-                fontWeight:   400,
-                color:        'rgba(252,246,234,1)',
-                lineHeight:   1.25,
+                display:      'flex',
+                alignItems:   'flex-start',
+                justifyContent: 'space-between',
+                gap:          8,
                 marginBottom: 6,
               }}>
-                {nextMeeting.title}
+                <div style={{
+                  fontFamily:   "'Cormorant Garamond', serif",
+                  fontSize:     24,
+                  fontWeight:   400,
+                  color:        'rgba(252,246,234,1)',
+                  lineHeight:   1.25,
+                  flex:         1,
+                }}>
+                  {nextMeeting.title}
+                </div>
+                <MeetingRowActions
+                  meetingId={nextMeeting.id}
+                  meetingTitle={nextMeeting.title}
+                  onComplete={completeAction}
+                  onCancel={cancelAction}
+                  onReschedule={handleRescheduleOpen}
+                />
               </div>
 
               {/* AI Brief / Curiosity Question / Fallback */}
@@ -1338,15 +1386,30 @@ export default function BriefingSurface() {
                     )}
                   </div>
 
-                  {/* Title */}
+                  {/* Title + Session 8 actions */}
                   <div style={{
-                    fontFamily:   "'Cormorant Garamond', serif",
-                    fontSize:     18,
-                    fontWeight:   400,
-                    color:        'rgba(252,246,234,1)',
+                    display:      'flex',
+                    alignItems:   'flex-start',
+                    justifyContent: 'space-between',
+                    gap:          8,
                     marginBottom: meeting.attendees ? 5 : 0,
                   }}>
-                    {meeting.title}
+                    <div style={{
+                      fontFamily:   "'Cormorant Garamond', serif",
+                      fontSize:     18,
+                      fontWeight:   400,
+                      color:        'rgba(252,246,234,1)',
+                      flex:         1,
+                    }}>
+                      {meeting.title}
+                    </div>
+                    <MeetingRowActions
+                      meetingId={meeting.id}
+                      meetingTitle={meeting.title}
+                      onComplete={completeAction}
+                      onCancel={cancelAction}
+                      onReschedule={handleRescheduleOpen}
+                    />
                   </div>
 
                   {/* Attendees */}
@@ -1904,6 +1967,16 @@ export default function BriefingSurface() {
           meetingId={captureMeetingId}
         />
       )}
+
+      {/* Session 8: Reschedule sheet + action toast */}
+      <RescheduleSheet
+        open={!!rescheduleTarget}
+        meetingTitle={rescheduleTarget?.title ?? ''}
+        currentStartTime={rescheduleTarget?.startTime ?? Date.now()}
+        onConfirm={handleRescheduleConfirm}
+        onClose={() => setRescheduleTarget(null)}
+      />
+      <MeetingActionToast />
     </>
   );
 }

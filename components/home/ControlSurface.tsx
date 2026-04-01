@@ -22,6 +22,11 @@ import {
   getControlSurfaceLabels,
 } from '@/lib/semantic-labels';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
+import { useMeetingStore } from '@/lib/meeting-store';
+import { useMeetingActions } from '@/lib/meeting-actions';
+import MeetingRowActions from '@/components/meetings/MeetingRowActions';
+import RescheduleSheet from '@/components/meetings/RescheduleSheet';
+import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -116,10 +121,36 @@ export default function ControlSurface({
     setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), 200);
   }, [handleClose, navigateTo]);
 
+  // ── SESSION 8: Meeting actions ──
+  const { completeMeeting, cancelMeeting, rescheduleMeeting } = useMeetingActions();
+  const [rescheduleTarget, setRescheduleTarget] = useState<{
+    meetingId: string;
+    title: string;
+    startTime: number;
+  } | null>(null);
+
+  const handleRescheduleOpen = useCallback((meetingId: string) => {
+    // Look up meeting in store for current startTime
+    const storeMeeting = useMeetingStore.getState().getMeetingById(meetingId);
+    const meetingRow = meetings.find(m => m.id === meetingId);
+    const title = storeMeeting?.title ?? meetingRow?.title ?? 'Meeting';
+    const startTime = storeMeeting?.startTime ?? (meetingRow ? new Date(meetingRow.scheduled_at).getTime() : Date.now());
+    setRescheduleTarget({ meetingId, title, startTime });
+  }, [meetings]);
+
+  const handleRescheduleConfirm = useCallback((newTime: number) => {
+    if (!rescheduleTarget) return;
+    rescheduleMeeting(rescheduleTarget.meetingId, newTime);
+    setRescheduleTarget(null);
+  }, [rescheduleTarget, rescheduleMeeting]);
+
   // ── ADAPTIVE MODULE PRIORITY ────────────────────────────
   const priority = useMemo<ModulePriorityResult>(() => {
     return evaluateModulePriority({ allDeals, urgentDeals, meetings });
   }, [allDeals, urgentDeals, meetings]);
+
+  // ── Session 7: Meeting store for status-aware filtering ──
+  const meetingStoreData = useMeetingStore(state => state.meetings);
 
   // ── PREPARED DATA (sorted by relevance) ─────────────────
   const preparedData = useMemo(() => {
@@ -139,14 +170,33 @@ export default function ControlSurface({
       .sort((a, b) => scoreDealRelevance(b) - scoreDealRelevance(a))
       .slice(0, 5);
 
-    // Upcoming meetings: future only, sorted by soonest first
+    // Session 7: Upcoming meetings — filter through store status.
+    // ONLY show meetings with status === "scheduled"
     const upcomingMeetings = meetings
-      .filter(m => new Date(m.scheduled_at) >= now)
+      .filter(m => {
+        const storeMeeting = meetingStoreData[m.id];
+        // If meeting is in store, respect its status
+        if (storeMeeting) {
+          return storeMeeting.status === 'scheduled' && storeMeeting.startTime >= now.getTime() - 2 * 60 * 60 * 1000;
+        }
+        // Not in store yet — show if future
+        return new Date(m.scheduled_at) >= now;
+      })
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
       .slice(0, 3);
 
-    return { attentionItems, topDeals, upcomingMeetings };
-  }, [allDeals, urgentDeals, meetings]);
+    // Cancelled meetings (for potential "Cancelled" section)
+    const cancelledMeetings = Object.values(meetingStoreData)
+      .filter(m => m.status === 'cancelled')
+      .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+
+    // Completed meetings
+    const completedMeetings = Object.values(meetingStoreData)
+      .filter(m => m.status === 'completed')
+      .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+
+    return { attentionItems, topDeals, upcomingMeetings, cancelledMeetings, completedMeetings };
+  }, [allDeals, urgentDeals, meetings, meetingStoreData]);
 
   if (!open) return null;
 
@@ -306,7 +356,7 @@ export default function ControlSurface({
                   transition: 'border-color 0.15s ease',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <span
                     style={{
                       fontSize: 13,
@@ -327,12 +377,19 @@ export default function ControlSurface({
                       color: isHighlighted
                         ? COLORS.amber
                         : 'rgba(240,235,224,0.42)',
-                      marginLeft: 10,
                       flexShrink: 0,
                     }}
                   >
                     {formatMeetingTime(meeting.scheduled_at)}
                   </span>
+                  {/* Session 8: Quick actions */}
+                  <MeetingRowActions
+                    meetingId={meeting.id}
+                    meetingTitle={meeting.title}
+                    onComplete={completeMeeting}
+                    onCancel={cancelMeeting}
+                    onReschedule={handleRescheduleOpen}
+                  />
                 </div>
               </div>
             );
@@ -649,6 +706,16 @@ export default function ControlSurface({
           }
         </div>
       </div>
+
+      {/* Session 8: Reschedule sheet + action toast */}
+      <RescheduleSheet
+        open={!!rescheduleTarget}
+        meetingTitle={rescheduleTarget?.title ?? ''}
+        currentStartTime={rescheduleTarget?.startTime ?? Date.now()}
+        onConfirm={handleRescheduleConfirm}
+        onClose={() => setRescheduleTarget(null)}
+      />
+      <MeetingActionToast />
     </>
   );
 }

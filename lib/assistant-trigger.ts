@@ -15,6 +15,7 @@
 
 import type { DealRow, MeetingRow, SignalRow } from './types';
 import { PULSE_CHECK_DEFAULT_DAYS } from './constants';
+import { useMeetingStore } from './meeting-store';
 
 // ── TYPES ────────────────────────────────────────────────────
 
@@ -102,10 +103,21 @@ export function evaluateAssistantTrigger(input: TriggerInput): AssistantTrigger 
   };
 
   // ── P1: WEAK CONTEXT — upcoming meeting with no signals ────
+  // Session 7: Filter out cancelled/completed meetings from trigger evaluation
+  const meetingStoreState = typeof window !== 'undefined'
+    ? useMeetingStore.getState().meetings
+    : {};
+
   const upcomingToday = meetings
     .filter(m => {
       const mt = new Date(m.scheduled_at);
-      return mt.getTime() > nowMs && mt.toDateString() === todayStr;
+      if (mt.getTime() <= nowMs || mt.toDateString() !== todayStr) return false;
+      // Session 7: Skip meetings that have been cancelled or completed
+      const storeMeeting = meetingStoreState[m.id];
+      if (storeMeeting && (storeMeeting.status === 'cancelled' || storeMeeting.status === 'completed')) {
+        return false;
+      }
+      return true;
     })
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
 
