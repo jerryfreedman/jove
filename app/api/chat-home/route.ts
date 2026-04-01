@@ -9,6 +9,14 @@ import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-lab
 import { detectTaskIntent } from '@/lib/task-intent';
 import { parseTaskTime, formatDueAt } from '@/lib/task-time-parser';
 import { createUserTask } from '@/lib/task-persistence';
+// Session 11F: Universal routing + persistence
+import { routeUniversalIntent, type UniversalRoutingResult } from '@/lib/universal-routing';
+import {
+  createTaskFromIntent,
+  createItemFromIntent,
+  findOrCreatePerson,
+  createEventFromIntent,
+} from '@/lib/universal-persistence';
 
 export const maxDuration = 30;
 
@@ -30,6 +38,14 @@ type ResponseContext = {
   taskCreated?: boolean;
   taskTitle?: string | null;
   taskDueLabel?: string | null;
+  // Session 11F: Universal routing context
+  itemCreated?: boolean;
+  itemName?: string | null;
+  eventCreated?: boolean;
+  eventTitle?: string | null;
+  eventTimeLabel?: string | null;
+  personLinked?: boolean;
+  personName?: string | null;
 };
 
 /**
@@ -56,31 +72,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    // ── Session 11B: Task intent detection on latest user message ──
-    // Detect task intent server-side so we can create the task and
-    // inject confirmation context for the LLM in the same request.
-    let taskContext: { created: boolean; title: string; dueLabel: string | null } | null = null;
+    // ── Session 11F: Universal routing on latest user message ──
+    // Detects tasks, items, people, and events server-side.
+    // Creates entities and injects confirmation context for the LLM.
+    // Falls back to Session 11B task-only detection if universal routing doesn't match.
+    interface UniversalContext {
+      taskCreated: boolean;
+      taskTitle: string | null;
+      taskDueLabel: string | null;
+      itemCreated: boolean;
+      itemName: string | null;
+      eventCreated: boolean;
+      eventTitle: string | null;
+      eventTimeLabel: string | null;
+      personLinked: boolean;
+      personName: string | null;
+    }
+    let universalCtx: UniversalContext | null = null;
+
     const latestUserMsg = [...messages].reverse().find(m => m.role === 'user');
     if (latestUserMsg) {
-      const taskIntent = detectTaskIntent(latestUserMsg.content);
-      if (taskIntent) {
-        // Parse time if present
-        const dueAt = taskIntent.rawTimePart
-          ? parseTaskTime(taskIntent.rawTimePart)
-          : null;
+      const universalRoute = routeUniversalIntent(latestUserMsg.content);
 
-        // Create the Supabase client for task write
-        const taskCookieStore = await cookies();
-        const taskSupabase = createServerClient(
+      if (universalRoute) {
+        // Create Supabase client for writes
+        const writeCookieStore = await cookies();
+        const writeSupabase = createServerClient(
           SUPABASE_URL,
           process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
           {
             cookies: {
-              getAll() { return taskCookieStore.getAll(); },
+              getAll() { return writeCookieStore.getAll(); },
               setAll(cookiesToSet) {
                 try {
                   cookiesToSet.forEach(({ name, value, options }) =>
-                    taskCookieStore.set(name, value, options)
+                    writeCookieStore.set(name, value, options)
                   );
                 } catch {}
               },
@@ -88,18 +114,119 @@ export async function POST(request: NextRequest) {
           }
         );
 
-        const result = await createUserTask(taskSupabase, userId, {
-          title: taskIntent.title,
-          dueAt,
-          dealId: dealId ?? null,
-        });
+        universalCtx = {
+          taskCreated: false, taskTitle: null, taskDueLabel: null,
+          itemCreated: false, itemName: null,
+          eventCreated: false, eventTitle: null, eventTimeLabel: null,
+          personLinked: false, personName: null,
+        };
 
-        if (result) {
-          taskContext = {
-            created: true,
+        // 1. Person (needed for linking to other entities)
+        let personId: string | null = null;
+        if (universalRoute.person) {
+          const personResult = await findOrCreatePerson(
+            writeSupabase, userId, universalRoute.person
+          );
+          if (personResult) {
+            personId = personResult.id;
+            universalCtx.personLinked = true;
+            universalCtx.personName = universalRoute.person.name;
+          }
+        }
+
+        // 2. Item (needed before task for linking)
+        let itemId: string | null = null;
+        if (universalRoute.item) {
+          const itemResult = await createItemFromIntent(
+            writeSupabase, userId, { name: universalRoute.item.name }
+          );
+          if (itemResult) {
+            itemId = itemResult.id;
+            universalCtx.itemCreated = true;
+            universalCtx.itemName = universalRoute.item.name;
+          }
+        }
+
+        // 3. Task
+        if (universalRoute.task) {
+          const taskResult = await createTaskFromIntent(
+            writeSupabase, userId, {
+              title: universalRoute.task.title,
+              dueAt: universalRoute.task.dueAt,
+              itemId: universalRoute.links.taskToItem ? itemId : null,
+              dealId: dealId ?? null,
+              personId: universalRoute.links.taskToPerson ? personId : null,
+            }
+          );
+          if (taskResult) {
+            universalCtx.taskCreated = true;
+            universalCtx.taskTitle = universalRoute.task.title;
+            universalCtx.taskDueLabel = universalRoute.task.dueAt
+              ? formatDueAt(universalRoute.task.dueAt)
+              : null;
+          }
+        }
+
+        // 4. Event
+        if (universalRoute.event) {
+          const eventResult = await createEventFromIntent(
+            writeSupabase, userId, {
+              title: universalRoute.event.title,
+              scheduledAt: universalRoute.event.scheduledAt,
+              eventType: universalRoute.event.eventType,
+              personId: universalRoute.links.eventToPerson ? personId : null,
+            }
+          );
+          if (eventResult) {
+            universalCtx.eventCreated = true;
+            universalCtx.eventTitle = universalRoute.event.title;
+            universalCtx.eventTimeLabel = universalRoute.event.scheduledAt
+              ? formatDueAt(universalRoute.event.scheduledAt)
+              : null;
+          }
+        }
+      } else {
+        // Fallback: Session 11B task-only detection
+        const taskIntent = detectTaskIntent(latestUserMsg.content);
+        if (taskIntent) {
+          const dueAt = taskIntent.rawTimePart
+            ? parseTaskTime(taskIntent.rawTimePart)
+            : null;
+
+          const taskCookieStore = await cookies();
+          const taskSupabase = createServerClient(
+            SUPABASE_URL,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            {
+              cookies: {
+                getAll() { return taskCookieStore.getAll(); },
+                setAll(cookiesToSet) {
+                  try {
+                    cookiesToSet.forEach(({ name, value, options }) =>
+                      taskCookieStore.set(name, value, options)
+                    );
+                  } catch {}
+                },
+              },
+            }
+          );
+
+          const result = await createUserTask(taskSupabase, userId, {
             title: taskIntent.title,
-            dueLabel: dueAt ? formatDueAt(dueAt) : null,
-          };
+            dueAt,
+            dealId: dealId ?? null,
+          });
+
+          if (result) {
+            universalCtx = {
+              taskCreated: true,
+              taskTitle: taskIntent.title,
+              taskDueLabel: dueAt ? formatDueAt(dueAt) : null,
+              itemCreated: false, itemName: null,
+              eventCreated: false, eventTitle: null, eventTimeLabel: null,
+              personLinked: false, personName: null,
+            };
+          }
         }
       }
     }
@@ -292,23 +419,40 @@ ${dedupedSignals.length > 0
     }
 
     // ── Build final system prompt: static rules + per-message responseContext + cached data ──
-    // Session 11B: Merge task creation context into response context
+    // Session 11F: Merge universal routing context into response context
+    const universalFields = universalCtx ? {
+      ...(universalCtx.taskCreated ? {
+        taskCreated: true,
+        taskTitle: universalCtx.taskTitle,
+        taskDueLabel: universalCtx.taskDueLabel,
+      } : {}),
+      ...(universalCtx.itemCreated ? {
+        itemCreated: true,
+        itemName: universalCtx.itemName,
+      } : {}),
+      ...(universalCtx.eventCreated ? {
+        eventCreated: true,
+        eventTitle: universalCtx.eventTitle,
+        eventTimeLabel: universalCtx.eventTimeLabel,
+      } : {}),
+      ...(universalCtx.personLinked ? {
+        personLinked: true,
+        personName: universalCtx.personName,
+      } : {}),
+    } : {};
+
+    const hasUniversalAction = universalCtx && (
+      universalCtx.taskCreated || universalCtx.itemCreated ||
+      universalCtx.eventCreated || universalCtx.personLinked
+    );
+
     const mergedResponseContext = responseContext
-      ? {
-          ...responseContext,
-          ...(taskContext?.created ? {
-            taskCreated: true,
-            taskTitle: taskContext.title,
-            taskDueLabel: taskContext.dueLabel,
-          } : {}),
-        }
-      : taskContext?.created
+      ? { ...responseContext, ...universalFields }
+      : hasUniversalAction
         ? {
-            classification: 'task_creation',
+            classification: 'universal_routing',
             actionTaken: 'none' as const,
-            taskCreated: true,
-            taskTitle: taskContext.title,
-            taskDueLabel: taskContext.dueLabel,
+            ...universalFields,
           }
         : null;
 
@@ -320,6 +464,9 @@ SYSTEM CONTEXT:
 - Linked deal: ${mergedResponseContext.linkedDealName ?? mergedResponseContext.linkedDealId ?? 'none'}
 - Ambiguity: ${mergedResponseContext.ambiguity ?? false}
 ${mergedResponseContext.taskCreated ? `- Task created: "${mergedResponseContext.taskTitle}"${mergedResponseContext.taskDueLabel ? ` (due ${mergedResponseContext.taskDueLabel})` : ''}` : ''}
+${mergedResponseContext.itemCreated ? `- Item/project created: "${mergedResponseContext.itemName}"` : ''}
+${mergedResponseContext.eventCreated ? `- Event created: "${mergedResponseContext.eventTitle}"${mergedResponseContext.eventTimeLabel ? ` (${mergedResponseContext.eventTimeLabel})` : ''}` : ''}
+${mergedResponseContext.personLinked ? `- Person linked: ${mergedResponseContext.personName}` : ''}
 `
       : '';
 
@@ -368,6 +515,18 @@ Subject: [subject line]
     - "Added. That's now on your list."
     - "I captured that. No due time yet — want me to add one?"
     Do NOT say "task created" or use system language. Sound human.
+17. When an item/project was created, confirm naturally. Examples:
+    - "Added — I'm treating that as a project."
+    - "Got it. I set that up as an ongoing focus area."
+    Do NOT say "item created" or expose internal language.
+18. When an event was created, confirm with the time. Examples:
+    - "I put that on your calendar for 7."
+    - "Done — you've got gym at 6."
+    Do NOT say "event record created" or use system language.
+19. When a person was linked, mention them naturally. Examples:
+    - "Noted — I linked that to Sarah."
+    - "Got it. I'll remember that's about your mom."
+    Do NOT say "person entity created" or expose IDs.
 
 ---
 

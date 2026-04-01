@@ -203,6 +203,9 @@ export type SignalRow = {
 
 export type MeetingSource = 'manual' | 'calendar_screenshot';
 
+// Session 11F: Event type for universal routing — distinguishes meetings from events
+export type EventType = 'meeting' | 'event' | 'reminder' | 'deadline';
+
 export type MeetingRow = {
   id: string;
   user_id: string;
@@ -214,6 +217,8 @@ export type MeetingRow = {
   debrief_completed: boolean;
   debrief_prompted_at: string | null;
   source: MeetingSource;
+  /** Session 11F: Distinguishes meetings from lightweight events */
+  event_type: EventType | null;
   created_at: string;
   updated_at: string;
 };

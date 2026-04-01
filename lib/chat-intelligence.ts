@@ -1,9 +1,11 @@
 // ── CHAT INTELLIGENCE ENGINE ──────────────────────────────────
 // Session 3: Deterministic message classification + confidence routing.
+// Session 11F: Universal routing — classify into tasks, items, people, events.
 // Lightweight, client-side heuristics. No LLM calls for classification.
 // Ambiguity-safe: preserves all candidates, never silently collapses.
 
 import type { DealRow, MeetingRow } from '@/lib/types';
+import { routeUniversalIntent, type UniversalRoutingResult } from '@/lib/universal-routing';
 
 // ── CLASSIFICATION BUCKETS ────────────────────────────────────
 export type MessageBucket =
@@ -48,6 +50,8 @@ export interface ClassificationResult {
   allMeetingCandidates: MeetingCandidate[];
   /** Why the classifier was uncertain, if applicable (Session 3) */
   ambiguityReason: string | null;
+  /** Session 11F: Universal routing result (tasks, items, people, events) */
+  universalRoute: UniversalRoutingResult | null;
 }
 
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -426,6 +430,7 @@ export function classifyMessage(
       ambiguityReason: null,
       allDealCandidates: dealCandidates,
       allMeetingCandidates: meetingCandidates,
+      universalRoute: null,
       ...overrides,
     };
   }
@@ -540,6 +545,19 @@ export function classifyMessage(
       matchedDealName: null,
       clarificationQuestion: 'Which deal is this about?',
       ambiguityReason: dealResolution.ambiguityReason,
+    });
+  }
+
+  // ── SESSION 11F: UNIVERSAL ROUTING ─────────────────────────
+  // Before falling through to general_intel, try universal routing.
+  // This catches life/work inputs that aren't sales-shaped:
+  // tasks, items, people, events.
+  const universalRoute = routeUniversalIntent(trimmed);
+  if (universalRoute) {
+    return makeResult({
+      bucket: 'general_intel', // Bucket stays general_intel for backward compat
+      confidence: 'high',
+      universalRoute,
     });
   }
 
