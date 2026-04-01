@@ -60,7 +60,8 @@ import {
   createEventFromIntent,
 } from '@/lib/universal-persistence';
 import { createUserTask } from '@/lib/task-persistence';
-import { useCompletedTodayCount } from '@/lib/task-queries';
+import { useCompletedTodayCount, useWhatMattersTasks } from '@/lib/task-queries';
+import { useDailyLoop, markSessionOpen } from '@/lib/daily-loop';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -148,6 +149,13 @@ function HomePageInner() {
 
   // Session 14E: Progress tracking
   const { count: completedTodayCount } = useCompletedTodayCount(data?.user?.id ?? null);
+
+  // ── SESSION 14F: DAILY LOOP — pending task count for loop awareness ──
+  const { tasks: loopTasks } = useWhatMattersTasks(data?.user?.id ?? null, 10);
+  const pendingTaskCount = loopTasks.length;
+  const urgentItemCount = (data?.urgentDeals?.length ?? 0)
+    + loopTasks.filter(t => t.dueAt && new Date(t.dueAt).getTime() < Date.now()).length;
+  const dailyLoop = useDailyLoop(pendingTaskCount, urgentItemCount);
 
   // ── SESSION 13A: FOCUS OVERLAY STATE ────────────────────
   const [focusOverlayOpen, setFocusOverlayOpen] = useState(false);
@@ -1187,6 +1195,32 @@ function HomePageInner() {
     }
   }, [captureOpen]);
 
+  // ── SESSION 14F: MORNING CUE AUTO-DISMISS ───────────────
+  // Dismiss morning cue when user first interacts with any surface.
+  // Also auto-dismiss after 6 seconds if user just reads the screen.
+  useEffect(() => {
+    if (!dailyLoop.showMorningCue) return;
+    const autoDismiss = setTimeout(() => {
+      dailyLoop.dismissMorningCue();
+    }, 6000);
+    return () => clearTimeout(autoDismiss);
+  }, [dailyLoop.showMorningCue, dailyLoop.dismissMorningCue]);
+
+  // ── SESSION 14F: MIDDAY RE-ENTRY REFRESH ───────────────
+  // When user returns to the app after being away, refresh data
+  // so the panel feels alive and updated, not stale.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        markSessionOpen();
+        // Refresh data on return
+        setHomeRefreshKey(k => k + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
   // ── GLOBAL CAPTURE PULSE ON RETURN ────────────────────
   useEffect(() => {
     const pending = localStorage.getItem('jove_pulse_pending');
@@ -1511,7 +1545,8 @@ function HomePageInner() {
       });
 
       // ── Refresh control panel after brief delay ───────────
-      setTimeout(() => setHomeRefreshKey(k => k + 1), 800);
+      // Session 14F: Reduced from 800ms → 400ms for snappier capture→reflect loop
+      setTimeout(() => setHomeRefreshKey(k => k + 1), 400);
 
     } catch (err) {
       console.error('Capture submit error:', err);
@@ -1615,16 +1650,30 @@ function HomePageInner() {
       }
     }
 
-    // ── P3: SOFT FALLBACK ─────────────────────────
+    // ── P3: SESSION 14F — PHASE-AWARE FALLBACK ─────
+    // Morning: emphasize clarity. Midday: reflect activity. Evening: closure.
     const hour = new Date().getHours();
     let fallback: string;
-    if (hour >= 5 && hour < 12) fallback = "Whenever you\u2019re ready.";
-    else if (hour >= 12 && hour < 17) fallback = "You\u2019re set for the day.";
-    else if (hour >= 17 && hour < 21) fallback = "Nothing urgent right now.";
-    else fallback = "Rest well.";
+
+    if (dailyLoop.showMorningCue) {
+      fallback = "Here\u2019s what matters today.";
+    } else if (hour >= 5 && hour < 12) {
+      fallback = "Whenever you\u2019re ready.";
+    } else if (dailyLoop.isReturning && hour >= 12 && hour < 18) {
+      // Midday re-entry: acknowledge return
+      fallback = "Things have been moving.";
+    } else if (hour >= 12 && hour < 17) {
+      fallback = "You\u2019re set for the day.";
+    } else if (dailyLoop.showClosure) {
+      fallback = dailyLoop.closureMessage;
+    } else if (hour >= 17 && hour < 21) {
+      fallback = "Nothing urgent right now.";
+    } else {
+      fallback = "Rest well.";
+    }
 
     return { type: 'fallback', text: fallback };
-  }, [data, assistantTrigger]);
+  }, [data, assistantTrigger, dailyLoop]);
 
   // Entrance animation values
   const anim = (delay: number) => ({
@@ -1828,7 +1877,7 @@ function HomePageInner() {
               breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div
             ref={sunRef}
-            onClick={() => setFocusOverlayOpen(prev => !prev)}
+            onClick={() => { setFocusOverlayOpen(prev => !prev); dailyLoop.dismissMorningCue(); }}
             onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.92)'; }}
             onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
             onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
@@ -2047,6 +2096,8 @@ function HomePageInner() {
         meetings={data?.meetings ?? []}
         userId={data?.user?.id ?? null}
         completedTodayCount={completedTodayCount}
+        closureMessage={dailyLoop.showClosure ? dailyLoop.closureMessage : null}
+        onClosureDismiss={dailyLoop.dismissClosure}
       />
 
       {/* ── SESSION 13A: FOCUS OVERLAY (sun → instant clarity) ── */}
@@ -2112,7 +2163,7 @@ function HomePageInner() {
           >
             {/* Control surface entry — left side */}
             <div
-              onClick={() => setControlOpen(true)}
+              onClick={() => { setControlOpen(true); dailyLoop.dismissMorningCue(); }}
               onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.88)'; }}
               onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
               onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
@@ -2160,7 +2211,9 @@ function HomePageInner() {
                   letterSpacing: '0.15px',
                 }}
               >
-                What&apos;s going on today?
+                {dailyLoop.phase === 'morning' ? 'What\u2019s on your mind?' :
+                 dailyLoop.phase === 'evening' || dailyLoop.phase === 'night' ? 'Anything to capture?' :
+                 'What\u2019s going on?'}
               </span>
             </div>
           </div>

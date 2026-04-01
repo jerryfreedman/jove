@@ -32,6 +32,7 @@ import type { TaskAction } from '@/lib/task-types';
 import { useWhatMattersTasks, markTaskDone, skipTask, type DisplayTask } from '@/lib/task-queries';
 import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
+import { getDayPhase } from '@/lib/daily-loop';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -51,6 +52,10 @@ interface ControlSurfaceProps {
   completedTodayCount?: number;
   /** Session 14D: Current streak days. */
   streakDays?: number;
+  /** Session 14F: End-of-day closure message (shown when clear). */
+  closureMessage?: string | null;
+  /** Session 14F: Callback when closure is dismissed. */
+  onClosureDismiss?: () => void;
 }
 
 // ── SESSION 14D: SURFACE ITEM ─────────────────────────────
@@ -143,6 +148,8 @@ export default function ControlSurface({
   contacts,
   completedTodayCount,
   streakDays,
+  closureMessage,
+  onClosureDismiss,
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -759,12 +766,17 @@ export default function ControlSurface({
     );
   };
 
+  // Session 14F: Phase-aware section labels
+  const phase = getDayPhase();
+
   const renderNext = () => {
     if (next.length === 0) return null;
+    // Morning: "Today" feels more grounding than "What's Next"
+    const nextLabel = phase === 'morning' ? 'Today' : labels.whatsNext;
     return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.48)' }}>
-          {labels.whatsNext}
+          {nextLabel}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {next.map(item => renderRow(item))}
@@ -1014,6 +1026,30 @@ export default function ControlSurface({
               {renderActive()}
               {renderPeople()}
               {renderMomentum()}
+              {/* Session 14F: End-of-day closure — passive, calm signal */}
+              {closureMessage && (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: '16px 20px 12px',
+                    marginBottom: 8,
+                  }}
+                  onClick={() => onClosureDismiss?.()}
+                >
+                  <div
+                    style={{
+                      fontFamily: FONTS.serif,
+                      fontSize: 16,
+                      fontWeight: 300,
+                      color: 'rgba(252,246,234,0.42)',
+                      lineHeight: 1.5,
+                      letterSpacing: '0.2px',
+                    }}
+                  >
+                    {closureMessage}
+                  </div>
+                </div>
+              )}
               {renderSettingsAccess()}
             </>
           ) : (

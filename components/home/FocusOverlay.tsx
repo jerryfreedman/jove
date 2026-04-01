@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
 import { useWhatMattersTasks } from '@/lib/task-queries';
 import { useTaskEngine } from '@/lib/task-engine';
+import { getDayPhase } from '@/lib/daily-loop';
 import type { DealRow } from '@/lib/types';
 
 // ── TYPES ──────────────────────────────────────────────────
@@ -163,6 +164,17 @@ export default function FocusOverlay({
 
   const isEmpty = focusItems.length === 0;
 
+  // Session 14F: Phase-aware empty message
+  const phase = getDayPhase();
+  const emptyTitle = phase === 'evening' || phase === 'night'
+    ? 'You\u2019re done.'
+    : 'You\u2019re clear.';
+  const emptySubtitle = phase === 'morning'
+    ? 'Nothing on your plate yet.'
+    : phase === 'evening' || phase === 'night'
+      ? 'Rest well tonight.'
+      : 'Nothing pressing right now.';
+
   return (
     <div
       onClick={handleBackdropClick}
@@ -233,7 +245,7 @@ export default function FocusOverlay({
                 lineHeight: 1.3,
               }}
             >
-              You&rsquo;re clear.
+              {emptyTitle}
             </div>
             <div
               style={{
@@ -245,7 +257,7 @@ export default function FocusOverlay({
                 lineHeight: 1.4,
               }}
             >
-              Nothing pressing right now.
+              {emptySubtitle}
             </div>
           </div>
         ) : (

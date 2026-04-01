@@ -17,11 +17,14 @@ const PLACEHOLDERS = [
 
 // ── CONFIRMATION MESSAGES ──────────────────────────────────
 // Brief, human, non-structural. User never sees "task created".
+// Session 14F: Added variety to reinforce the capture loop.
 const CONFIRMATIONS = [
   'Got it',
   'Saved',
   'On it',
   'Noted',
+  'Done',
+  'Captured',
 ];
 
 function randomFrom<T>(arr: T[]): T {
@@ -58,6 +61,9 @@ export default function CaptureOverlay({
   );
 
   // ── AUTO-FOCUS on open ────────────────────────────────────
+  // Session 14F: Track capture count for micro-reinforcement (smoother experience)
+  const captureCountRef = useRef(0);
+
   useEffect(() => {
     if (open) {
       setValue('');
@@ -82,6 +88,9 @@ export default function CaptureOverlay({
     // Fire submission
     await onSubmit(trimmed);
 
+    // Session 14F: Increment capture count for micro-reinforcement
+    captureCountRef.current += 1;
+
     // Session 13C: First capture gets stronger reinforcement — "Added [text]"
     const isFirst = isFirstCaptureRef.current;
     if (isFirst) {
@@ -100,11 +109,12 @@ export default function CaptureOverlay({
     setValue('');
 
     // Auto-close after confirmation fades (slightly longer for first capture)
+    // Session 14F: Tightened from 1200→1000ms for snappier repeat captures
     setTimeout(() => {
       setConfirmation(null);
       setCapturedText(null);
       onClose();
-    }, isFirst ? 1600 : 1200);
+    }, isFirst ? 1600 : 1000);
   }, [value, saving, onSubmit, onClose]);
 
   // ── KEY HANDLING ──────────────────────────────────────────
@@ -173,9 +183,12 @@ export default function CaptureOverlay({
               fontWeight: 400,
               color: COLORS.amberLight,
               opacity: 1,
+              // Session 14F: Use smoother animation for repeat captures
               animation: capturedText
                 ? 'captureConfirmFade 1.6s ease forwards'
-                : 'captureConfirmFade 1.2s ease forwards',
+                : captureCountRef.current > 1
+                  ? 'captureConfirmSmooth 1s ease forwards'
+                  : 'captureConfirmFade 1.2s ease forwards',
             }}
           >
             {confirmation}
@@ -239,10 +252,17 @@ export default function CaptureOverlay({
       </div>
 
       {/* ── Keyframes ──────────────────────────────────── */}
+      {/* Session 14F: Added captureConfirmSmooth for snappier repeat captures */}
       <style>{`
         @keyframes captureConfirmFade {
           0% { opacity: 1; }
           70% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes captureConfirmSmooth {
+          0% { opacity: 0; transform: translateY(2px); }
+          15% { opacity: 1; transform: translateY(0); }
+          75% { opacity: 1; }
           100% { opacity: 0; }
         }
       `}</style>
