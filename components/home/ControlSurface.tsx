@@ -3,15 +3,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   COLORS,
-  STAGE_STYLES,
   getDaysColor,
   FONTS,
 } from '@/lib/design-system';
 import {
   evaluateModulePriority,
   isNeedsAttention,
-  scoreDealRelevance,
-  scoreAttentionUrgency,
   type ModulePriorityResult,
 } from '@/lib/module-priority';
 import type { DealRow, MeetingRow, UserDomainProfile } from '@/lib/types';
@@ -42,12 +39,30 @@ interface ControlSurfaceProps {
   userId?: string | null;
 }
 
-// ── HELPERS ────────────────────────────────────────────────
-function getDaysSince(dateStr: string): number {
-  return Math.floor(
-    (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)
-  );
+// ── SESSION 12A: UNIFIED SURFACE ITEM ──────────────────────
+// Every row on the surface is the same shape.
+// No type labels. No "task" vs "meeting" vs "deal" distinction.
+// Just: a thing to handle or be aware of.
+
+interface SurfaceItem {
+  id: string;
+  title: string;
+  /** Time indicator (if relevant). */
+  time?: string;
+  /** Subtle emphasis for urgency. */
+  emphasis?: boolean;
+  onClick?: () => void;
+  /** For persistent tasks: done/skip actions. */
+  taskActions?: {
+    taskId: string;
+  };
+  /** Internal: used for deduplication & zone assignment. Not displayed. */
+  _zone: 'what_matters' | 'coming_up' | 'everything_else';
+  /** Internal: sort key within a zone. Lower = higher. */
+  _sortKey: number;
 }
+
+// ── HELPERS ────────────────────────────────────────────────
 
 function formatMeetingTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -70,18 +85,30 @@ function formatMeetingTime(dateStr: string): string {
   return `${days[d.getDay()]} ${timeStr}`;
 }
 
-function formatDealValue(value: number | null, valueType?: string): string {
-  if (!value) return '';
-  const fmt = value >= 1000
-    ? `$${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`
-    : `$${value}`;
-  if (valueType === 'mrr') return `${fmt}/mo`;
-  if (valueType === 'arr') return `${fmt}/yr`;
-  return fmt;
-}
-
 function minutesUntil(dateStr: string): number {
   return (new Date(dateStr).getTime() - Date.now()) / (1000 * 60);
+}
+
+function formatDueAt(dueAt: string | null): string | null {
+  if (!dueAt) return null;
+  const d = new Date(dueAt);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  const diffMin = Math.floor(diffMs / (1000 * 60));
+  if (diffMin < 0) return 'overdue';
+  if (diffMin < 60) return `in ${diffMin}m`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `in ${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD === 0) return 'today';
+  if (diffD === 1) return 'tomorrow';
+  return `in ${diffD}d`;
+}
+
+function getDaysSince(dateStr: string): number {
+  return Math.floor(
+    (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)
+  );
 }
 
 // ── COMPONENT ──────────────────────────────────────────────
@@ -125,7 +152,7 @@ export default function ControlSurface({
     setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), 200);
   }, [handleClose, navigateTo]);
 
-  // ── SESSION 8: Meeting actions ──
+  // ── Meeting actions ──
   const { completeMeeting, cancelMeeting, rescheduleMeeting } = useMeetingActions();
   const [expandedMeetingId, setExpandedMeetingId] = useState<string | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{
@@ -148,41 +175,33 @@ export default function ControlSurface({
     setRescheduleTarget(null);
   }, [rescheduleTarget, rescheduleMeeting]);
 
-  // ── SESSION 9: System-derived task engine (legacy fallback) ──
+  // ── Legacy system-derived task engine (fallback) ──
   const legacySystemTasks = useTaskEngine(allDeals);
 
-  // ── SESSION 11C: Persistent task reads from DB ──
+  // ── Persistent task reads from DB ──
   const { tasks: dbTasks, loading: dbTasksLoading, refetch: refetchTasks } = useWhatMattersTasks(userId ?? null, 5);
 
-  // ── SESSION 11C: Unified task list — DB primary, legacy fallback ──
-  // If DB has tasks, use them. If DB is empty/loading but legacy has tasks, show legacy.
-  // This prevents blank "What Matters" during migration.
+  // ── Unified task list — DB primary, legacy fallback ──
   const [taskActionPending, setTaskActionPending] = useState<string | null>(null);
 
   const { unifiedTasks, usingFallback } = useMemo(() => {
-    // DB tasks available and non-empty → use them
     if (!dbTasksLoading && dbTasks.length > 0) {
       return { unifiedTasks: dbTasks, usingFallback: false };
     }
-    // DB still loading → show legacy as temporary bridge
     if (dbTasksLoading && legacySystemTasks.length > 0) {
       return { unifiedTasks: null, usingFallback: true };
     }
-    // DB loaded but empty, legacy has tasks → fallback
     if (!dbTasksLoading && dbTasks.length === 0 && legacySystemTasks.length > 0) {
       return { unifiedTasks: null, usingFallback: true };
     }
-    // Both empty → nothing
     return { unifiedTasks: dbTasks, usingFallback: false };
   }, [dbTasks, dbTasksLoading, legacySystemTasks]);
 
-  // Combined task count for module priority
   const effectiveTaskCount = usingFallback
     ? legacySystemTasks.length
     : (unifiedTasks?.length ?? 0);
 
-  // ── SESSION 9: Task action handler ──
-  // IMPORTANT: All hooks must be called before the early return below.
+  // ── Task action handler ──
   const handleTaskAction = useCallback((action: TaskAction) => {
     switch (action.kind) {
       case 'open_prep':
@@ -208,36 +227,90 @@ export default function ControlSurface({
     }
   }, [openSurface]);
 
-  // ── ADAPTIVE MODULE PRIORITY ────────────────────────────
-  // Session 11C: Use effective task count (DB primary, legacy fallback)
+  // ── Evaluate decision surface (low data state only) ──
   const priority = useMemo<ModulePriorityResult>(() => {
     return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: effectiveTaskCount });
   }, [allDeals, urgentDeals, meetings, effectiveTaskCount]);
 
-  // ── Session 7: Meeting store for status-aware filtering ──
+  // ── Meeting store for status-aware filtering ──
   const meetingStoreData = useMeetingStore(state => state.meetings);
 
-  // ── PREPARED DATA (sorted by relevance) ─────────────────
-  const preparedData = useMemo(() => {
+  // ── SESSION 12A: BUILD UNIFIED SURFACE ───────────────────
+  // All items flow into 3 zones. No module concept. No type labels.
+  // Each item appears in exactly ONE zone.
+
+  const { whatMatters, comingUp, everythingElse } = useMemo(() => {
     const now = new Date();
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
 
-    // Attention items: ranked by urgency score
-    const attentionCandidates = urgentDeals.length > 0
-      ? urgentDeals
-      : allDeals.filter(isNeedsAttention);
-    const attentionItems = [...attentionCandidates]
-      .sort((a, b) => scoreAttentionUrgency(b) - scoreAttentionUrgency(a))
-      .slice(0, 4);
+    // Track IDs to enforce no-duplication
+    const placed = new Set<string>();
 
-    // Top deals: ranked by relevance score, excluding closed
-    const topDeals = allDeals
-      .filter(d => d.stage !== 'Closed Won' && d.stage !== 'Closed Lost')
-      .sort((a, b) => scoreDealRelevance(b) - scoreDealRelevance(a))
-      .slice(0, 5);
+    // ── WHAT MATTERS ────────────────────────────────────────
+    // Tasks (DB-backed or legacy) are the primary content here.
+    // These already include meeting prep, follow-ups, and stale items.
+    const whatMattersItems: SurfaceItem[] = [];
 
-    // Session 7: Upcoming meetings — filter through store status.
+    if (!usingFallback && unifiedTasks) {
+      for (const task of unifiedTasks.slice(0, 5)) {
+        whatMattersItems.push({
+          id: `task-${task.id}`,
+          title: task.title,
+          time: formatDueAt(task.dueAt) ?? undefined,
+          emphasis: task.dueAt ? new Date(task.dueAt).getTime() < now.getTime() : false,
+          onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
+          taskActions: { taskId: task.id },
+          _zone: 'what_matters',
+          _sortKey: 0,
+        });
+        placed.add(`task-${task.id}`);
+        // If task is linked to a meeting, mark that meeting as covered
+        if (task.meetingId) placed.add(`meeting-${task.meetingId}`);
+      }
+    } else if (usingFallback) {
+      for (const task of legacySystemTasks.slice(0, 5)) {
+        whatMattersItems.push({
+          id: `legacy-${task.id}`,
+          title: task.title,
+          time: task.timeRelevance ?? undefined,
+          emphasis: false,
+          onClick: () => handleTaskAction(task.action),
+          _zone: 'what_matters',
+          _sortKey: 0,
+        });
+        placed.add(`legacy-${task.id}`);
+      }
+    }
+
+    // If task slots remain (< 5), fill with urgent attention items
+    // These are deals that need re-engagement — surfaced as actionable items
+    if (whatMattersItems.length < 5) {
+      const attentionCandidates = urgentDeals.length > 0
+        ? urgentDeals
+        : allDeals.filter(isNeedsAttention);
+      const remaining = 5 - whatMattersItems.length;
+      for (const deal of attentionCandidates.slice(0, remaining)) {
+        const days = getDaysSince(deal.last_activity_at);
+        whatMattersItems.push({
+          id: `attn-${deal.id}`,
+          title: deal.name,
+          time: `${days}d ago`,
+          emphasis: days > 14,
+          onClick: () => openSurface('deal-detail', { dealId: deal.id }),
+          _zone: 'what_matters',
+          _sortKey: 1,
+        });
+        placed.add(`deal-${deal.id}`);
+      }
+    }
+
+    // ── COMING UP ───────────────────────────────────────────
+    // Strictly time-based. Next few hours / today.
+    // No priority logic — just temporal clarity.
     const upcomingMeetings = meetings
       .filter(m => {
+        if (placed.has(`meeting-${m.id}`)) return false;
         const storeMeeting = meetingStoreData[m.id];
         if (storeMeeting) {
           return storeMeeting.status === 'scheduled' && storeMeeting.startTime >= now.getTime() - 2 * 60 * 60 * 1000;
@@ -247,117 +320,117 @@ export default function ControlSurface({
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
       .slice(0, 3);
 
-    const cancelledMeetings = Object.values(meetingStoreData)
-      .filter(m => m.status === 'cancelled')
-      .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+    const comingUpItems: SurfaceItem[] = upcomingMeetings.map((m, i) => ({
+      id: `meeting-${m.id}`,
+      title: m.title,
+      time: formatMeetingTime(m.scheduled_at),
+      emphasis: minutesUntil(m.scheduled_at) <= 60,
+      onClick: () => setExpandedMeetingId(prev => prev === m.id ? null : m.id),
+      _zone: 'coming_up' as const,
+      _sortKey: i,
+    }));
 
-    const completedMeetings = Object.values(meetingStoreData)
-      .filter(m => m.status === 'completed')
-      .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+    for (const item of comingUpItems) {
+      placed.add(item.id);
+    }
 
-    return { attentionItems, topDeals, upcomingMeetings, cancelledMeetings, completedMeetings };
-  }, [allDeals, urgentDeals, meetings, meetingStoreData]);
+    // ── EVERYTHING ELSE ─────────────────────────────────────
+    // Remaining items: lower-priority tasks, non-urgent deals.
+    // Collapsed by default. Accessible, not overwhelming.
+    const everythingElseItems: SurfaceItem[] = [];
+
+    // Remaining active deals not already placed
+    const remainingDeals = allDeals
+      .filter(d => {
+        if (placed.has(`deal-${d.id}`)) return false;
+        return d.stage !== 'Closed Won' && d.stage !== 'Closed Lost';
+      })
+      .sort((a, b) => {
+        // Sort by last activity (most recent first)
+        return new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime();
+      })
+      .slice(0, 8);
+
+    for (const deal of remainingDeals) {
+      const days = getDaysSince(deal.last_activity_at);
+      everythingElseItems.push({
+        id: `deal-${deal.id}`,
+        title: deal.name,
+        time: days === 0 ? 'today' : `${days}d`,
+        emphasis: false,
+        onClick: () => openSurface('deal-detail', { dealId: deal.id }),
+        _zone: 'everything_else',
+        _sortKey: days,
+      });
+    }
+
+    return {
+      whatMatters: whatMattersItems,
+      comingUp: comingUpItems,
+      everythingElse: everythingElseItems,
+    };
+  }, [
+    allDeals, urgentDeals, meetings, meetingStoreData,
+    unifiedTasks, usingFallback, legacySystemTasks,
+    handleTaskAction, openSurface,
+  ]);
 
   // ── ALL HOOKS ABOVE THIS LINE ───────────────────────────
   if (!open) return null;
 
-  const { attentionItems, topDeals, upcomingMeetings } = preparedData;
   const { isLowDataState } = priority;
+  const hasContent = whatMatters.length > 0 || comingUp.length > 0 || everythingElse.length > 0;
 
-  // ── SESSION 10: TASK ACCENT STYLES ─────────────────────
-  const TASK_ACCENT: Record<string, { color: string; bg: string; border: string }> = {
-    meeting_prep: {
-      color: COLORS.amber,
-      bg: 'rgba(232,160,48,0.08)',
-      border: 'rgba(232,160,48,0.16)',
-    },
-    meeting_followup: {
-      color: COLORS.teal,
-      bg: 'rgba(56,184,200,0.08)',
-      border: 'rgba(56,184,200,0.16)',
-    },
-    deal_next_step: {
-      color: 'rgba(240,235,224,0.60)',
-      bg: 'rgba(240,235,224,0.04)',
-      border: 'rgba(240,235,224,0.10)',
-    },
-    reengage: {
-      color: COLORS.red,
-      bg: 'rgba(224,88,64,0.06)',
-      border: 'rgba(224,88,64,0.14)',
-    },
-  };
-
-  // ── SESSION 11C: "WHAT MATTERS" — unified persistent + fallback ──
-  const whatMattersItems = effectiveTaskCount > 0 || attentionItems.length > 0;
-
-  // ── SESSION 11C: Helpers for persistent task display ──
-  // Resolve accent for a DisplayTask (no source_type jargon in UI)
-  const getTaskAccent = (task: DisplayTask) => {
-    if (task.sourceType && TASK_ACCENT[task.sourceType]) return TASK_ACCENT[task.sourceType];
-    // User-created tasks get a neutral accent
-    return {
-      color: 'rgba(240,235,224,0.60)',
-      bg: 'rgba(240,235,224,0.04)',
-      border: 'rgba(240,235,224,0.10)',
-    };
-  };
-
-  // Format due_at for display
-  const formatDueAt = (dueAt: string | null): string | null => {
-    if (!dueAt) return null;
-    const d = new Date(dueAt);
-    const now = new Date();
-    const diffMs = d.getTime() - now.getTime();
-    const diffMin = Math.floor(diffMs / (1000 * 60));
-    if (diffMin < 0) return 'overdue';
-    if (diffMin < 60) return `in ${diffMin}m`;
-    const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return `in ${diffH}h`;
-    const diffD = Math.floor(diffH / 24);
-    if (diffD === 0) return 'today';
-    if (diffD === 1) return 'tomorrow';
-    return `in ${diffD}d`;
-  };
-
-  // Handle task done/skip with optimistic UI
-  const handleTaskDone = useCallback(async (taskId: string, e: React.MouseEvent) => {
+  // ── Task actions (done/skip) ──
+  const handleTaskDone = async (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setTaskActionPending(taskId);
     const ok = await markTaskDone(taskId);
     setTaskActionPending(null);
     if (ok) refetchTasks();
-  }, [refetchTasks]);
+  };
 
-  const handleTaskSkip = useCallback(async (taskId: string, e: React.MouseEvent) => {
+  const handleTaskSkip = async (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setTaskActionPending(taskId);
     const ok = await skipTask(taskId);
     setTaskActionPending(null);
     if (ok) refetchTasks();
-  }, [refetchTasks]);
+  };
 
-  // ── Render a single persistent task row (Session 11C) ──
-  const renderPersistentTaskRow = (task: DisplayTask) => {
-    const accent = getTaskAccent(task);
-    const timeLabel = formatDueAt(task.dueAt);
-    const isPending = taskActionPending === task.id;
+  // ── SESSION 12A: UNIFIED ROW RENDERER ────────────────────
+  // Every item looks the same. No type labels, no domain jargon.
+  // Just: title + optional time + optional actions.
+
+  const renderRow = (item: SurfaceItem, zone: 'what_matters' | 'coming_up' | 'everything_else') => {
+    const isPending = item.taskActions ? taskActionPending === item.taskActions.taskId : false;
+    const isMeeting = item.id.startsWith('meeting-');
+    const meetingId = isMeeting ? item.id.replace('meeting-', '') : null;
+    const isExpanded = meetingId ? expandedMeetingId === meetingId : false;
+
+    // Subtle visual distinction by zone — not type
+    const bgBase = zone === 'what_matters'
+      ? 'rgba(240,235,224,0.04)'
+      : 'rgba(240,235,224,0.03)';
+    const borderBase = zone === 'what_matters'
+      ? 'rgba(240,235,224,0.08)'
+      : 'rgba(240,235,224,0.06)';
 
     return (
       <div
-        key={task.id}
-        onClick={() => task.action ? handleTaskAction(task.action) : undefined}
+        key={item.id}
+        onClick={item.onClick}
         style={{
-          background: accent.bg,
-          border: `0.5px solid ${accent.border}`,
+          background: isExpanded ? 'rgba(240,235,224,0.05)' : bgBase,
+          border: `0.5px solid ${isExpanded ? 'rgba(240,235,224,0.10)' : borderBase}`,
           borderRadius: 12,
-          padding: '13px 14px',
-          cursor: task.action ? 'pointer' : 'default',
+          padding: '12px 14px',
+          cursor: item.onClick ? 'pointer' : 'default',
           transition: 'border-color 0.15s ease, opacity 0.2s ease',
           opacity: isPending ? 0.4 : 1,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <span
             style={{
               fontSize: 13,
@@ -370,127 +443,167 @@ export default function ControlSurface({
               minWidth: 0,
             }}
           >
-            {task.title}
+            {item.title}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 10, flexShrink: 0 }}>
-            {timeLabel && (
-              <span style={{ fontSize: 11, fontWeight: 500, color: accent.color }}>
-                {timeLabel}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {item.time && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 400,
+                  color: item.emphasis
+                    ? COLORS.amber
+                    : 'rgba(240,235,224,0.42)',
+                }}
+              >
+                {item.time}
               </span>
             )}
-            {/* Minimal actions: Done + Dismiss */}
+
+            {/* Task actions: Done + Dismiss (persistent tasks only) */}
+            {item.taskActions && (
+              <>
+                <button
+                  onClick={(e) => handleTaskDone(item.taskActions!.taskId, e)}
+                  disabled={isPending}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '0.5px solid rgba(72,200,120,0.25)',
+                    background: 'rgba(72,200,120,0.08)',
+                    color: COLORS.green,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontFamily: FONTS.sans,
+                    lineHeight: '1.3',
+                  }}
+                >
+                  Done
+                </button>
+                <button
+                  onClick={(e) => handleTaskSkip(item.taskActions!.taskId, e)}
+                  disabled={isPending}
+                  style={{
+                    padding: '3px 6px',
+                    borderRadius: 6,
+                    border: '0.5px solid rgba(240,235,224,0.10)',
+                    background: 'rgba(240,235,224,0.03)',
+                    color: 'rgba(240,235,224,0.32)',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontFamily: FONTS.sans,
+                    lineHeight: '1.3',
+                  }}
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Meeting inline actions (expand on tap) */}
+        {isMeeting && isExpanded && meetingId && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              marginTop: 10,
+              paddingTop: 10,
+              borderTop: '0.5px solid rgba(240,235,224,0.08)',
+              flexWrap: 'wrap',
+            }}
+          >
             <button
-              onClick={(e) => handleTaskDone(task.id, e)}
-              disabled={isPending}
+              onClick={(e) => { e.stopPropagation(); completeMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
-                padding: '3px 8px',
-                borderRadius: 6,
-                border: '0.5px solid rgba(72,200,120,0.25)',
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: '0.5px solid rgba(72,200,120,0.3)',
                 background: 'rgba(72,200,120,0.08)',
                 color: COLORS.green,
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: 600,
+                letterSpacing: '0.5px',
                 cursor: 'pointer',
                 fontFamily: FONTS.sans,
-                lineHeight: '1.3',
               }}
             >
               Done
             </button>
             <button
-              onClick={(e) => handleTaskSkip(task.id, e)}
-              disabled={isPending}
+              onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meetingId); }}
               style={{
-                padding: '3px 6px',
-                borderRadius: 6,
-                border: '0.5px solid rgba(240,235,224,0.10)',
-                background: 'rgba(240,235,224,0.03)',
-                color: 'rgba(240,235,224,0.32)',
-                fontSize: 10,
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: '0.5px solid rgba(56,184,200,0.3)',
+                background: 'rgba(56,184,200,0.08)',
+                color: COLORS.teal,
+                fontSize: 11,
                 fontWeight: 600,
+                letterSpacing: '0.5px',
                 cursor: 'pointer',
                 fontFamily: FONTS.sans,
-                lineHeight: '1.3',
               }}
             >
-              ✕
+              Move
             </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Render a single legacy system task row (unchanged from Session 10) ──
-  const renderLegacyTaskRow = (task: typeof legacySystemTasks[number]) => {
-    const accent = TASK_ACCENT[task.type] ?? TASK_ACCENT.deal_next_step;
-    return (
-      <div
-        key={task.id}
-        onClick={() => handleTaskAction(task.action)}
-        style={{
-          background: accent.bg,
-          border: `0.5px solid ${accent.border}`,
-          borderRadius: 12,
-          padding: '13px 14px',
-          cursor: 'pointer',
-          transition: 'border-color 0.15s ease',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 400,
-              color: 'rgba(252,246,234,0.88)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
-            {task.title}
-          </span>
-          {task.timeRelevance && (
-            <span style={{ fontSize: 11, fontWeight: 500, color: accent.color, marginLeft: 10, flexShrink: 0 }}>
-              {task.timeRelevance}
-            </span>
-          )}
-        </div>
-        {task.subtitle && (
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 300,
-              color: 'rgba(240,235,224,0.38)',
-              marginTop: 3,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {task.subtitle}
+            <button
+              onClick={(e) => { e.stopPropagation(); cancelMeeting(meetingId); setExpandedMeetingId(null); }}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: '0.5px solid rgba(224,88,64,0.25)',
+                background: 'rgba(224,88,64,0.06)',
+                color: COLORS.red,
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const meetingRow = meetings.find(m => m.id === meetingId);
+                meetingRow?.deal_id
+                  ? openSurface('deal-prep', { dealId: meetingRow.deal_id })
+                  : openSurface('briefing');
+              }}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: '0.5px solid rgba(240,235,224,0.12)',
+                background: 'rgba(240,235,224,0.04)',
+                color: 'rgba(240,235,224,0.52)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+                marginLeft: 'auto',
+              }}
+            >
+              Open
+            </button>
           </div>
         )}
       </div>
     );
   };
 
+  // ── ZONE RENDERERS ──────────────────────────────────────
+
   const renderWhatMatters = () => {
-    if (!whatMattersItems) return null;
-
-    // Determine task slots used (max 5 total including attention items)
-    const taskSlots = usingFallback
-      ? legacySystemTasks.slice(0, 5)
-      : (unifiedTasks ?? []).slice(0, 5);
-    const taskSlotsUsed = taskSlots.length;
-    const attentionSlots = taskSlotsUsed < 5
-      ? attentionItems.slice(0, 5 - taskSlotsUsed)
-      : [];
-
+    if (whatMatters.length === 0) return null;
     return (
-      <div key="what_matters" style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <div
           style={{
             fontSize: 11,
@@ -505,83 +618,16 @@ export default function ControlSurface({
           {labels.whatMatters}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {/* Tasks: DB-backed or legacy fallback */}
-          {usingFallback
-            ? legacySystemTasks.slice(0, 5).map(renderLegacyTaskRow)
-            : (unifiedTasks ?? []).slice(0, 5).map(renderPersistentTaskRow)
-          }
-
-          {/* Attention items — only if space remains under 5 total */}
-          {attentionSlots.map((deal) => {
-            const days = getDaysSince(deal.last_activity_at);
-            return (
-              <div
-                key={deal.id}
-                onClick={() => openSurface('deal-detail', { dealId: deal.id })}
-                style={{
-                  background: 'rgba(232,160,48,0.06)',
-                  border: '0.5px solid rgba(232,160,48,0.12)',
-                  borderRadius: 12,
-                  padding: '11px 14px',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s ease',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 400,
-                      color: 'rgba(252,246,234,0.88)',
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {deal.name}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: getDaysColor(days),
-                      marginLeft: 10,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {days}d ago
-                  </span>
-                </div>
-                {deal.next_action && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 300,
-                      color: 'rgba(240,235,224,0.42)',
-                      marginTop: 3,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {deal.next_action}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {whatMatters.map(item => renderRow(item, 'what_matters'))}
         </div>
       </div>
     );
   };
 
-  // ── SESSION 10: "COMING UP" ─────────────────────────────
   const renderComingUp = () => {
-    if (upcomingMeetings.length === 0) return null;
-
+    if (comingUp.length === 0) return null;
     return (
-      <div key="coming_up" style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <div
           style={{
             fontSize: 10,
@@ -596,156 +642,16 @@ export default function ControlSurface({
           {labels.comingUp}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {upcomingMeetings.map((meeting) => {
-            const isExpanded = expandedMeetingId === meeting.id;
-
-            return (
-              <div
-                key={meeting.id}
-                onClick={() => setExpandedMeetingId(isExpanded ? null : meeting.id)}
-                style={{
-                  background: isExpanded
-                    ? 'rgba(240,235,224,0.05)'
-                    : 'rgba(240,235,224,0.03)',
-                  border: isExpanded
-                    ? '0.5px solid rgba(240,235,224,0.10)'
-                    : '0.5px solid rgba(240,235,224,0.06)',
-                  borderRadius: 12,
-                  padding: '10px 14px',
-                  cursor: 'pointer',
-                  transition: 'all 0.18s ease',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 400,
-                      color: 'rgba(252,246,234,0.88)',
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {meeting.title}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 400,
-                      color: 'rgba(240,235,224,0.42)',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {formatMeetingTime(meeting.scheduled_at)}
-                  </span>
-                </div>
-
-                {/* Expanded inline actions */}
-                {isExpanded && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 6,
-                      marginTop: 10,
-                      paddingTop: 10,
-                      borderTop: '0.5px solid rgba(240,235,224,0.08)',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <button
-                      onClick={(e) => { e.stopPropagation(); completeMeeting(meeting.id); setExpandedMeetingId(null); }}
-                      style={{
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        border: `0.5px solid rgba(72,200,120,0.3)`,
-                        background: 'rgba(72,200,120,0.08)',
-                        color: COLORS.green,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        letterSpacing: '0.5px',
-                        cursor: 'pointer',
-                        fontFamily: FONTS.sans,
-                      }}
-                    >
-                      Done
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meeting.id); }}
-                      style={{
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        border: `0.5px solid rgba(56,184,200,0.3)`,
-                        background: 'rgba(56,184,200,0.08)',
-                        color: COLORS.teal,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        letterSpacing: '0.5px',
-                        cursor: 'pointer',
-                        fontFamily: FONTS.sans,
-                      }}
-                    >
-                      Move
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); cancelMeeting(meeting.id); setExpandedMeetingId(null); }}
-                      style={{
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        border: `0.5px solid rgba(224,88,64,0.25)`,
-                        background: 'rgba(224,88,64,0.06)',
-                        color: COLORS.red,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        letterSpacing: '0.5px',
-                        cursor: 'pointer',
-                        fontFamily: FONTS.sans,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        meeting.deal_id
-                          ? openSurface('deal-prep', { dealId: meeting.deal_id })
-                          : openSurface('briefing');
-                      }}
-                      style={{
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        border: '0.5px solid rgba(240,235,224,0.12)',
-                        background: 'rgba(240,235,224,0.04)',
-                        color: 'rgba(240,235,224,0.52)',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        letterSpacing: '0.5px',
-                        cursor: 'pointer',
-                        fontFamily: FONTS.sans,
-                        marginLeft: 'auto',
-                      }}
-                    >
-                      Open
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {comingUp.map(item => renderRow(item, 'coming_up'))}
         </div>
       </div>
     );
   };
 
-  // ── SESSION 10: "EVERYTHING ELSE" (collapsed) ───────────
-  const hasEverythingElse = topDeals.length > 0;
-
   const renderEverythingElse = () => {
-    if (!hasEverythingElse) return null;
-
+    if (everythingElse.length === 0) return null;
     return (
-      <div key="everything_else" style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12 }}>
         <div
           onClick={() => setEverythingElseOpen(prev => !prev)}
           style={{
@@ -771,101 +677,14 @@ export default function ControlSurface({
 
         {everythingElseOpen && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {topDeals.map((deal) => {
-              const stageStyle = STAGE_STYLES[deal.stage] ?? STAGE_STYLES.Prospect;
-              const days = getDaysSince(deal.last_activity_at);
-              const valueStr = formatDealValue(deal.value, deal.value_type);
-              return (
-                <div
-                  key={deal.id}
-                  onClick={() => openSurface('deal-detail', { dealId: deal.id })}
-                  style={{
-                    background: 'rgba(240,235,224,0.03)',
-                    border: '0.5px solid rgba(240,235,224,0.06)',
-                    borderRadius: 12,
-                    padding: '10px 14px',
-                    cursor: 'pointer',
-                    transition: 'border-color 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 400,
-                        color: 'rgba(252,246,234,0.88)',
-                        flex: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {deal.name}
-                    </span>
-                    {valueStr && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 500,
-                          color: 'rgba(240,235,224,0.50)',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {valueStr}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 500,
-                        color: stageStyle.color,
-                        background: stageStyle.bg,
-                        border: `0.5px solid ${stageStyle.border}`,
-                        borderRadius: 6,
-                        padding: '2px 7px',
-                        lineHeight: '1.4',
-                      }}
-                    >
-                      {deal.stage}
-                    </span>
-                    {deal.accounts?.name && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 300,
-                          color: 'rgba(240,235,224,0.36)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {deal.accounts.name}
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 400,
-                        color: getDaysColor(days),
-                        marginLeft: 'auto',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {days === 0 ? 'today' : `${days}d`}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            {everythingElse.map(item => renderRow(item, 'everything_else'))}
           </div>
         )}
       </div>
     );
   };
 
-  // ── DEEP LINKS ──────────────────────────────────────────
+  // ── DEEP LINKS (subtle footer, not a primary section) ───
   const deepLinkStyle = {
     flex: 1,
     padding: '12px 0',
@@ -882,7 +701,7 @@ export default function ControlSurface({
   };
 
   const renderDeepLinks = () => (
-    <div key="deep_links" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', paddingTop: 4 }}>
+    <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', paddingTop: 4 }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <button onClick={() => openSurface('deals')} style={deepLinkStyle}>
           {labels.allDeals}
@@ -905,15 +724,12 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── SESSION 11C: EMPTY / CLEAR STATE (universal) ────────
-  // Neutral language. No sales-specific hints.
-  const hasContent = whatMattersItems || upcomingMeetings.length > 0 || topDeals.length > 0;
-
+  // ── EMPTY STATE ─────────────────────────────────────────
   const renderEmptyState = () => (
     <div
       style={{
         textAlign: 'center',
-        padding: '32px 24px 24px',
+        padding: '28px 24px 20px',
       }}
     >
       <div
@@ -927,35 +743,22 @@ export default function ControlSurface({
       >
         {isLowDataState
           ? 'Your world is taking shape.'
-          : "Nothing pressing."}
+          : "You're clear."}
       </div>
-      {isLowDataState ? (
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 300,
-            color: 'rgba(240,235,224,0.24)',
-            lineHeight: 1.5,
-            maxWidth: 260,
-            margin: '8px auto 0',
-          }}
-        >
-          Add what&apos;s happening and Jove will organize it.
-        </div>
-      ) : (
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 300,
-            color: 'rgba(240,235,224,0.20)',
-            lineHeight: 1.5,
-            maxWidth: 260,
-            margin: '6px auto 0',
-          }}
-        >
-          You&apos;re clear.
-        </div>
-      )}
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 300,
+          color: 'rgba(240,235,224,0.22)',
+          lineHeight: 1.5,
+          maxWidth: 260,
+          margin: '6px auto 0',
+        }}
+      >
+        {isLowDataState
+          ? "Add what\u2019s happening and I\u2019ll organize it."
+          : 'Nothing urgent right now.'}
+      </div>
     </div>
   );
 
@@ -976,7 +779,7 @@ export default function ControlSurface({
         }}
       />
 
-      {/* Sheet */}
+      {/* Sheet — reduced top padding, content sits higher */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -999,13 +802,13 @@ export default function ControlSurface({
           fontFamily: FONTS.sans,
         }}
       >
-        {/* Handle */}
+        {/* Handle — tighter padding */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'center',
-            paddingTop: 12,
-            paddingBottom: 16,
+            paddingTop: 10,
+            paddingBottom: 12,
             flexShrink: 0,
           }}
         >
@@ -1021,10 +824,7 @@ export default function ControlSurface({
           />
         </div>
 
-        {/* Session 10: No header — section labels are enough.
-            The panel answers one question: What matters right now? */}
-
-        {/* Scrollable content — three-tier layout */}
+        {/* Scrollable content — one continuous surface */}
         <div
           style={{
             flex: 1,
@@ -1051,7 +851,7 @@ export default function ControlSurface({
         </div>
       </div>
 
-      {/* Session 8: Reschedule sheet + action toast */}
+      {/* Reschedule sheet + action toast */}
       <RescheduleSheet
         open={!!rescheduleTarget}
         meetingTitle={rescheduleTarget?.title ?? ''}
