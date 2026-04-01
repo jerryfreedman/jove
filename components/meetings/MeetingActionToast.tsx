@@ -5,7 +5,7 @@
 // Shared across all meeting surfaces — reads from useMeetingActionStore.
 
 import { useEffect, useState } from 'react';
-import { COLORS, FONTS } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS } from '@/lib/design-system';
 import { useMeetingActionStore } from '@/lib/meeting-actions';
 
 export default function MeetingActionToast() {
@@ -49,7 +49,7 @@ export default function MeetingActionToast() {
         fontFamily: FONTS.sans,
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(12px)',
-        transition: 'opacity 0.22s ease, transform 0.22s ease',
+        transition: TRANSITIONS.toast,
         pointerEvents: visible ? 'auto' : 'none',
       }}
     >
@@ -72,6 +72,7 @@ export default function MeetingActionToast() {
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
         {toast.undoAvailable && (
           <button
+            className="jove-tap"
             onClick={(e) => {
               e.stopPropagation();
               undo();
@@ -93,6 +94,7 @@ export default function MeetingActionToast() {
           </button>
         )}
         <button
+          className="jove-tap"
           onClick={(e) => {
             e.stopPropagation();
             dismissToast();

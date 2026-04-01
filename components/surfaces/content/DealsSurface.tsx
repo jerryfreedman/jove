@@ -7,6 +7,10 @@ import {
   COLORS,
   STAGE_STYLES,
   getDaysColor,
+  TIMING,
+  EASING,
+  TRANSITIONS,
+  LOADING,
 } from '@/lib/design-system';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import type {
@@ -259,6 +263,7 @@ export default function DealsSurface() {
         </h1>
         <button
           onClick={() => navigateTo('ideas')}
+          className="jove-tap"
           style={{
             fontSize:     10,
             fontWeight:   600,
@@ -272,6 +277,7 @@ export default function DealsSurface() {
             cursor:       'pointer',
             fontFamily:   "'DM Sans', sans-serif",
             marginRight:  6,
+            transition:   TRANSITIONS.button,
           }}
         >
           Ideas
@@ -338,6 +344,7 @@ export default function DealsSurface() {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
+              className="jove-tap"
               style={{
                 position:   'absolute',
                 right:      12,
@@ -348,6 +355,7 @@ export default function DealsSurface() {
                 fontSize:   18,
                 lineHeight: 1,
                 padding:    0,
+                transition: TRANSITIONS.button,
               }}
             >
               ×
@@ -373,6 +381,7 @@ export default function DealsSurface() {
           onClick={() => setFilterMode(
             filterMode === 'all' ? null : 'all'
           )}
+          className="jove-tap"
           style={{
             padding:      '13px 0',
             textAlign:    'center',
@@ -382,7 +391,7 @@ export default function DealsSurface() {
             background:   filterMode === 'all'
               ? 'rgba(232,160,48,0.08)'
               : 'transparent',
-            transition:   'background 0.18s',
+            transition:   TRANSITIONS.chip,
           }}
         >
           <div style={{
@@ -411,6 +420,7 @@ export default function DealsSurface() {
           onClick={() => setFilterMode(
             filterMode === 'attention' ? null : 'attention'
           )}
+          className="jove-tap"
           style={{
             padding:      '13px 0',
             textAlign:    'center',
@@ -419,7 +429,7 @@ export default function DealsSurface() {
             background:   filterMode === 'attention'
               ? 'rgba(232,160,48,0.08)'
               : 'transparent',
-            transition:   'background 0.18s',
+            transition:   TRANSITIONS.chip,
           }}
         >
           <div style={{
@@ -522,6 +532,7 @@ export default function DealsSurface() {
           </span>
           <button
             onClick={() => setFilterMode(null)}
+            className="jove-tap"
             style={{
               background: 'none',
               border:     'none',
@@ -529,6 +540,7 @@ export default function DealsSurface() {
               fontSize:   13,
               cursor:     'pointer',
               padding:    0,
+              transition: TRANSITIONS.button,
             }}
           >
             ×  clear
@@ -555,6 +567,7 @@ export default function DealsSurface() {
             </p>
             <button
               onClick={() => { setLoading(true); fetchData(); }}
+              className="jove-tap"
               style={{
                 padding:       '10px 24px',
                 borderRadius:  10,
@@ -567,6 +580,7 @@ export default function DealsSurface() {
                 textTransform: 'uppercase',
                 cursor:        'pointer',
                 fontFamily:    "'DM Sans', sans-serif",
+                transition:    TRANSITIONS.button,
               }}
             >
               Retry
@@ -688,6 +702,7 @@ export default function DealsSurface() {
                   key={deal.id}
                   ref={(() => { if (!firstDealRefAttached) { firstDealRefAttached = true; return undefined; } return undefined; })()}
                   onClick={() => navigateTo('deal-detail', { dealId: deal.id })}
+                  className="jove-tap"
                   style={{
                     position:   'relative',
                     margin:     '0 18px 6px',
@@ -702,6 +717,7 @@ export default function DealsSurface() {
                     gap:        12,
                     cursor:     'pointer',
                     boxShadow:  '0 1px 6px rgba(0,0,0,0.1)',
+                    transition: TRANSITIONS.row,
                   }}
                 >
                   {/* Left: name + next action */}
@@ -783,6 +799,7 @@ export default function DealsSurface() {
           <div style={{ margin: '8px 18px 0' }}>
             <button
               onClick={() => setShowClosed(!showClosed)}
+              className="jove-tap"
               style={{
                 background: 'none',
                 border: 'none',
@@ -798,12 +815,13 @@ export default function DealsSurface() {
                 color: 'rgba(252,246,234,0.3)',
                 fontFamily: "'DM Sans', sans-serif",
                 width: '100%',
+                transition: TRANSITIONS.button,
               }}
             >
               <span style={{
                 display: 'inline-block',
                 transform: showClosed ? 'rotate(90deg)' : 'rotate(0deg)',
-                transition: 'transform 0.2s ease',
+                transition: `transform ${TIMING.FAST}ms ${EASING.gentle}`,
                 fontSize: 12,
               }}>›</span>
               {showClosed ? 'Hide' : `${closedDeals.length} closed deal${closedDeals.length !== 1 ? 's' : ''}`}
@@ -815,6 +833,7 @@ export default function DealsSurface() {
                 <div
                   key={deal.id}
                   onClick={() => navigateTo('deal-detail', { dealId: deal.id })}
+                  className="jove-tap"
                   style={{
                     margin: '0 0 6px',
                     background: 'rgba(252,246,234,0.06)',
@@ -827,6 +846,7 @@ export default function DealsSurface() {
                     cursor: 'pointer',
                     opacity: 0.6,
                     boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                    transition: TRANSITIONS.row,
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -888,6 +908,7 @@ export default function DealsSurface() {
       }}>
         <button
           onClick={() => setShowAddDeal(true)}
+          className="jove-tap"
           style={{
             width:        56,
             height:       56,
@@ -899,6 +920,7 @@ export default function DealsSurface() {
             justifyContent:'center',
             cursor:       'pointer',
             boxShadow:    '0 6px 24px rgba(200,120,32,0.36)',
+            transition:   TRANSITIONS.button,
           }}
           aria-label="Add deal"
         >
@@ -1014,7 +1036,7 @@ function AddDealSheet({
           background:    'rgba(26,20,16,0.4)',
           backdropFilter:'blur(4px)',
           opacity:       visible ? 1 : 0,
-          transition:    'opacity 0.2s ease',
+          transition:    `opacity ${TIMING.STANDARD}ms ${EASING.gentle}`,
         }}
       />
       <div style={{
@@ -1024,7 +1046,7 @@ function AddDealSheet({
         transform:    visible
           ? 'translateX(-50%) translateY(0)'
           : 'translateX(-50%) translateY(100%)',
-        transition:   'transform 0.32s cubic-bezier(.32,.72,0,1)',
+        transition:   `transform ${TIMING.STANDARD}ms ${EASING.standard}`,
         zIndex:       87,
         width:        '100%',
         background:   '#F7F3EC',
@@ -1135,6 +1157,7 @@ function AddDealSheet({
             <button
               key={s}
               onClick={() => setStage(s)}
+              className="jove-tap"
               style={{
                 padding:      '7px 14px',
                 borderRadius: 20,
@@ -1152,7 +1175,7 @@ function AddDealSheet({
                 fontWeight:   stage === s ? 600 : 300,
                 cursor:       'pointer',
                 fontFamily:   "'DM Sans', sans-serif",
-                transition:   'all 0.18s',
+                transition:   TRANSITIONS.chip,
               }}
             >
               {s}
@@ -1195,6 +1218,7 @@ function AddDealSheet({
         <button
           onClick={handleSave}
           disabled={saving || !dealName.trim()}
+          className="jove-tap"
           style={{
             width:         '100%',
             padding:       '15px 0',
@@ -1212,7 +1236,7 @@ function AddDealSheet({
             textTransform: 'uppercase',
             cursor:        dealName.trim() && !saving ? 'pointer' : 'default',
             fontFamily:    "'DM Sans', sans-serif",
-            transition:    'all 0.2s',
+            transition:    TRANSITIONS.button,
             boxShadow:     dealName.trim() && !saving
               ? '0 6px 22px rgba(200,120,32,0.28)'
               : 'none',

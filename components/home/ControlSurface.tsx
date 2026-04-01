@@ -5,6 +5,11 @@ import {
   COLORS,
   getDaysColor,
   FONTS,
+  TIMING,
+  EASING,
+  TRANSITIONS,
+  CLOSE_DELAY,
+  TAP_SCALE,
 } from '@/lib/design-system';
 import {
   evaluateModulePriority,
@@ -144,12 +149,12 @@ export default function ControlSurface({
 
   const handleClose = useCallback(() => {
     setSheetVisible(false);
-    setTimeout(onClose, 260);
+    setTimeout(onClose, CLOSE_DELAY);
   }, [onClose]);
 
   const openSurface = useCallback((surfaceId: string, params?: Record<string, string>) => {
     handleClose();
-    setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), 180);
+    setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), CLOSE_DELAY);
   }, [handleClose, navigateTo]);
 
   // ── Meeting actions ──
@@ -415,7 +420,7 @@ export default function ControlSurface({
     border: '0.5px solid rgba(240,235,224,0.04)',
     borderRadius: 14,
     padding: '11px 14px',
-    transition: 'border-color 0.15s ease, opacity 0.2s ease',
+    transition: TRANSITIONS.row,
   } as const;
 
   const renderRow = (item: SurfaceItem) => {
@@ -427,6 +432,7 @@ export default function ControlSurface({
     return (
       <div
         key={item.id}
+        className="jove-tap"
         onClick={item.onClick}
         style={{
           ...ROW_STYLE,
@@ -467,6 +473,7 @@ export default function ControlSurface({
             {item.taskActions && (
               <>
                 <button
+                  className="jove-tap"
                   onClick={(e) => handleTaskDone(item.taskActions!.taskId, e)}
                   disabled={isPending}
                   style={{
@@ -485,6 +492,7 @@ export default function ControlSurface({
                   Done
                 </button>
                 <button
+                  className="jove-tap"
                   onClick={(e) => handleTaskSkip(item.taskActions!.taskId, e)}
                   disabled={isPending}
                   style={{
@@ -520,6 +528,7 @@ export default function ControlSurface({
             }}
           >
             <button
+              className="jove-tap"
               onClick={(e) => { e.stopPropagation(); completeMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
                 padding: '6px 12px',
@@ -536,6 +545,7 @@ export default function ControlSurface({
               Done
             </button>
             <button
+              className="jove-tap"
               onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meetingId); }}
               style={{
                 padding: '6px 12px',
@@ -552,6 +562,7 @@ export default function ControlSurface({
               Move
             </button>
             <button
+              className="jove-tap"
               onClick={(e) => { e.stopPropagation(); cancelMeeting(meetingId); setExpandedMeetingId(null); }}
               style={{
                 padding: '6px 12px',
@@ -628,7 +639,7 @@ export default function ControlSurface({
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            transition: 'color 0.15s ease',
+            transition: TRANSITIONS.button,
           }}
         >
           {labels.everythingElse}
@@ -660,22 +671,22 @@ export default function ControlSurface({
     fontWeight: 500 as const,
     cursor: 'pointer' as const,
     fontFamily: FONTS.sans,
-    transition: 'color 0.15s ease',
+    transition: TRANSITIONS.button,
   };
 
   const renderAccess = () => (
     <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', paddingTop: 8 }}>
       <div style={{ display: 'flex', gap: 4 }}>
-        <button onClick={() => openSurface('deals')} style={accessStyle}>
+        <button className="jove-tap" onClick={() => openSurface('deals')} style={accessStyle}>
           {labels.allItems}
         </button>
-        <button onClick={() => openSurface('meetings')} style={accessStyle}>
+        <button className="jove-tap" onClick={() => openSurface('meetings')} style={accessStyle}>
           {labels.meetings}
         </button>
-        <button onClick={() => openSurface('ideas')} style={accessStyle}>
+        <button className="jove-tap" onClick={() => openSurface('ideas')} style={accessStyle}>
           Ideas
         </button>
-        <button onClick={() => openSurface('settings')} style={accessStyle}>
+        <button className="jove-tap" onClick={() => openSurface('settings')} style={accessStyle}>
           {labels.settings}
         </button>
       </div>
@@ -736,7 +747,7 @@ export default function ControlSurface({
           background: sheetVisible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
           backdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
           WebkitBackdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
-          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
+          transition: TRANSITIONS.overlay,
         }}
       />
 
@@ -759,7 +770,7 @@ export default function ControlSurface({
           borderTop: '0.5px solid rgba(240,235,224,0.06)',
           boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
           transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 220ms cubic-bezier(.32,.72,0,1)',
+          transition: `transform ${TIMING.STANDARD}ms ${EASING.standard}`,
           fontFamily: FONTS.sans,
         }}
       >

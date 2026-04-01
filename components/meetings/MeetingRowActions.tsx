@@ -6,7 +6,7 @@
 // All actions route through the shared meeting action layer.
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { COLORS, FONTS } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS } from '@/lib/design-system';
 
 export interface MeetingRowActionsProps {
   meetingId: string;
@@ -90,6 +90,7 @@ export default function MeetingRowActions({
           setOpen(o => !o);
         }}
         aria-label={`Actions for ${meetingTitle}`}
+        className="jove-tap"
         style={{
           background: open
             ? 'rgba(240,235,224,0.10)'
@@ -105,7 +106,7 @@ export default function MeetingRowActions({
           fontFamily: FONTS.sans,
           fontSize: 16,
           color: 'rgba(240,235,224,0.44)',
-          transition: 'background 0.15s ease',
+          transition: TRANSITIONS.button,
           flexShrink: 0,
           WebkitTapHighlightColor: 'transparent',
         }}
@@ -140,6 +141,7 @@ export default function MeetingRowActions({
                 e.stopPropagation();
                 handleAction(item.key);
               }}
+              className="jove-tap"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -158,7 +160,7 @@ export default function MeetingRowActions({
                 fontWeight: 400,
                 color: item.color,
                 textAlign: 'left',
-                transition: 'background 0.12s ease',
+                transition: TRANSITIONS.button,
                 WebkitTapHighlightColor: 'transparent',
               }}
             >

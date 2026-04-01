@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useReducer, useCallback } from 'react';
+import { TIMING, EASING, TRANSITIONS } from '@/lib/design-system';
 
 // ── TYPES ────────────────────────────────────────────────
 export type TourStop = {
@@ -190,6 +191,7 @@ export default function SpotlightTour({
             e.stopPropagation();
             handleGotIt();
           }}
+          className="jove-tap"
           style={{
             color: '#E8A030',
             fontSize: 14,
@@ -237,6 +239,7 @@ export default function SpotlightTour({
             e.stopPropagation();
             handleSkip();
           }}
+          className="jove-tap"
           style={{
             color: 'rgba(255,255,255,0.28)',
             fontSize: 12,

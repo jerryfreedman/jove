@@ -5,7 +5,7 @@
 // Shared across all meeting surfaces.
 
 import { useState, useEffect, useCallback } from 'react';
-import { COLORS, FONTS } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
 
 interface RescheduleSheetProps {
   open: boolean;
@@ -112,7 +112,7 @@ export default function RescheduleSheet({
 
   const handleClose = useCallback(() => {
     setVisible(false);
-    setTimeout(onClose, 260);
+    setTimeout(onClose, CLOSE_DELAY);
   }, [onClose]);
 
   const handleQuickPick = useCallback(
@@ -147,7 +147,7 @@ export default function RescheduleSheet({
           background: visible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
           backdropFilter: visible ? 'blur(10px)' : 'blur(0px)',
           WebkitBackdropFilter: visible ? 'blur(10px)' : 'blur(0px)',
-          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
+          transition: TRANSITIONS.overlay,
         }}
       />
 
@@ -168,7 +168,7 @@ export default function RescheduleSheet({
           borderTop: '0.5px solid rgba(240,235,224,0.06)',
           boxShadow: '0 -4px 24px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
           transform: visible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 220ms cubic-bezier(.32,.72,0,1)',
+          transition: `transform ${TIMING.STANDARD}ms ${EASING.standard}`,
           fontFamily: FONTS.sans,
           paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
         }}
@@ -224,6 +224,7 @@ export default function RescheduleSheet({
           {quickOptions.map((opt, idx) => (
             <button
               key={idx}
+              className="jove-tap"
               onClick={() => handleQuickPick(opt.time)}
               style={{
                 display: 'block',
@@ -238,7 +239,7 @@ export default function RescheduleSheet({
                 fontWeight: 400,
                 color: 'rgba(252,246,234,0.82)',
                 textAlign: 'left',
-                transition: 'background 0.12s ease',
+                transition: TRANSITIONS.button,
                 WebkitTapHighlightColor: 'transparent',
               }}
             >
@@ -315,6 +316,7 @@ export default function RescheduleSheet({
                 }}
               />
               <button
+                className="jove-tap"
                 onClick={handleCustomConfirm}
                 disabled={!customDate || !customTime}
                 style={{

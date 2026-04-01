@@ -6,7 +6,7 @@
 // Tap outside to close. Feels instant and obvious.
 
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { COLORS, FONTS } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
 import { useWhatMattersTasks } from '@/lib/task-queries';
 import { useTaskEngine } from '@/lib/task-engine';
 import type { DealRow } from '@/lib/types';
@@ -178,7 +178,7 @@ export default function FocusOverlay({
           : 'rgba(6,10,18,0)',
         backdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
         WebkitBackdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
-        transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
+        transition: TRANSITIONS.overlay,
         WebkitTapHighlightColor: 'transparent',
       }}
     >
@@ -195,7 +195,7 @@ export default function FocusOverlay({
           borderRadius: 22,
           transform: animateIn ? 'scale(1)' : 'scale(0.97)',
           opacity: animateIn ? 1 : 0,
-          transition: 'transform 200ms cubic-bezier(.32,.72,0,1), opacity 200ms ease',
+          transition: TRANSITIONS.sheet,
           display: 'flex',
           flexDirection: 'column',
           gap: isEmpty ? 0 : 14,
@@ -253,6 +253,7 @@ export default function FocusOverlay({
           focusItems.map((item, i) => (
             <div
               key={item.id}
+              className="jove-tap"
               style={{
                 display: 'flex',
                 alignItems: 'baseline',
@@ -260,7 +261,7 @@ export default function FocusOverlay({
                 gap: 12,
                 opacity: animateIn ? 1 : 0,
                 transform: animateIn ? 'translateY(0)' : 'translateY(4px)',
-                transition: `opacity 200ms ease ${60 + i * 40}ms, transform 200ms ease ${60 + i * 40}ms`,
+                transition: `opacity ${TIMING.STANDARD}ms ${EASING.gentle} ${60 + i * 40}ms, transform ${TIMING.STANDARD}ms ${EASING.gentle} ${60 + i * 40}ms`,
               }}
             >
               <span

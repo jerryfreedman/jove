@@ -1,5 +1,7 @@
 'use client';
 
+import { TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
+
 interface CalendarImportPromptProps {
   onImport: () => void;
   onSkip: () => void;
@@ -34,7 +36,7 @@ export default function CalendarImportPrompt({
           borderRadius: '24px 24px 0 0',
           padding: '32px 24px',
           paddingBottom: 'calc(48px + env(safe-area-inset-bottom))',
-          animation: 'slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both',
+          animation: `slideUp ${TIMING.STANDARD}ms cubic-bezier(0.22, 1, 0.36, 1) both`,
         }}
       >
         {/* Drag handle */}
@@ -86,6 +88,7 @@ export default function CalendarImportPrompt({
         {/* Import button */}
         <button
           onClick={onImport}
+          className="jove-tap"
           style={{
             background: 'linear-gradient(135deg, #C87820, #E09838)',
             color: '#1A1410',
@@ -106,6 +109,7 @@ export default function CalendarImportPrompt({
         {/* Skip button */}
         <button
           onClick={onSkip}
+          className="jove-tap"
           style={{
             background: 'transparent',
             border: 'none',

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase';
-import { COLORS } from '@/lib/design-system';
+import { COLORS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY, LOADING } from '@/lib/design-system';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import type { MeetingRow, DealRow } from '@/lib/types';
 import { useMeetingStore } from '@/lib/meeting-store';
@@ -317,6 +317,7 @@ export default function MeetingsSurface() {
         }}>
           <button
             onClick={(e) => { e.stopPropagation(); completeAction(meeting.id); }}
+            className="jove-tap"
             style={{
               padding: '6px 12px', borderRadius: 8,
               border: '0.5px solid rgba(72,200,120,0.3)',
@@ -329,6 +330,7 @@ export default function MeetingsSurface() {
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meeting.id); }}
+            className="jove-tap"
             style={{
               padding: '6px 12px', borderRadius: 8,
               border: '0.5px solid rgba(56,184,200,0.3)',
@@ -341,6 +343,7 @@ export default function MeetingsSurface() {
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); cancelAction(meeting.id); }}
+            className="jove-tap"
             style={{
               padding: '6px 12px', borderRadius: 8,
               border: '0.5px solid rgba(224,88,64,0.25)',
@@ -386,6 +389,7 @@ export default function MeetingsSurface() {
         <button
           onClick={() => fileRef.current?.click()}
           disabled={importing}
+          className="jove-tap"
           style={{
             background:   'rgba(200,160,80,0.08)',
             border:       '0.5px solid rgba(200,160,80,0.22)',
@@ -500,6 +504,7 @@ export default function MeetingsSurface() {
               <button
                 onClick={handleBulkSave}
                 disabled={bulkSaving}
+                className="jove-tap"
                 style={{
                   flex:          1, padding: '12px 0', borderRadius: 12,
                   border:        'none',
@@ -516,6 +521,7 @@ export default function MeetingsSurface() {
               </button>
               <button
                 onClick={() => { setShowConfirm(false); setDetectedMeetings([]); }}
+                className="jove-tap"
                 style={{
                   padding:      '12px 16px', borderRadius: 12,
                   border:       '0.5px solid rgba(200,160,80,0.22)',
@@ -555,6 +561,7 @@ export default function MeetingsSurface() {
           <div style={{ marginTop: 8 }}>
             <button
               onClick={() => setShowPast(!showPast)}
+              className="jove-tap"
               style={{
                 background: 'none',
                 border: 'none',
@@ -574,7 +581,7 @@ export default function MeetingsSurface() {
               <span style={{
                 display: 'inline-block',
                 transform: showPast ? 'rotate(90deg)' : 'rotate(0deg)',
-                transition: 'transform 0.2s ease',
+                transition: `transform ${TIMING.STANDARD}ms ${EASING.gentle}`,
                 fontSize: 12,
               }}>›</span>
               {showPast ? 'Hide' : `${past.length} past meeting${past.length !== 1 ? 's' : ''}`}
@@ -633,6 +640,7 @@ export default function MeetingsSurface() {
       }}>
         <button
           onClick={() => setShowAdd(true)}
+          className="jove-tap"
           style={{
             width:        56, height: 56, borderRadius: '50%',
             background:   'linear-gradient(135deg, #C87820, #E09838)',
@@ -731,6 +739,7 @@ export default function MeetingsSurface() {
             <button
               onClick={handleAddMeeting}
               disabled={saving || !newTitle.trim() || !newDate || !newTime}
+              className="jove-tap"
               style={{
                 width:         '100%', padding: '14px 0', borderRadius: 14,
                 border:        'none',
@@ -743,7 +752,7 @@ export default function MeetingsSurface() {
                 textTransform: 'uppercase',
                 cursor:        newTitle.trim() && newDate && newTime && !saving
                   ? 'pointer' : 'default',
-                fontFamily:    "'DM Sans', sans-serif", transition: 'all 0.2s',
+                fontFamily:    "'DM Sans', sans-serif", transition: TRANSITIONS.button,
               }}
             >
               {saving ? 'Saving...' : 'Add Meeting →'}
@@ -888,7 +897,7 @@ function MeetingEditSheet({
           background: 'rgba(26,20,16,0.4)',
           backdropFilter: 'blur(4px)',
           opacity: visible ? 1 : 0,
-          transition: 'opacity 0.2s ease',
+          transition: TRANSITIONS.overlay,
         }}
       />
       <div style={{
@@ -897,7 +906,7 @@ function MeetingEditSheet({
         transform: visible
           ? 'translateX(-50%) translateY(0)'
           : 'translateX(-50%) translateY(100%)',
-        transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
+        transition: `transform ${TIMING.STANDARD}ms ${EASING.standard}`,
         zIndex: 87, width: '100%',
         background: '#F7F3EC',
         borderTop: '0.5px solid rgba(200,160,80,0.3)',
@@ -970,6 +979,7 @@ function MeetingEditSheet({
         <button
           onClick={handleSave}
           disabled={saving || !title.trim() || !date || !time}
+          className="jove-tap"
           style={{
             width: '100%', padding: '14px 0', borderRadius: 14,
             border: 'none',
@@ -982,7 +992,7 @@ function MeetingEditSheet({
             textTransform: 'uppercase',
             cursor: title.trim() && date && time && !saving
               ? 'pointer' : 'default',
-            fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s',
+            fontFamily: "'DM Sans', sans-serif", transition: TRANSITIONS.button,
           }}
         >
           {saving ? 'Saving...' : 'Save Changes →'}
@@ -996,6 +1006,7 @@ function MeetingEditSheet({
               if (deleteTimer.current) clearTimeout(deleteTimer.current);
               deleteTimer.current = setTimeout(() => setConfirmDelete(false), 3000);
             }}
+            className="jove-tap"
             style={{
               display: 'block',
               margin: '14px auto 0',
@@ -1022,6 +1033,7 @@ function MeetingEditSheet({
               <button
                 onClick={handleDelete}
                 disabled={deleting}
+                className="jove-tap"
                 style={{
                   background: 'none', border: 'none',
                   cursor: 'pointer', fontSize: 12, fontWeight: 600,
@@ -1033,6 +1045,7 @@ function MeetingEditSheet({
               </button>
               <button
                 onClick={() => setConfirmDelete(false)}
+                className="jove-tap"
                 style={{
                   background: 'none', border: 'none',
                   cursor: 'pointer', fontSize: 12, fontWeight: 400,

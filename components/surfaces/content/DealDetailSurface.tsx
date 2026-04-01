@@ -7,6 +7,11 @@ import {
   COLORS,
   STAGE_STYLES,
   getDaysColor,
+  TIMING,
+  EASING,
+  TRANSITIONS,
+  CLOSE_DELAY,
+  LOADING,
 } from '@/lib/design-system';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import type {
@@ -590,6 +595,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
             ) : (
               <h1
                 onClick={() => setEditingName(true)}
+                className="jove-tap"
                 style={{
                   fontFamily:   "'Cormorant Garamond', serif",
                   fontSize:     22,
@@ -629,6 +635,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
             ) : (
               <p
                 onClick={() => { setAccountInput(account?.name ?? ''); setEditingAccount(true); }}
+                className="jove-tap"
                 style={{
                   fontSize:   13,
                   fontWeight: 300,
@@ -676,8 +683,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                 ? COLORS.green
                 : 'rgba(252,246,234,0.4)',
               fontFamily:   "'DM Sans', sans-serif",
-              transition:   'all 0.2s',
+              transition:   TRANSITIONS.button,
             }}
+            className="jove-tap"
           >
             {copyConfirmed ? '✓ Copied' : 'Copy'}
           </button>
@@ -693,6 +701,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           <div style={{ position: 'relative' }}>
             <div
               onClick={() => setEditingStage(!editingStage)}
+              className="jove-tap"
               style={{
                 fontSize:     9,
                 fontWeight:   600,
@@ -733,6 +742,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                     <button
                       key={s}
                       onClick={() => handleSaveStage(s)}
+                      className="jove-tap"
                       style={{
                         display:       'block',
                         width:         '100%',
@@ -793,7 +803,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                   width:        `${deal.intel_score ?? 0}%`,
                   borderRadius: 2,
                   background:   intelColor,
-                  transition:   'width 0.5s ease',
+                  transition:   `width ${TIMING.SLOW}ms ${EASING.standard}`,
                 }} />
               </div>
               <span style={{
@@ -849,6 +859,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
         ) : (
           <div
             onClick={() => setEditingNextAction(true)}
+            className="jove-tap"
             style={{
               display:    'flex',
               alignItems: 'flex-start',
@@ -954,8 +965,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                       fontFamily:    "'DM Sans', sans-serif",
                       textTransform: 'uppercase' as const,
                       letterSpacing: '1px',
-                      transition:    'all 0.18s',
+                      transition:    TRANSITIONS.chip,
                     }}
+                    className="jove-tap"
                   >
                     {label}
                   </button>
@@ -965,6 +977,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           ) : (
             <div
               onClick={() => setEditingValue(true)}
+              className="jove-tap"
               style={{ cursor: 'text' }}
             >
               <div style={{
@@ -1061,6 +1074,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           </h2>
           <button
             onClick={() => setShowAddContact(!showAddContact)}
+            className="jove-tap"
             style={{
               background:   'none',
               border:       'none',
@@ -1115,6 +1129,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
             }}>
               <button
                 onClick={() => setNewContactChampion(!newContactChampion)}
+                className="jove-tap"
                 style={{
                   background: 'none',
                   border:     'none',
@@ -1137,6 +1152,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               <button
                 onClick={handleAddContact}
                 disabled={savingContact || !newContactName.trim()}
+                className="jove-tap"
                 style={{
                   flex:          1,
                   padding:       '10px 0',
@@ -1163,6 +1179,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                   setNewContactTitle('');
                   setNewContactEmail('');
                 }}
+                className="jove-tap"
                 style={{
                   padding:    '10px 16px',
                   borderRadius:10,
@@ -1231,6 +1248,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                 {contact.email && (
                   <div
                     onClick={() => navigator.clipboard.writeText(contact.email!)}
+                    className="jove-tap"
                     style={{
                       fontSize:   11,
                       fontWeight: 300,
@@ -1261,6 +1279,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               {/* Champion star */}
               <button
                 onClick={() => handleToggleChampion(contact)}
+                className="jove-tap"
                 style={{
                   background: 'none',
                   border:     'none',
@@ -1298,6 +1317,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           </h2>
           <button
             onClick={() => setShowLogSheet(true)}
+            className="jove-tap"
             style={{
               background:   'none',
               border:       'none',
@@ -1396,6 +1416,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                   {isLong && (
                     <button
                       onClick={() => toggleExpand(interaction.id)}
+                      className="jove-tap"
                       style={{
                         background: 'none',
                         border:     'none',
@@ -1424,6 +1445,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
       }}>
         <button
           onClick={() => setShowCloseScreen(true)}
+          className="jove-tap"
           style={{
             background:  'none',
             border:      'none',
@@ -1452,6 +1474,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
         {/* Prep Me */}
         <button
           onClick={() => navigateTo('deal-prep', { dealId: dealId! })}
+          className="jove-tap"
           style={{
             flex:          1,
             padding:       '13px 0',
@@ -1474,6 +1497,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
         {/* Chat */}
         <button
           onClick={() => navigateTo('deal-chat', { dealId: dealId! })}
+          className="jove-tap"
           style={{
             flex:          1,
             padding:       '13px 0',
@@ -1499,12 +1523,14 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
       <>
         <div
           onClick={() => setShowLogSheet(false)}
+          className="jove-tap"
           style={{
             position:      'fixed',
             inset:         0,
             zIndex:        86,
             background:    'rgba(0,0,0,0.4)',
             backdropFilter:'blur(4px)',
+            transition:    TRANSITIONS.overlay,
           }}
         />
         <div style={{
@@ -1519,6 +1545,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           borderRadius: '22px 22px 0 0',
           padding:      '0 20px 48px',
           fontFamily:   "'DM Sans', sans-serif",
+          transition:   TRANSITIONS.sheet,
         }}>
           <div style={{
             width:        36,
@@ -1565,8 +1592,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                   cursor:       'pointer',
                   fontFamily:   "'DM Sans', sans-serif",
                   textTransform:'capitalize',
-                  transition:   'all 0.18s',
+                  transition:   TRANSITIONS.chip,
                 }}
+                className="jove-tap"
               >
                 {t}
               </button>
@@ -1620,8 +1648,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                 ? 'pointer'
                 : 'default',
               fontFamily:    "'DM Sans', sans-serif",
-              transition:    'all 0.2s',
+              transition:    TRANSITIONS.button,
             }}
+            className="jove-tap"
           >
             {savingLog ? 'Saving...' : 'Log It →'}
           </button>
@@ -1638,6 +1667,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
         background: 'rgba(26,32,44,0.95)',
         display:    'flex',
         flexDirection: 'column',
+        transition: `opacity ${TIMING.STANDARD}ms ${EASING.standard}, background ${TIMING.STANDARD}ms ${EASING.standard}`,
       }}>
         {/* Header */}
         <div style={{
@@ -1661,6 +1691,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               setCloseType(null);
               setCloseReason('');
             }}
+            className="jove-tap"
             style={{
               background: 'none', border: 'none',
               color: 'rgba(252,246,234,0.4)',
@@ -1709,8 +1740,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               fontFamily:   "'DM Sans', sans-serif",
               cursor:       'pointer',
               letterSpacing: '0.5px',
-              transition:   'all 0.2s ease',
+              transition:   TRANSITIONS.button,
             }}
+            className="jove-tap"
           >
             Closed Won
           </button>
@@ -1734,8 +1766,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               fontFamily:   "'DM Sans', sans-serif",
               cursor:       'pointer',
               letterSpacing: '0.5px',
-              transition:   'all 0.2s ease',
+              transition:   TRANSITIONS.button,
             }}
+            className="jove-tap"
           >
             Closed Lost
           </button>
@@ -1793,9 +1826,10 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               fontWeight:   600,
               fontFamily:   "'DM Sans', sans-serif",
               cursor:       closeType ? 'pointer' : 'default',
-              transition:   'all 0.2s ease',
+              transition:   TRANSITIONS.button,
               letterSpacing: '0.3px',
             }}
+            className="jove-tap"
           >
             {!closeType
               ? 'Select Won or Lost'
@@ -1815,6 +1849,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
         }}>
           <button
             onClick={() => setConfirmDelete(true)}
+            className="jove-tap"
             style={{
               background:  'none',
               border:      'none',
@@ -1851,6 +1886,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   onClick={handleDeleteDeal}
+                  className="jove-tap"
                   style={{
                     flex: 1, padding: '10px 0',
                     borderRadius: 10, border: 'none',
@@ -1864,6 +1900,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                 </button>
                 <button
                   onClick={() => setConfirmDelete(false)}
+                  className="jove-tap"
                   style={{
                     flex: 1, padding: '10px 0',
                     borderRadius: 10,

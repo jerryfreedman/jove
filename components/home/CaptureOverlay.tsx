@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { COLORS, FONTS } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
 
 // ── SESSION 13B: BIRD CAPTURE OVERLAY ──────────────────────
 // Lightweight, instant capture moment.
@@ -132,7 +132,7 @@ export default function CaptureOverlay({
           background: animateIn ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
           backdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
           WebkitBackdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
-          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
+          transition: TRANSITIONS.overlay,
         }}
       />
 
@@ -158,7 +158,7 @@ export default function CaptureOverlay({
           padding: '16px 16px 14px',
           fontFamily: "'DM Sans', sans-serif",
           opacity: animateIn ? 1 : 0,
-          transition: 'transform 200ms cubic-bezier(.32,.72,0,1), opacity 200ms ease',
+          transition: TRANSITIONS.sheet,
           boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
         }}
       >
@@ -210,6 +210,7 @@ export default function CaptureOverlay({
               onClick={handleSubmit}
               disabled={!value.trim() || saving}
               aria-label="Submit"
+              className="jove-tap"
               style={{
                 width: 32,
                 height: 32,

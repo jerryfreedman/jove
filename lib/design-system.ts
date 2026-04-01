@@ -306,4 +306,85 @@ export const ANIMATION = {
   orbColorTransition:    800,
 } as const;
 
-// SESSION 2 COMPLETE
+// ── SESSION 14C: INTERACTION TIMING TOKENS ───────────────────
+// Global timing constants. Every component imports from here.
+// No custom timings per component.
+
+export const TIMING = {
+  /** 150ms — tap feedback, button hover, small interactions */
+  FAST: 150,
+  /** 200ms — overlay transitions, sheet slides, standard actions */
+  STANDARD: 200,
+  /** 280ms — major transitions, surface reveals */
+  SLOW: 280,
+} as const;
+
+export const EASING = {
+  /** Primary motion curve — smooth deceleration */
+  standard: 'cubic-bezier(.32,.72,0,1)',
+  /** Simple ease for opacity / color */
+  gentle: 'ease',
+} as const;
+
+/** Close delay = STANDARD duration + 40ms buffer for animation completion */
+export const CLOSE_DELAY = TIMING.STANDARD + 40; // 240ms
+
+// ── PRE-BUILT TRANSITION STRINGS ─────────────────────────────
+// Use these directly in inline style `transition` props.
+
+export const TRANSITIONS = {
+  /** Overlay backdrop: blur + background */
+  overlay: `background ${TIMING.STANDARD}ms ${EASING.gentle}, backdrop-filter ${TIMING.STANDARD}ms ${EASING.gentle}, -webkit-backdrop-filter ${TIMING.STANDARD}ms ${EASING.gentle}`,
+  /** Bottom sheet slide + opacity */
+  sheet: `transform ${TIMING.STANDARD}ms ${EASING.standard}, opacity ${TIMING.STANDARD}ms ${EASING.gentle}`,
+  /** Button / small element hover & active */
+  button: `background ${TIMING.FAST}ms ${EASING.gentle}, border-color ${TIMING.FAST}ms ${EASING.gentle}, color ${TIMING.FAST}ms ${EASING.gentle}, opacity ${TIMING.FAST}ms ${EASING.gentle}`,
+  /** Row items — border + opacity */
+  row: `border-color ${TIMING.FAST}ms ${EASING.gentle}, opacity ${TIMING.STANDARD}ms ${EASING.gentle}`,
+  /** Surface-level reveals */
+  surface: `opacity ${TIMING.SLOW}ms ${EASING.standard}, transform ${TIMING.SLOW}ms ${EASING.standard}`,
+  /** Toggle switches */
+  toggle: `background ${TIMING.STANDARD}ms ${EASING.gentle}, left ${TIMING.STANDARD}ms ${EASING.gentle}`,
+  /** Filter pills / chips */
+  chip: `all ${TIMING.FAST}ms ${EASING.gentle}`,
+  /** Toast entry/exit */
+  toast: `opacity ${TIMING.STANDARD}ms ${EASING.gentle}, transform ${TIMING.STANDARD}ms ${EASING.gentle}`,
+} as const;
+
+// ── TAP FEEDBACK ─────────────────────────────────────────────
+// Apply via CSS class .jove-tap (see globals.css) for :active state.
+// For programmatic use:
+export const TAP_SCALE = 'scale(0.98)';
+export const TAP_SCALE_SUBTLE = 'scale(0.99)';
+
+// ── MICRO-INTERACTION MOTION RULES ───────────────────────────
+// System-wide rules for how elements enter, exit, and respond.
+export const MICRO = {
+  /** Task completion — fade + slight upward drift */
+  completion: { opacity: 0, transform: 'translateY(-4px)', transition: `all ${TIMING.STANDARD}ms ${EASING.standard}` },
+  /** Element removal — fade + slight shrink */
+  removal: { opacity: 0, transform: 'scale(0.97)', transition: `all ${TIMING.STANDARD}ms ${EASING.standard}` },
+  /** Element addition — fade in + subtle rise */
+  addition: { opacity: 0, transform: 'translateY(6px)' },
+  /** Element addition target state */
+  additionVisible: { opacity: 1, transform: 'translateY(0)', transition: `all ${TIMING.STANDARD}ms ${EASING.standard}` },
+  /** Focus / highlight — subtle scale */
+  focus: { transform: 'scale(1.02)', transition: `transform ${TIMING.FAST}ms ${EASING.standard}` },
+} as const;
+
+// ── LOADING STATES ────────────────────────────────────────────
+export const LOADING = {
+  /** Show loading indicator after this many ms */
+  threshold: 300,
+  /** Standard spinner styles */
+  spinner: {
+    width: 24,
+    height: 24,
+    border: `2px solid rgba(232,160,48,0.2)`,
+    borderTopColor: COLORS.amber,
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
+  } as const,
+} as const;
+
+// SESSION 2 + 14C COMPLETE

@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
-import { COLORS } from '@/lib/design-system';
+import { COLORS, TIMING, EASING, TRANSITIONS, LOADING } from '@/lib/design-system';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import type { IdeaRow, DealRow } from '@/lib/types';
 
@@ -196,6 +196,7 @@ export default function IdeasSurface() {
           {['all', 'raw', 'developing', 'linked', 'archived'].map(f => (
             <button
               key={f}
+              className="jove-tap"
               onClick={() => setFilter(f)}
               style={{
                 padding:      '6px 14px',
@@ -215,7 +216,7 @@ export default function IdeasSurface() {
                 fontFamily:   "'DM Sans', sans-serif",
                 textTransform:'capitalize',
                 whiteSpace:   'nowrap',
-                transition:   'all 0.18s',
+                transition:   TRANSITIONS.chip,
               }}
             >
               {f === 'all' ? 'All active' : f}
@@ -267,6 +268,7 @@ export default function IdeasSurface() {
             return (
               <div
                 key={idea.id}
+                className="jove-tap"
                 style={{
                   background:   'rgba(240,235,224,0.06)',
                   border:       '0.5px solid rgba(200,160,80,0.16)',
@@ -316,6 +318,7 @@ export default function IdeasSurface() {
                 {/* Linked deal */}
                 {linkedDeal && (
                   <div
+                    className="jove-tap"
                     onClick={() => navigateTo('deal-detail', { dealId: linkedDeal.id })}
                     style={{
                       display:      'inline-flex',
@@ -330,6 +333,7 @@ export default function IdeasSurface() {
                       padding:      '4px 10px',
                       cursor:       'pointer',
                       marginBottom: 10,
+                      transition:   TRANSITIONS.chip,
                     }}
                   >
                     → {linkedDeal.name}
@@ -341,6 +345,7 @@ export default function IdeasSurface() {
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {idea.status === 'raw' && (
                       <button
+                        className="jove-tap"
                         onClick={() => handleStatusChange(idea, 'developing')}
                         style={{
                           padding:      '6px 12px', borderRadius: 9,
@@ -351,12 +356,14 @@ export default function IdeasSurface() {
                           letterSpacing:'1px', textTransform: 'uppercase',
                           cursor:       'pointer',
                           fontFamily:   "'DM Sans', sans-serif",
+                          transition:   TRANSITIONS.button,
                         }}
                       >
                         Develop →
                       </button>
                     )}
                     <button
+                      className="jove-tap"
                       onClick={() => handleConvertToDeal(idea)}
                       disabled={converting === idea.id}
                       style={{
@@ -368,11 +375,13 @@ export default function IdeasSurface() {
                         letterSpacing:'1px', textTransform: 'uppercase',
                         cursor:       converting === idea.id ? 'default' : 'pointer',
                         fontFamily:   "'DM Sans', sans-serif",
+                        transition:   TRANSITIONS.button,
                       }}
                     >
                       {converting === idea.id ? 'Creating...' : 'Create Deal →'}
                     </button>
                     <button
+                      className="jove-tap"
                       onClick={() => {
                         if (confirmArchiveId === idea.id) {
                           handleArchive(idea);
@@ -399,7 +408,7 @@ export default function IdeasSurface() {
                         letterSpacing:'1px', textTransform: 'uppercase',
                         cursor:       'pointer',
                         fontFamily:   "'DM Sans', sans-serif",
-                        transition:   'all 0.18s',
+                        transition:   TRANSITIONS.button,
                       }}
                     >
                       {confirmArchiveId === idea.id ? 'Archive — tap to confirm' : 'Archive'}

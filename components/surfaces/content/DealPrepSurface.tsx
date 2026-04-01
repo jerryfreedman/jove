@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
-import { COLORS, FONTS } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, LOADING } from '@/lib/design-system';
 import { renderMarkdown } from '@/lib/renderMarkdown';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 
@@ -144,6 +144,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
         zIndex: 20,
       }}>
         <button
+          className="jove-tap"
           onClick={() => { abortRef.current?.abort(); goBack(); }}
           style={{
             width: 34, height: 34, borderRadius: '50%',
@@ -171,6 +172,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
           </div>
         </div>
         <button
+          className="jove-tap"
           onClick={handleRegenerate}
           disabled={streaming}
           style={{
@@ -223,6 +225,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
             {brief === 'Could not generate brief. Please try again.' && !streaming && (
               <div style={{ textAlign: 'center', marginTop: 16 }}>
                 <button
+                  className="jove-tap"
                   onClick={handleRegenerate}
                   style={{
                     padding:       '10px 24px',
@@ -236,6 +239,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
                     textTransform: 'uppercase',
                     cursor:        'pointer',
                     fontFamily:    FONTS.sans,
+                    transition:    TRANSITIONS.button,
                   }}
                 >
                   Try Again
@@ -264,6 +268,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
           zIndex: 30, display: 'flex', gap: 10,
         }}>
           <button
+            className="jove-tap"
             onClick={handleCopy}
             style={{
               flex: 1, padding: '13px 0', borderRadius: 12,
@@ -272,12 +277,13 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
               color: copyConfirmed ? COLORS.green : 'rgba(252,246,234,0.6)',
               fontSize: 11, fontWeight: 700, letterSpacing: '1.5px',
               textTransform: 'uppercase', cursor: 'pointer',
-              fontFamily: FONTS.sans, transition: 'all 0.2s',
+              fontFamily: FONTS.sans, transition: TRANSITIONS.button,
             }}
           >
             {copyConfirmed ? '\u2713 Copied' : 'Copy Brief'}
           </button>
           <button
+            className="jove-tap"
             onClick={() => {}}
             style={{
               flex: 1, padding: '13px 0', borderRadius: 12,
@@ -287,6 +293,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
               letterSpacing: '1.5px', textTransform: 'uppercase',
               cursor: 'pointer', fontFamily: FONTS.sans,
               boxShadow: '0 4px 16px rgba(200,120,32,0.28)',
+              transition: TRANSITIONS.button,
             }}
           >
             {'Open Chat →'}

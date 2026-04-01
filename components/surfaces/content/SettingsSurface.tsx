@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase';
-import { COLORS } from '@/lib/design-system';
+import { COLORS, TIMING, EASING, TRANSITIONS } from '@/lib/design-system';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import type { UserRow, VoiceProfileRow, KnowledgeBaseRow } from '@/lib/types';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
@@ -239,6 +239,7 @@ export default function SettingsSurface() {
   }) => (
     <button
       onClick={onToggle}
+      className="jove-tap"
       style={{
         width:        44,
         height:       26,
@@ -249,7 +250,7 @@ export default function SettingsSurface() {
         border:       'none',
         cursor:       'pointer',
         position:     'relative',
-        transition:   'background 0.25s ease',
+        transition:   TRANSITIONS.toggle,
         flexShrink:   0,
       }}
     >
@@ -262,7 +263,7 @@ export default function SettingsSurface() {
         borderRadius:'50%',
         background: '#FFFFFF',
         boxShadow:  '0 1px 4px rgba(0,0,0,0.2)',
-        transition: 'left 0.25s ease',
+        transition: TRANSITIONS.toggle,
       }} />
     </button>
   );
@@ -509,7 +510,7 @@ export default function SettingsSurface() {
                     : COLORS.amber,
                   fontSize:      10, fontWeight: 700, letterSpacing: '1.5px',
                   textTransform: 'uppercase', cursor: refreshingVoice ? 'default' : 'pointer',
-                  fontFamily:    "'DM Sans', sans-serif", transition: 'all 0.2s',
+                  fontFamily:    "'DM Sans', sans-serif", transition: TRANSITIONS.button,
                 }}
               >
                 {voiceRefreshed
@@ -594,8 +595,9 @@ export default function SettingsSurface() {
                     fontSize:     12, fontWeight: pulseDays === d ? 600 : 300,
                     cursor:       'pointer',
                     fontFamily:   "'DM Sans', sans-serif",
-                    transition:   'all 0.18s',
+                    transition:   TRANSITIONS.button,
                   }}
+                  className="jove-tap"
                 >
                   {d} days
                 </button>
@@ -709,8 +711,9 @@ export default function SettingsSurface() {
                       fontFamily:    "'DM Sans', sans-serif",
                       textTransform: 'uppercase' as const,
                       letterSpacing: '1.5px',
-                      transition:    'all 0.18s',
+                      transition:    TRANSITIONS.button,
                     }}
+                    className="jove-tap"
                   >
                     {v.toUpperCase()}
                   </button>
@@ -997,8 +1000,9 @@ export default function SettingsSurface() {
                         letterSpacing: '1px', textTransform: 'uppercase',
                         cursor:        'pointer',
                         fontFamily:    "'DM Sans', sans-serif",
-                        transition:    'all 0.18s',
+                        transition:    TRANSITIONS.button,
                       }}
+                      className="jove-tap"
                     >
                       {item.is_active_deal ? '\u2713 Active Deal' : 'Mark Active'}
                     </button>
@@ -1016,8 +1020,9 @@ export default function SettingsSurface() {
                         letterSpacing:'1px', textTransform: 'uppercase',
                         cursor:       'pointer',
                         fontFamily:   "'DM Sans', sans-serif",
-                        transition:   'all 0.2s',
+                        transition:   TRANSITIONS.button,
                       }}
+                      className="jove-tap"
                     >
                       {deleteConfirm === item.id ? 'Confirm Delete' : 'Delete'}
                     </button>
@@ -1087,8 +1092,9 @@ export default function SettingsSurface() {
                 textTransform: 'uppercase' as const,
                 cursor:        'pointer',
                 fontFamily:    "'DM Sans', sans-serif",
-                transition:    'color 0.2s ease',
+                transition:    TRANSITIONS.button,
               }}
+              className="jove-tap"
             >
               {toursReset ? 'Tours reset ✓' : 'Reset tours'}
             </button>
@@ -1101,6 +1107,7 @@ export default function SettingsSurface() {
 
           <button
             onClick={handleSignOut}
+            className="jove-tap"
             style={{
               width:         '100%', padding: '14px 0', borderRadius: 14,
               border:        '0.5px solid rgba(224,88,64,0.3)',
@@ -1110,7 +1117,7 @@ export default function SettingsSurface() {
               textTransform: 'uppercase', cursor: 'pointer',
               fontFamily:    "'DM Sans', sans-serif",
               marginBottom:  14,
-              transition:    'all 0.2s',
+              transition:    TRANSITIONS.button,
             }}
           >
             Sign Out

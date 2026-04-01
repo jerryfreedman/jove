@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { FONTS } from '@/lib/design-system';
+import { FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
 
 interface SurfaceContainerProps {
   open: boolean;
@@ -39,7 +39,7 @@ export default function SurfaceContainer({
 
   const handleClose = useCallback(() => {
     setSheetVisible(false);
-    setTimeout(onClose, 260);
+    setTimeout(onClose, CLOSE_DELAY);
   }, [onClose]);
 
   if (!open) return null;
@@ -60,7 +60,7 @@ export default function SurfaceContainer({
           background: sheetVisible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
           backdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
           WebkitBackdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
-          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
+          transition: TRANSITIONS.overlay,
         }}
       />
 
@@ -83,7 +83,7 @@ export default function SurfaceContainer({
           borderTop: '0.5px solid rgba(240,235,224,0.06)',
           boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
           transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 220ms cubic-bezier(.32,.72,0,1)',
+          transition: `transform ${TIMING.STANDARD}ms ${EASING.standard}`,
           fontFamily: FONTS.sans,
         }}
       >
@@ -99,6 +99,7 @@ export default function SurfaceContainer({
         >
           <div
             onClick={handleClose}
+            className="jove-tap"
             style={{
               width: 36,
               height: 4,
@@ -122,6 +123,7 @@ export default function SurfaceContainer({
           {onBack && (
             <button
               onClick={onBack}
+              className="jove-tap"
               style={{
                 background: 'none',
                 border: 'none',

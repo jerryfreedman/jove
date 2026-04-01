@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import { createClient } from '@/lib/supabase';
-import { COLORS, FONTS, STAGE_STYLES } from '@/lib/design-system';
+import { COLORS, FONTS, STAGE_STYLES, TIMING, EASING, TRANSITIONS } from '@/lib/design-system';
 import type { DealRow, AccountRow } from '@/lib/types';
 import { renderMarkdown } from '@/lib/renderMarkdown';
 import { persistChatMessage, generateThreadId, registerChatThread } from '@/lib/chat-persistence';
@@ -516,6 +516,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
         background: COLORS.bg,
       }}>
         <button
+          className="jove-tap"
           onClick={() => { abortRef.current?.abort(); goBack(); }}
           style={{
             width: 34,
@@ -678,6 +679,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                   paddingLeft: 4,
                 }}>
                   <button
+                    className="jove-tap"
                     onClick={() => copyMessage(msg)}
                     style={{
                       background: 'none',
@@ -697,6 +699,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                   </button>
                   {isEmail && (
                     <button
+                      className="jove-tap"
                       onClick={() => logAsSent(msg)}
                       style={{
                         background: 'none',
@@ -743,7 +746,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                           fontWeight: 300,
                           color: 'rgba(240,235,224,0.5)',
                           fontFamily: FONTS.sans,
-                          animation: 'saveConfirmFade 2s ease-out forwards',
+                          animation: 'fadeOut 2s ease-out forwards',
                         }}>
                           Saved — Jove is learning from this
                         </span>
@@ -751,6 +754,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                     </div>
                   ) : (
                     <button
+                      className="jove-tap"
                       onClick={() => saveToJove(msg)}
                       style={{
                         background: 'rgba(232,160,48,0.08)',
@@ -763,7 +767,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                         fontFamily: FONTS.sans,
                         letterSpacing: '0.3px',
                         cursor: 'pointer',
-                        transition: 'all 0.15s',
+                        transition: TRANSITIONS.button,
                       }}
                     >
                       Save to Jove
@@ -807,6 +811,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                   ) : (
                     <>
                       <button
+                        className="jove-tap"
                         onClick={() => confirmChip(chip)}
                         style={{
                           background: 'none',
@@ -821,6 +826,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
                       >Confirm</button>
                       <span style={{ color: 'rgba(240,235,224,0.2)', fontSize: 10 }}>{'\u00B7'}</span>
                       <button
+                        className="jove-tap"
                         onClick={() => dismissChip(chip.id)}
                         style={{
                           background: 'none',
@@ -884,6 +890,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
           }}
         />
         <button
+          className="jove-tap"
           onClick={handleSend}
           disabled={!input.trim() || streaming}
           style={{
@@ -899,7 +906,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
             justifyContent: 'center',
             cursor: input.trim() && !streaming ? 'pointer' : 'default',
             flexShrink: 0,
-            transition: 'all 0.2s',
+            transition: TRANSITIONS.button,
             boxShadow: input.trim() && !streaming
               ? '0 4px 14px rgba(200,120,32,0.3)'
               : 'none',
@@ -923,7 +930,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
           0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
           40% { opacity: 1; transform: scale(1); }
         }
-        @keyframes saveConfirmFade {
+        @keyframes fadeOut {
           0% { opacity: 1; }
           70% { opacity: 1; }
           100% { opacity: 0; }
