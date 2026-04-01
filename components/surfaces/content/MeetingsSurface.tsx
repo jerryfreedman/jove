@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase';
 import { COLORS } from '@/lib/design-system';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
-import CaptureSheet from '@/components/capture/CaptureSheet';
 import type { MeetingRow, DealRow } from '@/lib/types';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { useMeetingActions } from '@/lib/meeting-actions';
@@ -50,10 +49,6 @@ export default function MeetingsSurface() {
   const [saving, setSaving]           = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<MeetingRow | null>(null);
   const [showPast, setShowPast]       = useState(false);
-
-  // Capture bridge state
-  const [captureMeeting, setCaptureMeeting] = useState<MeetingRow | null>(null);
-  const [contextAddedIds, setContextAddedIds] = useState<Set<string>>(new Set());
 
   // Session 8: Meeting actions (shared layer)
   const { completeMeeting: completeAction, cancelMeeting: cancelAction, rescheduleMeeting: rescheduleAction } = useMeetingActions();
@@ -241,9 +236,8 @@ export default function MeetingsSurface() {
     marginBottom: 10,
   };
 
-  const MeetingCard = ({ meeting, onTap, onAddContext }: { meeting: MeetingRow; onTap: () => void; onAddContext: () => void }) => {
+  const MeetingCard = ({ meeting, onTap }: { meeting: MeetingRow; onTap: () => void }) => {
     const linkedDeal = deals.find(d => d.id === meeting.deal_id);
-    const hasContext = contextAddedIds.has(meeting.id);
     return (
       <div
         onClick={onTap}
@@ -282,17 +276,6 @@ export default function MeetingsSurface() {
             onReschedule={handleRescheduleOpen}
           />
         </div>
-        {hasContext && (
-          <div style={{
-            fontSize:   11,
-            fontWeight: 500,
-            color:      COLORS.amber,
-            opacity:    0.7,
-            marginBottom: 4,
-          }}>
-            Context added &#10003;
-          </div>
-        )}
         <div style={{
           fontSize:     11,
           fontWeight:   500,
@@ -327,22 +310,6 @@ export default function MeetingsSurface() {
             {linkedDeal.name}
           </div>
         )}
-        <div
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddContext();
-          }}
-          style={{
-            marginTop:    8,
-            fontSize:     12,
-            fontWeight:   500,
-            color:        COLORS.amber,
-            cursor:       'pointer',
-            fontFamily:   "'DM Sans', sans-serif",
-          }}
-        >
-          Add context &rarr;
-        </div>
         {/* Session 8: Inline action buttons */}
         <div style={{
           display: 'flex', gap: 8, marginTop: 10,
@@ -577,7 +544,7 @@ export default function MeetingsSurface() {
             </div>
             {upcoming.map((m) => (
               <div key={m.id}>
-                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} onAddContext={() => setCaptureMeeting(m)} />
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
               </div>
             ))}
           </div>
@@ -615,7 +582,7 @@ export default function MeetingsSurface() {
 
             {showPast && past.slice(0, 20).map(m => (
               <div key={m.id} style={{ opacity: 0.55 }}>
-                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} onAddContext={() => setCaptureMeeting(m)} />
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
               </div>
             ))}
           </div>
@@ -633,7 +600,7 @@ export default function MeetingsSurface() {
             </div>
             {cancelled.map(m => (
               <div key={m.id} style={{ opacity: 0.4 }}>
-                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} onAddContext={() => setCaptureMeeting(m)} />
+                <MeetingCard meeting={m} onTap={() => setEditingMeeting(m)} />
               </div>
             ))}
           </div>
@@ -783,24 +750,6 @@ export default function MeetingsSurface() {
             </button>
           </div>
         </>
-      )}
-
-      {/* Capture Sheet — opened from meeting card "Add context" */}
-      {captureMeeting && userId && (
-        <CaptureSheet
-          onClose={() => {
-            setCaptureMeeting(null);
-          }}
-          userId={userId}
-          activeDeals={deals}
-          onCaptureComplete={() => {
-            setContextAddedIds(prev => new Set(prev).add(captureMeeting!.id));
-            fetchData();
-          }}
-          initialDealId={captureMeeting.deal_id}
-          meetingContext={captureMeeting.title}
-          meetingId={captureMeeting.id}
-        />
       )}
 
       {/* Meeting Edit Sheet */}

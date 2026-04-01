@@ -207,22 +207,20 @@ export default function ControlSurface({
       case 'open_prep':
         if (action.dealId) {
           openSurface('deal-prep', { dealId: action.dealId });
-        } else {
-          openSurface('briefing');
         }
+        // Session 14B: no fallback to briefing — content is already here
         break;
       case 'open_chat':
         if (action.dealId) {
           openSurface('deal-chat', { dealId: action.dealId });
-        } else {
-          openSurface('briefing');
         }
+        // Session 14B: no fallback to briefing — content is already here
         break;
       case 'open_deal':
         openSurface('deal-detail', { dealId: action.dealId });
         break;
       case 'open_briefing':
-        openSurface('briefing');
+        // Session 14B: briefing content unified into control panel
         break;
     }
   }, [openSurface]);

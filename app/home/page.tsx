@@ -154,14 +154,9 @@ function HomePageInner() {
   });
 
   // ── BIRD INTERACTION STATE ──────────────────────────────────
-  const [birdModalOpen, setBirdModalOpen] = useState(false);
-  const [birdModalInput, setBirdModalInput] = useState('');
-  const [birdModalSaving, setBirdModalSaving] = useState(false);
-  const [birdDealGate, setBirdDealGate] = useState(false);
   const [birdPulseTrigger, setBirdPulseTrigger] = useState(0);
   const birdPositionRef = useRef({ x: 0, y: 0 });
   const birdHitboxRef = useRef<HTMLDivElement>(null);
-  const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
 
   // ── SESSION 13B: CAPTURE OVERLAY STATE ─────────────────────
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -1446,76 +1441,8 @@ function HomePageInner() {
     return () => clearTimeout(t);
   }, [birdQuestion]);
 
-  // ── BIRD CAPTURE HANDLER ──────────────────────────────────
-  // Core bird save logic — accepts explicit dealId
-  const executeBirdSave = async (finalDealId: string | null) => {
-    if (!birdModalInput.trim() || birdModalSaving || !data?.user || !birdQuestion) return;
-    setBirdModalSaving(true);
 
-    // Capture the targetId before any async work — useMemo may recompute
-    const currentTargetId = birdQuestion.targetId;
-    const questionText = birdQuestion.text;
-
-    try {
-      const result = await saveInteraction(supabase, {
-        userId: data.user.id,
-        dealId: finalDealId,
-        type: 'note',
-        rawContent: '[Bird question: ' + questionText + '] ' + birdModalInput.trim(),
-        sourceSurface: 'bird',
-        origin: 'user',
-        intentType: 'clarification',
-        meetingId: birdQuestion.meetingId ?? null,
-      });
-
-      if (result?.id) {
-        triggerExtraction(result.id, data.user.id);
-      }
-
-      await updateStreak(supabase, data.user.id);
-
-      // ── PERSIST: mark this target as asked — never ask again ──
-      localStorage.setItem(`curiosity_asked_${currentTargetId}`, 'true');
-      // Session 6: also mark trigger cooldown so unified trigger doesn't re-surface
-      markTriggerSeen(currentTargetId);
-    } catch (err) {
-      console.error('Bird capture error:', err);
-    }
-
-    // Close modal immediately
-    setBirdModalOpen(false);
-    setBirdModalInput('');
-    setBirdModalSaving(false);
-    setBirdDealGate(false);
-
-    // Clear pending pulse flag (prevent double-fire on next mount)
-    localStorage.removeItem('jove_pulse_pending');
-
-    // ── SAVE CONFIRMED: environmental response + bird soar ──
-    // Double rAF ensures modal is visually gone and home has painted
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        triggerEnvironmentalAcknowledgment({ source: 'bird' });
-      });
-    });
-
-    // Delayed re-fetch to let extraction complete
-    setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
-  };
-
-  const handleBirdSubmit = async () => {
-    if (!birdModalInput.trim() || birdModalSaving || !data?.user || !birdQuestion) return;
-
-    // Soft gate: no deal and active deals exist — ask before saving
-    if (!birdQuestion.dealId && data.allDeals.length > 0) {
-      setBirdDealGate(true);
-      return;
-    }
-
-    executeBirdSave(birdQuestion.dealId);
-  };
-
-  // ── SESSION 13B: CAPTURE OVERLAY SUBMIT ────────────────────
+// ── SESSION 13B: CAPTURE OVERLAY SUBMIT ────────────────────
   // Routes input through universal routing (11F) → persists → triggers acknowledgment.
   // No intermediate screens. No confirmation dialogs. Instant.
   const handleCaptureSubmit = useCallback(async (text: string) => {
@@ -1718,18 +1645,11 @@ function HomePageInner() {
       <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} discoverPulse={birdDiscoverPulse} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
-      {/* Session 13B: Always interactive — opens capture overlay.
-          If bird has a curiosity question, opens old question modal instead. */}
+      {/* Always opens capture overlay */}
       <div
         ref={birdHitboxRef}
         onClick={() => {
-          if (birdQuestion && !birdModalOpen) {
-            // Legacy curiosity question flow
-            setBirdModalInput('');
-            setBirdModalOpen(true);
-            setTimeout(() => birdModalInputRef.current?.focus(), 200);
-          } else if (!captureOpen) {
-            // Session 13B: open capture overlay
+          if (!captureOpen) {
             setCaptureOpen(true);
           }
         }}
@@ -2749,215 +2669,6 @@ function HomePageInner() {
         </div>
       )}
 
-      {/* ── BIRD CAPTURE MODAL (legacy curiosity questions) ── */}
-      {birdModalOpen && birdQuestion && (
-        <>
-          {/* Backdrop — tap to dismiss */}
-          <div
-            onClick={() => {
-              setBirdModalOpen(false);
-              setBirdModalInput('');
-              setBirdDealGate(false);
-            }}
-            style={{
-              position:       'fixed',
-              inset:          0,
-              zIndex:         60,
-              background:     'rgba(6,10,18,0.38)',
-              backdropFilter: 'blur(10px)',
-              WebkitBackdropFilter: 'blur(10px)',
-            }}
-          />
-
-          {/* Modal — centered on screen */}
-          <div
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setBirdModalOpen(false);
-                setBirdModalInput('');
-                setBirdDealGate(false);
-              }
-            }}
-            style={{
-              position:       'fixed',
-              top:            '50%',
-              left:           '50%',
-              transform:      'translate(-50%, -50%)',
-              zIndex:         65,
-              width:          'calc(100% - 48px)',
-              maxWidth:       340,
-              background:     'rgba(20,24,32,0.72)',
-              backdropFilter: 'blur(32px)',
-              WebkitBackdropFilter: 'blur(32px)',
-              borderRadius:   22,
-              border:         '0.5px solid rgba(232,160,48,0.10)',
-              padding:        '22px 20px 18px',
-              fontFamily:     "'DM Sans', sans-serif",
-            }}
-          >
-            {/* Question */}
-            <div style={{
-              fontFamily:   "'Cormorant Garamond', serif",
-              fontSize:     18,
-              fontWeight:   400,
-              color:        'rgba(252,246,234,0.88)',
-              lineHeight:   1.4,
-              marginBottom: 14,
-            }}>
-              {birdQuestion.text}
-            </div>
-
-            {/* Input + Submit — hidden when deal gate is active */}
-            {!birdDealGate && (
-              <>
-                <textarea
-                  ref={birdModalInputRef}
-                  value={birdModalInput}
-                  onChange={(e) => setBirdModalInput(e.target.value)}
-                  placeholder="Type anything..."
-                  style={{
-                    width:        '100%',
-                    background:   'rgba(16,20,30,0.6)',
-                    border:       '0.5px solid rgba(232,160,48,0.22)',
-                    borderRadius: 12,
-                    padding:      '12px 14px',
-                    fontFamily:   "'DM Sans', sans-serif",
-                    fontSize:     14,
-                    fontWeight:   300,
-                    color:        'rgba(252,246,234,0.92)',
-                    outline:      'none',
-                    resize:       'none',
-                    minHeight:    80,
-                    lineHeight:   1.6,
-                    marginBottom: 12,
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = 'rgba(232,160,48,0.44)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(232,160,48,0.22)';
-                  }}
-                />
-
-                {/* Submit button */}
-                <button
-                  onClick={handleBirdSubmit}
-                  disabled={!birdModalInput.trim() || birdModalSaving}
-                  style={{
-                    width:           '100%',
-                    padding:         '12px 0',
-                    borderRadius:    10,
-                    border:          'none',
-                    background:      birdModalInput.trim() && !birdModalSaving
-                      ? 'linear-gradient(135deg, #C87820, #E09838)'
-                      : 'rgba(255,255,255,0.06)',
-                    color:           birdModalInput.trim() && !birdModalSaving
-                      ? 'white'
-                      : 'rgba(240,235,224,0.36)',
-                    fontSize:        12,
-                    fontWeight:      600,
-                    cursor:          birdModalInput.trim() && !birdModalSaving
-                      ? 'pointer'
-                      : 'default',
-                    fontFamily:      "'DM Sans', sans-serif",
-                    transition:      'all 0.2s ease',
-                    boxShadow:       birdModalInput.trim() && !birdModalSaving
-                      ? '0 4px 14px rgba(200,120,32,0.28)'
-                      : 'none',
-                  }}
-                >
-                  {birdModalSaving ? 'Saving...' : 'Save \u2192'}
-                </button>
-              </>
-            )}
-
-            {/* ── BIRD DEAL ASSIGNMENT GATE ── */}
-            {birdDealGate && data && (
-              <>
-                <p
-                  style={{
-                    fontSize:     13,
-                    fontWeight:   300,
-                    color:        'rgba(240,235,224,0.5)',
-                    marginBottom: 12,
-                    fontFamily:   "'DM Sans', sans-serif",
-                  }}
-                >
-                  Add to a deal?
-                </p>
-
-                <div
-                  style={{
-                    maxHeight:  180,
-                    overflowY:  'auto',
-                    marginBottom: 12,
-                  }}
-                >
-                  {data.allDeals.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => executeBirdSave(d.id)}
-                      style={{
-                        width:        '100%',
-                        display:      'block',
-                        textAlign:    'left',
-                        background:   'rgba(16,20,30,0.6)',
-                        border:       '0.5px solid rgba(232,160,48,0.15)',
-                        borderRadius: 10,
-                        padding:      '10px 14px',
-                        marginBottom: 5,
-                        cursor:       'pointer',
-                        fontFamily:   "'DM Sans', sans-serif",
-                        transition:   'border-color 0.15s',
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize:   13,
-                          fontWeight: 400,
-                          color:      'rgba(252,246,234,0.88)',
-                        }}
-                      >
-                        {d.name}
-                      </span>
-                      {d.accounts?.name && (
-                        <span
-                          style={{
-                            fontSize:   12,
-                            fontWeight: 300,
-                            color:      'rgba(240,235,224,0.45)',
-                            marginLeft: 6,
-                          }}
-                        >
-                          &middot; {d.accounts.name}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => executeBirdSave(null)}
-                  style={{
-                    width:      '100%',
-                    padding:    '8px 0',
-                    background: 'none',
-                    border:     'none',
-                    color:      'rgba(240,235,224,0.36)',
-                    fontSize:   12,
-                    fontWeight: 400,
-                    cursor:     'pointer',
-                    fontFamily: "'DM Sans', sans-serif",
-                  }}
-                >
-                  Skip &mdash; save without a deal
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
     </div>
   );
 }
