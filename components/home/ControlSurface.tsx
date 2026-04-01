@@ -24,7 +24,6 @@ import {
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { useMeetingActions } from '@/lib/meeting-actions';
-import MeetingRowActions from '@/components/meetings/MeetingRowActions';
 import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
@@ -123,6 +122,7 @@ export default function ControlSurface({
 
   // ── SESSION 8: Meeting actions ──
   const { completeMeeting, cancelMeeting, rescheduleMeeting } = useMeetingActions();
+  const [expandedMeetingId, setExpandedMeetingId] = useState<string | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{
     meetingId: string;
     title: string;
@@ -335,25 +335,27 @@ export default function ControlSurface({
           {upcomingMeetings.map((meeting, idx) => {
             // First meeting gets emphasis when prominent and imminent
             const isHighlighted = isProminent && isImminent && idx === 0;
+            const isExpanded = expandedMeetingId === meeting.id;
 
             return (
               <div
                 key={meeting.id}
-                onClick={() => meeting.deal_id
-                  ? openSurface('deal-prep', { dealId: meeting.deal_id })
-                  : openSurface('briefing')
-                }
+                onClick={() => setExpandedMeetingId(isExpanded ? null : meeting.id)}
                 style={{
                   background: isHighlighted
                     ? 'rgba(232,160,48,0.06)'
-                    : 'rgba(240,235,224,0.03)',
+                    : isExpanded
+                      ? 'rgba(240,235,224,0.05)'
+                      : 'rgba(240,235,224,0.03)',
                   border: isHighlighted
                     ? '0.5px solid rgba(232,160,48,0.14)'
-                    : '0.5px solid rgba(240,235,224,0.06)',
+                    : isExpanded
+                      ? '0.5px solid rgba(240,235,224,0.10)'
+                      : '0.5px solid rgba(240,235,224,0.06)',
                   borderRadius: 12,
                   padding: isHighlighted ? '12px 14px' : '10px 14px',
                   cursor: 'pointer',
-                  transition: 'border-color 0.15s ease',
+                  transition: 'all 0.18s ease',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -382,15 +384,97 @@ export default function ControlSurface({
                   >
                     {formatMeetingTime(meeting.scheduled_at)}
                   </span>
-                  {/* Session 8: Quick actions */}
-                  <MeetingRowActions
-                    meetingId={meeting.id}
-                    meetingTitle={meeting.title}
-                    onComplete={completeMeeting}
-                    onCancel={cancelMeeting}
-                    onReschedule={handleRescheduleOpen}
-                  />
                 </div>
+
+                {/* Session 8: Expanded inline actions */}
+                {isExpanded && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 6,
+                      marginTop: 10,
+                      paddingTop: 10,
+                      borderTop: '0.5px solid rgba(240,235,224,0.08)',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); completeMeeting(meeting.id); setExpandedMeetingId(null); }}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: 8,
+                        border: `0.5px solid rgba(72,200,120,0.3)`,
+                        background: 'rgba(72,200,120,0.08)',
+                        color: COLORS.green,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        letterSpacing: '0.5px',
+                        cursor: 'pointer',
+                        fontFamily: FONTS.sans,
+                      }}
+                    >
+                      ✓ Complete
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meeting.id); }}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: 8,
+                        border: `0.5px solid rgba(56,184,200,0.3)`,
+                        background: 'rgba(56,184,200,0.08)',
+                        color: COLORS.teal,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        letterSpacing: '0.5px',
+                        cursor: 'pointer',
+                        fontFamily: FONTS.sans,
+                      }}
+                    >
+                      ↻ Reschedule
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); cancelMeeting(meeting.id); setExpandedMeetingId(null); }}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: 8,
+                        border: `0.5px solid rgba(224,88,64,0.25)`,
+                        background: 'rgba(224,88,64,0.06)',
+                        color: COLORS.red,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        letterSpacing: '0.5px',
+                        cursor: 'pointer',
+                        fontFamily: FONTS.sans,
+                      }}
+                    >
+                      ✕ Cancel
+                    </button>
+                    {/* Navigate to prep/briefing */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        meeting.deal_id
+                          ? openSurface('deal-prep', { dealId: meeting.deal_id })
+                          : openSurface('briefing');
+                      }}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: 8,
+                        border: '0.5px solid rgba(240,235,224,0.12)',
+                        background: 'rgba(240,235,224,0.04)',
+                        color: 'rgba(240,235,224,0.52)',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        letterSpacing: '0.5px',
+                        cursor: 'pointer',
+                        fontFamily: FONTS.sans,
+                        marginLeft: 'auto',
+                      }}
+                    >
+                      Open →
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

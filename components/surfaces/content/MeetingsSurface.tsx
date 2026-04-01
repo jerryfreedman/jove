@@ -343,6 +343,48 @@ export default function MeetingsSurface() {
         >
           Add context &rarr;
         </div>
+        {/* Session 8: Inline action buttons */}
+        <div style={{
+          display: 'flex', gap: 8, marginTop: 10,
+          paddingTop: 10, borderTop: '0.5px solid rgba(200,160,80,0.10)',
+        }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); completeAction(meeting.id); }}
+            style={{
+              padding: '6px 12px', borderRadius: 8,
+              border: '0.5px solid rgba(72,200,120,0.3)',
+              background: 'rgba(72,200,120,0.06)',
+              color: '#48C878', fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            ✓ Done
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meeting.id); }}
+            style={{
+              padding: '6px 12px', borderRadius: 8,
+              border: '0.5px solid rgba(56,184,200,0.3)',
+              background: 'rgba(56,184,200,0.06)',
+              color: '#38B8C8', fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            ↻ Move
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); cancelAction(meeting.id); }}
+            style={{
+              padding: '6px 12px', borderRadius: 8,
+              border: '0.5px solid rgba(224,88,64,0.25)',
+              background: 'rgba(224,88,64,0.06)',
+              color: '#E05840', fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            ✕ Cancel
+          </button>
+        </div>
       </div>
     );
   };

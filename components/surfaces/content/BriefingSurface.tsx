@@ -1318,6 +1318,55 @@ export default function BriefingSurface() {
                   </button>
                 )}
               </div>
+
+              {/* Session 8: Hero meeting action buttons */}
+              <div style={{
+                display:   'flex',
+                gap:       8,
+                marginTop: 12,
+                paddingTop: 12,
+                borderTop: '0.5px solid rgba(200,160,80,0.12)',
+              }}>
+                <button
+                  onClick={() => { completeAction(nextMeeting.id); }}
+                  style={{
+                    padding: '8px 16px', borderRadius: 9,
+                    border: '0.5px solid rgba(72,200,120,0.3)',
+                    background: 'rgba(72,200,120,0.06)',
+                    color: COLORS.green, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '1.5px', textTransform: 'uppercase' as const,
+                    cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  ✓ Done
+                </button>
+                <button
+                  onClick={() => { handleRescheduleOpen(nextMeeting.id); }}
+                  style={{
+                    padding: '8px 16px', borderRadius: 9,
+                    border: '0.5px solid rgba(56,184,200,0.3)',
+                    background: 'rgba(56,184,200,0.06)',
+                    color: COLORS.teal, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '1.5px', textTransform: 'uppercase' as const,
+                    cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  ↻ Move
+                </button>
+                <button
+                  onClick={() => { cancelAction(nextMeeting.id); }}
+                  style={{
+                    padding: '8px 16px', borderRadius: 9,
+                    border: '0.5px solid rgba(224,88,64,0.25)',
+                    background: 'rgba(224,88,64,0.06)',
+                    color: COLORS.red, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '1.5px', textTransform: 'uppercase' as const,
+                    cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  ✕ Cancel
+                </button>
+              </div>
             </div>
           </div>
           );
@@ -1503,6 +1552,55 @@ export default function BriefingSurface() {
                           }}
                         >
                           Add Context
+                        </button>
+                      </div>
+
+                      {/* Session 8: Meeting action buttons */}
+                      <div style={{
+                        display:   'flex',
+                        gap:       8,
+                        marginTop: 10,
+                        paddingTop: 10,
+                        borderTop: '0.5px solid rgba(200,160,80,0.10)',
+                      }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); completeAction(meeting.id); }}
+                          style={{
+                            padding: '7px 14px', borderRadius: 9,
+                            border: '0.5px solid rgba(72,200,120,0.3)',
+                            background: 'rgba(72,200,120,0.06)',
+                            color: COLORS.green, fontSize: 10, fontWeight: 700,
+                            letterSpacing: '1px', textTransform: 'uppercase' as const,
+                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                          }}
+                        >
+                          ✓ Done
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meeting.id); }}
+                          style={{
+                            padding: '7px 14px', borderRadius: 9,
+                            border: '0.5px solid rgba(56,184,200,0.3)',
+                            background: 'rgba(56,184,200,0.06)',
+                            color: COLORS.teal, fontSize: 10, fontWeight: 700,
+                            letterSpacing: '1px', textTransform: 'uppercase' as const,
+                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                          }}
+                        >
+                          ↻ Move
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); cancelAction(meeting.id); }}
+                          style={{
+                            padding: '7px 14px', borderRadius: 9,
+                            border: '0.5px solid rgba(224,88,64,0.25)',
+                            background: 'rgba(224,88,64,0.06)',
+                            color: COLORS.red, fontSize: 10, fontWeight: 700,
+                            letterSpacing: '1px', textTransform: 'uppercase' as const,
+                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                          }}
+                        >
+                          ✕ Cancel
                         </button>
                       </div>
                     </div>
