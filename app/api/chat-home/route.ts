@@ -17,6 +17,10 @@ import {
   findOrCreatePerson,
   createEventFromIntent,
 } from '@/lib/universal-persistence';
+// Session 15A: Decision engine
+import { decideFromInput, type DecisionOutput } from '@/lib/intelligence/decide';
+// Session 15B: Chat ingestion
+import { ingestChatMessage } from '@/lib/chat/ingest';
 
 export const maxDuration = 30;
 
@@ -228,6 +232,50 @@ export async function POST(request: NextRequest) {
             };
           }
         }
+      }
+    }
+
+    // ── SESSION 15B: CHAT INGESTION (async, non-blocking) ────────
+    // Every user message passes through capture-worthy detection.
+    // If worthy → create interaction → trigger extraction pipeline.
+    // Runs in parallel with the rest of the response generation.
+    let ingestionPromise: Promise<unknown> | null = null;
+    if (latestUserMsg) {
+      const ingestionCookieStore = await cookies();
+      const ingestionSupabase = createServerClient(
+        SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() { return ingestionCookieStore.getAll(); },
+            setAll(cookiesToSet) {
+              try {
+                cookiesToSet.forEach(({ name, value, options }) =>
+                  ingestionCookieStore.set(name, value, options)
+                );
+              } catch {}
+            },
+          },
+        }
+      );
+      // Fire and forget — never blocks the response
+      ingestionPromise = ingestChatMessage(
+        ingestionSupabase,
+        latestUserMsg.content,
+        userId,
+        dealId,
+      ).catch(err => console.error('Chat ingestion background error:', err));
+    }
+
+    // ── SESSION 15B: DECISION ENGINE ──────────────────────────
+    // Generate a decision from the latest user message.
+    // Injected into the system prompt so the LLM can respond with direction.
+    let decisionContext: DecisionOutput | null = null;
+    if (latestUserMsg) {
+      try {
+        decisionContext = decideFromInput(latestUserMsg.content);
+      } catch {
+        // Decision engine is pure computation — failures are non-critical
       }
     }
 
@@ -470,12 +518,24 @@ ${mergedResponseContext.personLinked ? `- Person linked: ${mergedResponseContext
 `
       : '';
 
+    // Session 15B: Decision context block for the LLM
+    const decisionBlock = decisionContext
+      ? `
+DECISION ENGINE OUTPUT:
+- Situation: ${decisionContext.situation}
+- Interpretation: ${decisionContext.interpretation}
+- Decision: ${decisionContext.decision}
+- Actions: ${decisionContext.actions.join(', ')}
+Use this to inform your response. Lead with the decision direction. Be specific, not generic.
+`
+      : '';
+
     const systemPrompt = `You are Jove, a personal intelligence assistant.
 
 You help the user manage deals, relationships, and decisions using their real data.
 
 ---
-${responseCtxBlock}
+${responseCtxBlock}${decisionBlock}
 You have access to structured memory: deals, contacts, interactions, and recent activity.
 
 ---
@@ -529,6 +589,14 @@ Subject: [subject line]
     Do NOT say "person entity created" or expose IDs.
 
 ---
+
+20. When the DECISION ENGINE OUTPUT is present, structure your response as:
+    Decision → Why → Next step.
+    Lead with direction, not questions. Be decisive. Never hedge with "maybe" or "might".
+    Examples:
+    - "Lock that visit date with Sarah. She's the champion — in-person momentum matters. Confirm availability."
+    - "Send the follow-up now. Three days since last touch. Reference the budget conversation."
+    Do NOT just echo the decision engine output. Weave it into natural conversation.
 
 Your goal: feel like a system that knows the user, remembers everything, and helps them move forward.
 

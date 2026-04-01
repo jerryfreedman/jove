@@ -9,6 +9,8 @@ import AmbientBird from '@/components/home/AmbientBird';
 import ControlSurface from '@/components/home/ControlSurface';
 import FocusOverlay from '@/components/home/FocusOverlay';
 import CaptureOverlay from '@/components/home/CaptureOverlay';
+import FullScreenChat from '@/components/home/FullScreenChat';
+import type { ChatThread } from '@/components/home/FullScreenChat';
 import { SurfaceProvider, useSurface } from '@/components/surfaces/SurfaceManager';
 import SurfaceRenderer from '@/components/surfaces/SurfaceRenderer';
 // Logo removed — Session 4: world-first homepage, no app chrome
@@ -49,7 +51,7 @@ import {
   type ClassificationResult,
   type MessageBucket,
 } from '@/lib/chat-intelligence';
-import { renderMarkdown } from '@/lib/renderMarkdown';
+// renderMarkdown moved to FullScreenChat component (Session 15B)
 import { useMeetingStore } from '@/lib/meeting-store';
 import { detectMeetingMutation, applyMeetingMutation } from '@/lib/meeting-mutations';
 import { routeUniversalIntent } from '@/lib/universal-routing';
@@ -62,6 +64,8 @@ import {
 import { createUserTask } from '@/lib/task-persistence';
 import { useCompletedTodayCount, useWhatMattersTasks } from '@/lib/task-queries';
 import { useDailyLoop, markSessionOpen } from '@/lib/daily-loop';
+// Session 15B: Chat ingestion — capture-worthy detection
+import { ingestChatMessage } from '@/lib/chat/ingest';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -239,7 +243,6 @@ function HomePageInner() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
-  const [chatSheetVisible, setChatSheetVisible] = useState(false);
   const [chatProcessing, setChatProcessing] = useState(false);
   const [chatStreaming, setChatStreaming] = useState(false);
   const chatInputRef = useRef<HTMLInputElement>(null);
@@ -248,6 +251,9 @@ function HomePageInner() {
   const chatSaveStateRef = useRef<ChatSaveState>({ hasSaved: false });
   // ── CHAT PERSISTENCE: thread ID for durable message storage ──
   const chatThreadIdRef = useRef<string>(generateThreadId('home_chat'));
+  // ── SESSION 15B: Thread management for full-screen chat ──
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string>(chatThreadIdRef.current);
 
   // Pending message waiting for clarification resolution
   // Session 3: also holds savedInteractionId so resolution updates the existing row
@@ -268,32 +274,53 @@ function HomePageInner() {
 
   const openChat = useCallback(() => {
     setChatOpen(true);
-    // Allow DOM to mount, then animate in
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setChatSheetVisible(true);
-        setTimeout(() => chatInputRef.current?.focus(), 240);
-      });
-    });
   }, []);
 
   const closeChat = useCallback(() => {
     const hadSave = chatSaveStateRef.current.hasSaved;
-    setChatSheetVisible(false);
-    setTimeout(() => {
-      setChatOpen(false);
-      // Preserve messages so reopening shows history
-      // Phase 8: Environmental acknowledgment after real saved intelligence
-      if (hadSave) {
-        chatSaveStateRef.current.hasSaved = false;
+    setChatOpen(false);
+    // Preserve messages so reopening shows history
+    // Phase 8: Environmental acknowledgment after real saved intelligence
+    if (hadSave) {
+      chatSaveStateRef.current.hasSaved = false;
+      requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            triggerEnvironmentalAcknowledgment({ source: 'capture' });
-          });
+          triggerEnvironmentalAcknowledgment({ source: 'capture' });
         });
-      }
-    }, 260);
+      });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── SESSION 15B: Thread management ──────────────────────────
+  const handleNewThread = useCallback(() => {
+    const newThreadId = generateThreadId('home_chat');
+    chatThreadIdRef.current = newThreadId;
+    setActiveThreadId(newThreadId);
+    setChatMessages([]);
+    // Register the new thread
+    if (data?.user) {
+      registerChatThread(supabase, {
+        threadId: newThreadId,
+        userId: data.user.id,
+        sourceSurface: 'home_chat',
+      });
+    }
+    // Add to thread list
+    setChatThreads(prev => [{
+      id: newThreadId,
+      title: 'New thread',
+      createdAt: new Date().toISOString(),
+      messageCount: 0,
+    }, ...prev]);
+  }, [data, supabase]);
+
+  const handleThreadSelect = useCallback((threadId: string) => {
+    chatThreadIdRef.current = threadId;
+    setActiveThreadId(threadId);
+    // For now, clear messages when switching threads
+    // Future: load messages from DB
+    setChatMessages([]);
   }, []);
 
   // ── CHAT PERSISTENCE: helper to add + persist assistant message ──
@@ -2221,232 +2248,144 @@ function HomePageInner() {
         </div>
       )}
 
-      {/* ── CHAT BOTTOM SHEET ──────────────────────── */}
-      {chatOpen && (
-        <>
-          {/* Backdrop */}
-          <div
-            onClick={closeChat}
-            style={{
-              position:       'fixed',
-              inset:          0,
-              zIndex:         80,
-              background:     chatSheetVisible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
-              backdropFilter: chatSheetVisible ? 'blur(10px)' : 'blur(0px)',
-              WebkitBackdropFilter: chatSheetVisible ? 'blur(10px)' : 'blur(0px)',
-              transition:     'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
-            }}
-          />
-
-          {/* Sheet */}
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position:       'fixed',
-              bottom:         0,
-              left:           0,
-              right:          0,
-              zIndex:         85,
-              maxHeight:      '88dvh',
-              display:        'flex',
-              flexDirection:  'column',
-              background:     'rgba(13,17,28,0.92)',
-              backdropFilter: 'blur(40px) saturate(1.3)',
-              WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
-              borderRadius:   '22px 22px 0 0',
-              borderTop:      '0.5px solid rgba(240,235,224,0.06)',
-              boxShadow:      '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
-              transform:      chatSheetVisible ? 'translateY(0)' : 'translateY(100%)',
-              transition:     'transform 220ms cubic-bezier(.32,.72,0,1)',
-              fontFamily:     "'DM Sans', sans-serif",
-            }}
-          >
-            {/* Handle + close affordance */}
-            <div
-              style={{
-                display:        'flex',
-                justifyContent: 'center',
-                paddingTop:     12,
-                paddingBottom:  8,
-                flexShrink:     0,
-              }}
-            >
-              <div
-                onClick={closeChat}
-                style={{
-                  width:        36,
-                  height:       4,
-                  borderRadius: 2,
-                  background:   'rgba(240,235,224,0.14)',
-                  cursor:       'pointer',
-                }}
-              />
-            </div>
-
-            {/* Conversation area */}
-            <div
-              ref={chatScrollRef}
-              style={{
-                flex:         1,
-                overflowY:    'auto',
-                padding:      '0 20px 12px',
-                minHeight:    0,
-              }}
-            >
-              {/* Empty state — no separate prompt; input placeholder serves as the sole CTA */}
-              {chatMessages.length === 0 && (
-                <div style={{ paddingTop: 48, paddingBottom: 48 }} />
-              )}
-
-              {chatMessages.map((msg) => (
-                <div key={msg.id}>
-                  <div
-                    style={{
-                      display:       'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                      marginBottom:  msg.uiMode ? 4 : 10,
-                    }}
-                  >
-                    <div
+      {/* ── SESSION 15B: FULL-SCREEN CHAT ──────────────────── */}
+      <FullScreenChat
+        open={chatOpen}
+        onClose={closeChat}
+        messages={chatMessages}
+        inputValue={chatInput}
+        onInputChange={setChatInput}
+        onSubmit={handleChatSubmit}
+        processing={chatProcessing}
+        streaming={chatStreaming}
+        threads={chatThreads}
+        activeThreadId={activeThreadId}
+        onThreadSelect={handleThreadSelect}
+        onNewThread={handleNewThread}
+        placeholder={
+          dailyLoop.phase === 'morning' ? 'What\u2019s on your mind?' :
+          dailyLoop.phase === 'evening' || dailyLoop.phase === 'night' ? 'Anything to capture?' :
+          'What\u2019s going on?'
+        }
+        renderInlineUI={(msg) => (
+          <>
+            {/* ── DEAL PICKER (clarification UI) ──────────── */}
+            {msg.uiMode === 'deal_picker' && pendingClarificationRef.current && (
+              <div style={{ marginBottom: 10, paddingLeft: 4 }}>
+                <div style={{
+                  maxHeight: 160,
+                  overflowY: 'auto',
+                  marginBottom: 6,
+                }}>
+                  {(data?.allDeals ?? []).map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => handleClarificationResponse(d.id)}
+                      disabled={chatProcessing}
                       style={{
-                        maxWidth:     '80%',
-                        padding:      '10px 14px',
-                        borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                        background:   msg.role === 'user'
-                          ? 'rgba(232,160,48,0.14)'
-                          : 'rgba(240,235,224,0.06)',
-                        border:       msg.role === 'user'
-                          ? '0.5px solid rgba(232,160,48,0.18)'
-                          : '0.5px solid rgba(240,235,224,0.06)',
-                        fontSize:     14,
-                        fontWeight:   300,
-                        lineHeight:   1.55,
-                        color:        msg.role === 'user'
-                          ? 'rgba(252,246,234,0.92)'
-                          : 'rgba(240,235,224,0.72)',
+                        width:        '100%',
+                        display:      'block',
+                        textAlign:    'left',
+                        background:   'rgba(16,20,30,0.6)',
+                        border:       '0.5px solid rgba(232,160,48,0.15)',
+                        borderRadius: 10,
+                        padding:      '9px 13px',
+                        marginBottom: 4,
+                        cursor:       'pointer',
+                        fontFamily:   "'DM Sans', sans-serif",
+                        transition:   'border-color 0.15s',
                       }}
                     >
-                      {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
-                    </div>
-                  </div>
+                      <span style={{ fontSize: 13, fontWeight: 400, color: 'rgba(252,246,234,0.88)' }}>
+                        {d.name}
+                      </span>
+                      {d.accounts?.name && (
+                        <span style={{ fontSize: 12, fontWeight: 300, color: 'rgba(240,235,224,0.45)', marginLeft: 6 }}>
+                          &middot; {d.accounts.name}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => handleClarificationResponse(null)}
+                  disabled={chatProcessing}
+                  style={{
+                    background: 'none',
+                    border:     'none',
+                    color:      'rgba(240,235,224,0.36)',
+                    fontSize:   12,
+                    fontWeight: 400,
+                    cursor:     'pointer',
+                    fontFamily: "'DM Sans', sans-serif",
+                    padding:    '4px 0',
+                  }}
+                >
+                  Just save it
+                </button>
+              </div>
+            )}
 
-                  {/* ── DEAL PICKER (clarification UI) ──────────── */}
-                  {msg.uiMode === 'deal_picker' && pendingClarificationRef.current && (
-                    <div style={{ marginBottom: 10, paddingLeft: 4 }}>
-                      <div style={{
-                        maxHeight: 160,
-                        overflowY: 'auto',
-                        marginBottom: 6,
-                      }}>
-                        {(data?.allDeals ?? []).map((d) => (
-                          <button
-                            key={d.id}
-                            onClick={() => handleClarificationResponse(d.id)}
-                            disabled={chatProcessing}
-                            style={{
-                              width:        '100%',
-                              display:      'block',
-                              textAlign:    'left',
-                              background:   'rgba(16,20,30,0.6)',
-                              border:       '0.5px solid rgba(232,160,48,0.15)',
-                              borderRadius: 10,
-                              padding:      '9px 13px',
-                              marginBottom: 4,
-                              cursor:       'pointer',
-                              fontFamily:   "'DM Sans', sans-serif",
-                              transition:   'border-color 0.15s',
-                            }}
-                          >
-                            <span style={{ fontSize: 13, fontWeight: 400, color: 'rgba(252,246,234,0.88)' }}>
-                              {d.name}
-                            </span>
-                            {d.accounts?.name && (
-                              <span style={{ fontSize: 12, fontWeight: 300, color: 'rgba(240,235,224,0.45)', marginLeft: 6 }}>
-                                &middot; {d.accounts.name}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        onClick={() => handleClarificationResponse(null)}
-                        disabled={chatProcessing}
-                        style={{
-                          background: 'none',
-                          border:     'none',
-                          color:      'rgba(240,235,224,0.36)',
-                          fontSize:   12,
-                          fontWeight: 400,
-                          cursor:     'pointer',
-                          fontFamily: "'DM Sans', sans-serif",
-                          padding:    '4px 0',
-                        }}
-                      >
-                        Just save it
-                      </button>
-                    </div>
-                  )}
-
-                  {/* ── NEW DEAL CONFIRMATION ───────────────────── */}
-                  {msg.uiMode === 'new_deal_confirm' && newDealForm && (
-                    <div style={{ marginBottom: 10, paddingLeft: 4 }}>
-                      {/* Yes / No buttons */}
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                        <button
-                          onClick={() => {
-                            // Show inline form
-                            setChatMessages(prev => prev.map(m =>
-                              m.id === msg.id ? { ...m, uiMode: 'new_deal_form' } : m
-                            ));
-                          }}
-                          style={{
-                            flex:         1,
-                            padding:      '10px 0',
-                            borderRadius: 10,
-                            border:       '0.5px solid rgba(232,160,48,0.3)',
-                            background:   'rgba(232,160,48,0.1)',
-                            color:        'rgba(252,246,234,0.88)',
-                            fontSize:     13,
-                            fontWeight:   500,
-                            cursor:       'pointer',
-                            fontFamily:   "'DM Sans', sans-serif",
-                          }}
-                        >
-                          Yes, create it
-                        </button>
-                        <button
-                          onClick={async () => {
-                            // Save as general intel instead
-                            setNewDealForm(null);
-                            setChatMessages(prev => prev.map(m =>
-                              m.id === msg.id ? { ...m, uiMode: undefined } : m
-                            ));
-                            await chatSaveInteraction(newDealForm.originalText, null, 'note', {
-                              intentType: 'general_intel',
-                              routingConfidence: 1,
-                              routingMetadata: {
-                                classifierBucket: 'new_deal',
-                                routingPath: 'user_clarified',
-                                ambiguityNotes: 'User declined new deal creation, saved as general intel',
-                              },
-                            });
-                            setChatMessages(prev => [...prev, {
-                              id: `msg-${++chatIdCounter.current}`,
-                              role: 'assistant',
-                              content: 'Saved.',
-                              saved: true,
-                            }]);
-                          }}
-                          style={{
-                            flex:         1,
-                            padding:      '10px 0',
-                            borderRadius: 10,
-                            border:       '0.5px solid rgba(240,235,224,0.08)',
-                            background:   'rgba(240,235,224,0.04)',
-                            color:        'rgba(240,235,224,0.5)',
-                            fontSize:     13,
-                            fontWeight:   400,
-                            cursor:       'pointer',
+            {/* ── NEW DEAL CONFIRMATION ───────────────────── */}
+            {msg.uiMode === 'new_deal_confirm' && newDealForm && (
+              <div style={{ marginBottom: 10, paddingLeft: 4 }}>
+                {/* Yes / No buttons */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <button
+                    onClick={() => {
+                      // Show inline form
+                      setChatMessages(prev => prev.map(m =>
+                        m.id === msg.id ? { ...m, uiMode: 'new_deal_form' } : m
+                      ));
+                    }}
+                    style={{
+                      flex:         1,
+                      padding:      '10px 0',
+                      borderRadius: 10,
+                      border:       '0.5px solid rgba(232,160,48,0.3)',
+                      background:   'rgba(232,160,48,0.1)',
+                      color:        'rgba(252,246,234,0.88)',
+                      fontSize:     13,
+                      fontWeight:   500,
+                      cursor:       'pointer',
+                      fontFamily:   "'DM Sans', sans-serif",
+                    }}
+                  >
+                    Yes, create it
+                  </button>
+                  <button
+                    onClick={async () => {
+                      // Save as general intel instead
+                      setNewDealForm(null);
+                      setChatMessages(prev => prev.map(m =>
+                        m.id === msg.id ? { ...m, uiMode: undefined } : m
+                      ));
+                      await chatSaveInteraction(newDealForm.originalText, null, 'note', {
+                        intentType: 'general_intel',
+                        routingConfidence: 1,
+                        routingMetadata: {
+                          classifierBucket: 'new_deal',
+                          routingPath: 'user_clarified',
+                          ambiguityNotes: 'User declined new deal creation, saved as general intel',
+                        },
+                      });
+                      setChatMessages(prev => [...prev, {
+                        id: `msg-${++chatIdCounter.current}`,
+                        role: 'assistant',
+                        content: 'Saved.',
+                        saved: true,
+                      }]);
+                    }}
+                    style={{
+                      flex:         1,
+                      padding:      '10px 0',
+                      borderRadius: 10,
+                      border:       '0.5px solid rgba(240,235,224,0.08)',
+                      background:   'rgba(240,235,224,0.04)',
+                      color:        'rgba(240,235,224,0.5)',
+                      fontSize:     13,
+                      fontWeight:   400,
+                      cursor:       'pointer',
                             fontFamily:   "'DM Sans', sans-serif",
                           }}
                         >
@@ -2542,134 +2481,9 @@ function HomePageInner() {
                       </button>
                     </div>
                   )}
-                </div>
-              ))}
-
-              {/* Session 7: Subtle typing indicator while processing (pre-stream) */}
-              {chatProcessing && !chatStreaming && (
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'flex-start',
-                  marginBottom: 10,
-                  paddingLeft: 2,
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    gap: 4,
-                    padding: '10px 14px',
-                    borderRadius: '16px 16px 16px 4px',
-                    background: 'rgba(240,235,224,0.06)',
-                    border: '0.5px solid rgba(240,235,224,0.06)',
-                  }}>
-                    {[0, 1, 2].map(i => (
-                      <div key={i} style={{
-                        width: 5,
-                        height: 5,
-                        borderRadius: '50%',
-                        background: 'rgba(240,235,224,0.35)',
-                        animation: `typingDot 1.2s ease-in-out ${i * 0.2}s infinite`,
-                      }} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Input row */}
-            <div
-              style={{
-                flexShrink:     0,
-                padding:        '8px 16px',
-                paddingBottom:  'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-                borderTop:      '0.5px solid rgba(240,235,224,0.06)',
-              }}
-            >
-              <div
-                style={{
-                  display:      'flex',
-                  alignItems:   'center',
-                  gap:          10,
-                  background:   'rgba(16,20,30,0.55)',
-                  border:       '0.5px solid rgba(240,235,224,0.09)',
-                  borderTop:    '0.5px solid rgba(240,235,224,0.13)',
-                  borderRadius: 16,
-                  padding:      '4px 6px 4px 16px',
-                  boxShadow:    '0 1px 8px rgba(0,0,0,0.12), 0 0.5px 0 rgba(240,235,224,0.03) inset',
-                }}
-              >
-                <input
-                  ref={chatInputRef}
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleChatSubmit();
-                    }
-                    if (e.key === 'Escape') {
-                      closeChat();
-                    }
-                  }}
-                  placeholder="Tell me anything..."
-                  style={{
-                    flex:        1,
-                    background:  'transparent',
-                    border:      'none',
-                    outline:     'none',
-                    fontSize:    14,
-                    fontWeight:  300,
-                    color:       'rgba(252,246,234,0.92)',
-                    fontFamily:  "'DM Sans', sans-serif",
-                    padding:     '10px 0',
-                  }}
-                />
-                <button
-                  onClick={handleChatSubmit}
-                  disabled={!chatInput.trim() || chatProcessing || chatStreaming}
-                  style={{
-                    width:        36,
-                    height:       36,
-                    borderRadius: 12,
-                    border:       'none',
-                    background:   chatInput.trim() && !chatProcessing && !chatStreaming
-                      ? 'linear-gradient(135deg, #C87820, #E09838)'
-                      : 'rgba(255,255,255,0.04)',
-                    color:        chatInput.trim() && !chatProcessing && !chatStreaming
-                      ? 'white'
-                      : 'rgba(240,235,224,0.22)',
-                    fontSize:     16,
-                    cursor:       chatInput.trim() && !chatProcessing && !chatStreaming ? 'pointer' : 'default',
-                    display:      'flex',
-                    alignItems:   'center',
-                    justifyContent: 'center',
-                    transition:   'all 0.2s ease',
-                    flexShrink:   0,
-                    boxShadow:    chatInput.trim() && !chatProcessing && !chatStreaming
-                      ? '0 1px 6px rgba(200,120,32,0.3)'
-                      : 'none',
-                  }}
-                  aria-label="Send message"
-                >
-                  {chatProcessing || chatStreaming ? (
-                    <div style={{
-                      width: 14, height: 14,
-                      border: '1.5px solid rgba(240,235,224,0.22)',
-                      borderTopColor: 'rgba(232,160,48,0.7)',
-                      borderRadius: '50%',
-                      animation: 'chatSpin 0.7s linear infinite',
-                    }} />
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      />
 
       {/* ── FIRST VISIT OVERLAY ───────────────── */}
       {firstVisitVisible && (
