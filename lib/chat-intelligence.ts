@@ -587,18 +587,18 @@ export function getAcknowledgment(
   switch (bucket) {
     case 'existing_deal_update':
       return dealName
-        ? `Got it — added to ${dealName}.`
-        : 'Saved that.';
+        ? `Logged to ${dealName}.`
+        : 'Logged.';
     case 'meeting_context':
-      if (meetingTitle) return `Noted — saved to ${meetingTitle}.`;
-      if (dealName) return `Got it — saved for ${dealName}.`;
-      return 'Saved.';
+      if (meetingTitle) return `Logged to ${meetingTitle}.`;
+      if (dealName) return `Logged for ${dealName}.`;
+      return 'Logged.';
     case 'general_intel':
-      return 'Saved.';
+      return 'Captured.';
     case 'new_deal':
-      return 'Noted.';
+      return 'Tracked.';
     case 'email_draft':
-      return 'On it.';
+      return 'Drafting.';
     case 'question':
       return '';
   }

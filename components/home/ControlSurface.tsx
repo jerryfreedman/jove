@@ -33,6 +33,7 @@ import { useWhatMattersTasks, markTaskDone, skipTask, type DisplayTask } from '@
 import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 import { getDayPhase } from '@/lib/daily-loop';
+import { toAction } from '@/lib/intelligence/action';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -285,17 +286,17 @@ export default function ControlSurface({
     // Strongest visual emphasis. Always visible if non-empty.
     const attentionItems: SurfaceItem[] = [];
 
-    // First: overdue + due-soon tasks from DB
+    // Session 15A: Strict top 3. Action-normalized titles.
     if (!usingFallback && unifiedTasks) {
       for (const task of unifiedTasks) {
-        if (attentionItems.length >= 5) break;
+        if (attentionItems.length >= 3) break;
         const isOverdue = task.dueAt ? new Date(task.dueAt).getTime() < now.getTime() : false;
         const isDueSoon = task.dueAt ? isWithinHours(task.dueAt, 4) : false;
         // Include: overdue, due soon, or high priority (1-5)
         if (isOverdue || isDueSoon || (task.priority !== null && task.priority <= 5)) {
           attentionItems.push({
             id: `task-${task.id}`,
-            title: task.title,
+            title: toAction(task.title),
             time: formatDueAt(task.dueAt) ?? undefined,
             emphasis: isOverdue,
             onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
@@ -309,13 +310,13 @@ export default function ControlSurface({
         }
       }
     } else if (usingFallback) {
-      for (const task of legacySystemTasks.slice(0, 5)) {
-        if (attentionItems.length >= 5) break;
-        // Legacy tasks with priority <= 5 are urgent
+      for (const task of legacySystemTasks.slice(0, 3)) {
+        if (attentionItems.length >= 3) break;
+        // Legacy tasks with priority <= 8 are urgent
         if (task.priority <= 8) {
           attentionItems.push({
             id: `legacy-${task.id}`,
-            title: task.title,
+            title: toAction(task.title),
             time: task.timeRelevance ?? undefined,
             emphasis: task.priority <= 2,
             onClick: () => handleTaskAction(task.action),
@@ -334,19 +335,19 @@ export default function ControlSurface({
       }
     }
 
-    // Fill remaining attention slots with stale items needing re-engagement
-    if (attentionItems.length < 5) {
+    // Session 15A: Fill remaining attention slots (max 3 total)
+    if (attentionItems.length < 3) {
       const attentionCandidates = urgentDeals.length > 0
         ? urgentDeals
         : allDeals.filter(isNeedsAttention);
-      const remaining = 5 - attentionItems.length;
+      const remaining = 3 - attentionItems.length;
       for (const deal of attentionCandidates.slice(0, remaining)) {
         if (placed.has(`deal-${deal.id}`)) continue;
         const days = getDaysSince(deal.last_activity_at);
         attentionItems.push({
           id: `attn-${deal.id}`,
-          title: deal.name,
-          subtitle: 'needs follow-up',
+          title: toAction(`Follow up on ${deal.name}`),
+          subtitle: `${days}d without activity`,
           time: `${days}d ago`,
           emphasis: days > 14,
           onClick: () => openSurface('deal-detail', { dealId: deal.id }),
@@ -362,14 +363,14 @@ export default function ControlSurface({
     // Must feel actionable. Must be time-relevant.
     const nextItems: SurfaceItem[] = [];
 
-    // Remaining DB tasks not already in attention
+    // Session 15A: Remaining tasks, action-normalized
     if (!usingFallback && unifiedTasks) {
       for (const task of unifiedTasks) {
         if (nextItems.length >= 3) break;
         if (placed.has(`task-${task.id}`)) continue;
         nextItems.push({
           id: `task-${task.id}`,
-          title: task.title,
+          title: toAction(task.title),
           time: formatDueAt(task.dueAt) ?? undefined,
           emphasis: false,
           onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
@@ -387,7 +388,7 @@ export default function ControlSurface({
         if (placed.has(`legacy-${task.id}`)) continue;
         nextItems.push({
           id: `legacy-${task.id}`,
-          title: task.title,
+          title: toAction(task.title),
           time: task.timeRelevance ?? undefined,
           emphasis: false,
           onClick: () => handleTaskAction(task.action),
@@ -766,13 +767,12 @@ export default function ControlSurface({
     );
   };
 
-  // Session 14F: Phase-aware section labels
+  // Session 15A: Phase-aware section labels
   const phase = getDayPhase();
 
   const renderNext = () => {
     if (next.length === 0) return null;
-    // Morning: "Today" feels more grounding than "What's Next"
-    const nextLabel = phase === 'morning' ? 'Today' : labels.whatsNext;
+    const nextLabel = labels.whatsNext;
     return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.48)' }}>
@@ -900,15 +900,14 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── SESSION 14E: EMOTIONAL EMPTY STATE ─────────────────────
-  // Calm, positive, grounded. Never dead or guilt-inducing.
+  // ── SESSION 15A: ACTION-FIRST EMPTY STATE ──────────────────
   const renderEmptyState = () => {
     const mainMessage = isLowDataState
-      ? 'What\u2019s on your mind?'
-      : EMPTY_MESSAGES.get(EMPTY_MESSAGES.allClear);
+      ? 'Start here.'
+      : 'All clear.';
     const subMessage = isLowDataState
-      ? 'Add something you\u2019re working on'
-      : 'Take a breath. You\u2019ve got this.';
+      ? 'Add what you\u2019re working on'
+      : 'Nothing to act on right now.';
 
     return (
       <div

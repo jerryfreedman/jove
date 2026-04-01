@@ -103,9 +103,9 @@ export function getControlSurfaceLabels(profile: UserDomainProfile = DEFAULT_DOM
   const primary = getEntityLabel('primary', profile);
   const contact = getEntityLabel('contact', profile);
   return {
-    // Session 14D: State-surface section headers
-    needsAttention: 'Needs attention',
-    whatsNext: "What\u2019s next",
+    // Session 15A: Action-first section headers
+    needsAttention: 'Do this next',
+    whatsNext: 'Up next',
     activeItems: `Active ${primary.toLowerCase()}`,
     people: contact,
     momentum: 'Momentum',

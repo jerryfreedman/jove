@@ -1,15 +1,30 @@
 'use client';
 
-// ── SESSION 13A: SUN FOCUS OVERLAY ──────────────────────────
-// Instant clarity moment — replaces briefing navigation.
-// Shows 1–3 highest priority items. No scrolling. No categories.
-// Tap outside to close. Feels instant and obvious.
+// ── SESSION 15A: SUN DECISION SURFACE ──────────────────────────
+// Replaces the old focus overlay with a decision surface.
+//
+// Structure:
+//   [Decision headline]
+//   • key interpretation insight
+//   • key risk or gap
+//   Next:
+//   → action 1
+//   → action 2
+//
+// Rules:
+//   - no paragraphs
+//   - max ~5 lines
+//   - must feel like a recommendation, not a recap
+//   - NEVER echo input
+//   - ALWAYS recommend a direction
 
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, TRANSITIONS } from '@/lib/design-system';
 import { useWhatMattersTasks } from '@/lib/task-queries';
 import { useTaskEngine } from '@/lib/task-engine';
 import { getDayPhase } from '@/lib/daily-loop';
+import { decideSunOutput, type SunDecision } from '@/lib/intelligence/decide';
+import { toAction } from '@/lib/intelligence/action';
 import type { DealRow } from '@/lib/types';
 
 // ── TYPES ──────────────────────────────────────────────────
@@ -22,40 +37,6 @@ interface FocusOverlayProps {
   userId: string | null;
   urgentDeals: DealWithAccount[];
   allDeals: DealWithAccount[];
-}
-
-interface FocusItem {
-  id: string;
-  title: string;
-  time?: string;
-}
-
-// ── TIME FORMATTING (compact) ──────────────────────────────
-
-function formatFocusTime(dueAt: string | null): string | undefined {
-  if (!dueAt) return undefined;
-  const now = new Date();
-  const due = new Date(dueAt);
-  const diffMs = due.getTime() - now.getTime();
-  const diffMin = Math.round(diffMs / 60000);
-
-  if (diffMin < -60) return 'overdue';
-  if (diffMin < 0) return 'overdue';
-  if (diffMin === 0) return 'now';
-  if (diffMin < 60) return `${diffMin}m`;
-  const hours = Math.round(diffMin / 60);
-  if (hours < 24) return `${hours}h`;
-
-  // Today / tomorrow
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
-  if (due <= todayEnd) return 'today';
-
-  const tomorrowEnd = new Date(todayEnd);
-  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
-  if (due <= tomorrowEnd) return 'tomorrow';
-
-  return undefined;
 }
 
 // ── COMPONENT ──────────────────────────────────────────────
@@ -71,7 +52,7 @@ export default function FocusOverlay({
   const [visible, setVisible] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
 
-  // Session 13C: One-time "Focus on this." hint — shown only on very first sun tap
+  // Session 13C: One-time hint
   const [showFocusHint, setShowFocusHint] = useState(false);
   const focusHintShownRef = useRef(false);
 
@@ -79,7 +60,6 @@ export default function FocusOverlay({
   useEffect(() => {
     if (open) {
       setVisible(true);
-      // Session 13C: Check if this is the first-ever sun tap
       if (!focusHintShownRef.current) {
         const hasSeenFocus = typeof window !== 'undefined'
           ? localStorage.getItem('jove_sun_first_tap') === 'true'
@@ -90,13 +70,11 @@ export default function FocusOverlay({
           if (typeof window !== 'undefined') {
             localStorage.setItem('jove_sun_first_tap', 'true');
           }
-          // Auto-hide after 2.5s
           setTimeout(() => setShowFocusHint(false), 2500);
         } else {
           focusHintShownRef.current = true;
         }
       }
-      // Next frame: trigger CSS transition
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setAnimateIn(true);
@@ -111,30 +89,31 @@ export default function FocusOverlay({
   }, [open]);
 
   // ── TASK DATA ───────────────────────────────────────────
-  // Reuse What Matters query — strict max 3
   const { tasks: dbTasks } = useWhatMattersTasks(userId, 3);
   const legacyTasks = useTaskEngine(allDeals);
 
-  // ── BUILD FOCUS ITEMS (max 3, strict) ───────────────────
-  const focusItems = useMemo((): FocusItem[] => {
-    const items: FocusItem[] = [];
+  // ── BUILD DECISION SURFACE ─────────────────────────────
+  const sunDecision = useMemo((): SunDecision | null => {
+    // Gather items for the decision engine
+    const items: Array<{ title: string; subtitle?: string; time?: string; nextAction?: string }> = [];
 
     // Primary: DB-backed tasks
     if (dbTasks.length > 0) {
       for (const task of dbTasks.slice(0, 3)) {
         items.push({
-          id: task.id,
           title: task.title,
-          time: formatFocusTime(task.dueAt),
+          time: formatDecisionTime(task.dueAt),
+          nextAction: task.title, // Task title IS the action
         });
       }
     } else {
       // Fallback: legacy system tasks
       for (const task of legacyTasks.slice(0, 3)) {
         items.push({
-          id: task.id,
           title: task.title,
+          subtitle: task.subtitle ?? undefined,
           time: task.timeRelevance ?? undefined,
+          nextAction: task.title,
         });
       }
     }
@@ -143,13 +122,13 @@ export default function FocusOverlay({
     if (items.length === 0) {
       for (const deal of urgentDeals.slice(0, 2)) {
         items.push({
-          id: deal.id,
           title: deal.name,
+          nextAction: deal.next_action ?? undefined,
         });
       }
     }
 
-    return items.slice(0, 3);
+    return decideSunOutput(items);
   }, [dbTasks, legacyTasks, urgentDeals]);
 
   // ── CLOSE ON BACKDROP TAP ───────────────────────────────
@@ -162,9 +141,9 @@ export default function FocusOverlay({
   // ── RENDER ──────────────────────────────────────────────
   if (!visible) return null;
 
-  const isEmpty = focusItems.length === 0;
+  const isEmpty = !sunDecision;
 
-  // Session 14F: Phase-aware empty message
+  // Phase-aware empty state
   const phase = getDayPhase();
   const emptyTitle = phase === 'evening' || phase === 'night'
     ? 'You\u2019re done.'
@@ -197,9 +176,9 @@ export default function FocusOverlay({
       {/* ── GLASS CONTAINER ──────────────────────────── */}
       <div
         style={{
-          minWidth: 240,
-          maxWidth: 320,
-          padding: isEmpty ? '28px 32px' : '24px 28px',
+          minWidth: 260,
+          maxWidth: 340,
+          padding: isEmpty ? '28px 32px' : '22px 26px 20px',
           background: 'rgba(20,24,32,0.72)',
           backdropFilter: 'blur(32px)',
           WebkitBackdropFilter: 'blur(32px)',
@@ -210,10 +189,10 @@ export default function FocusOverlay({
           transition: TRANSITIONS.sheet,
           display: 'flex',
           flexDirection: 'column',
-          gap: isEmpty ? 0 : 14,
+          gap: 0,
         }}
       >
-        {/* Session 13C: One-time focus hint — subtle reinforcement */}
+        {/* One-time focus hint */}
         {showFocusHint && (
           <div
             style={{
@@ -223,12 +202,12 @@ export default function FocusOverlay({
               color: 'rgba(240,235,224,0.32)',
               textAlign: 'center',
               letterSpacing: '0.3px',
-              marginBottom: isEmpty ? 0 : -4,
+              marginBottom: 6,
               opacity: showFocusHint ? 1 : 0,
               transition: 'opacity 0.6s ease',
             }}
           >
-            Focus on this.
+            Here&apos;s what to do.
           </div>
         )}
 
@@ -261,55 +240,132 @@ export default function FocusOverlay({
             </div>
           </div>
         ) : (
-          /* ── FOCUS ITEMS ──────────────────────────── */
-          focusItems.map((item, i) => (
+          /* ── DECISION SURFACE ─────────────────────── */
+          <>
+            {/* Decision headline */}
             <div
-              key={item.id}
-              className="jove-tap"
               style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                justifyContent: 'space-between',
-                gap: 12,
+                fontFamily: FONTS.serif,
+                fontSize: 18,
+                fontWeight: 400,
+                color: COLORS.textPrimary,
+                letterSpacing: '-0.01em',
+                lineHeight: 1.3,
                 opacity: animateIn ? 1 : 0,
                 transform: animateIn ? 'translateY(0)' : 'translateY(4px)',
-                transition: `opacity ${TIMING.STANDARD}ms ${EASING.gentle} ${60 + i * 40}ms, transform ${TIMING.STANDARD}ms ${EASING.gentle} ${60 + i * 40}ms`,
+                transition: `opacity ${TIMING.STANDARD}ms ${EASING.gentle} 40ms, transform ${TIMING.STANDARD}ms ${EASING.gentle} 40ms`,
               }}
             >
-              <span
+              {sunDecision.headline}
+            </div>
+
+            {/* Insight + gap bullets */}
+            <div
+              style={{
+                marginTop: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                opacity: animateIn ? 1 : 0,
+                transform: animateIn ? 'translateY(0)' : 'translateY(4px)',
+                transition: `opacity ${TIMING.STANDARD}ms ${EASING.gentle} 80ms, transform ${TIMING.STANDARD}ms ${EASING.gentle} 80ms`,
+              }}
+            >
+              <div
                 style={{
-                  fontFamily: FONTS.serif,
-                  fontSize: 18,
+                  fontFamily: FONTS.sans,
+                  fontSize: 12,
                   fontWeight: 400,
-                  color: COLORS.textPrimary,
-                  letterSpacing: '-0.01em',
-                  lineHeight: 1.35,
-                  flex: 1,
-                  minWidth: 0,
+                  color: 'rgba(240,235,224,0.50)',
+                  lineHeight: 1.4,
                 }}
               >
-                {item.title}
-              </span>
-              {item.time && (
-                <span
+                &bull; {sunDecision.insight}
+              </div>
+              <div
+                style={{
+                  fontFamily: FONTS.sans,
+                  fontSize: 12,
+                  fontWeight: 400,
+                  color: 'rgba(240,235,224,0.36)',
+                  lineHeight: 1.4,
+                }}
+              >
+                &bull; {sunDecision.gap}
+              </div>
+            </div>
+
+            {/* Next actions */}
+            {sunDecision.nextActions.length > 0 && (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  opacity: animateIn ? 1 : 0,
+                  transform: animateIn ? 'translateY(0)' : 'translateY(4px)',
+                  transition: `opacity ${TIMING.STANDARD}ms ${EASING.gentle} 120ms, transform ${TIMING.STANDARD}ms ${EASING.gentle} 120ms`,
+                }}
+              >
+                <div
                   style={{
                     fontFamily: FONTS.sans,
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: item.time === 'overdue'
-                      ? COLORS.amber
-                      : 'rgba(240,235,224,0.40)',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '1.2px',
+                    color: 'rgba(240,235,224,0.28)',
+                    marginBottom: 2,
                   }}
                 >
-                  {item.time}
-                </span>
-              )}
-            </div>
-          ))
+                  Next
+                </div>
+                {sunDecision.nextActions.map((action, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      fontFamily: FONTS.sans,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: COLORS.textPrimary,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    &rarr; {action}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   );
+}
+
+// ── HELPERS ──────────────────────────────────────────────
+
+function formatDecisionTime(dueAt: string | null): string | undefined {
+  if (!dueAt) return undefined;
+  const now = new Date();
+  const due = new Date(dueAt);
+  const diffMs = due.getTime() - now.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+
+  if (diffMin < 0) return 'overdue';
+  if (diffMin === 0) return 'now';
+  if (diffMin < 60) return `${diffMin}m`;
+  const hours = Math.round(diffMin / 60);
+  if (hours < 24) return `${hours}h`;
+
+  const todayEnd = new Date(now);
+  todayEnd.setHours(23, 59, 59, 999);
+  if (due <= todayEnd) return 'today';
+
+  const tomorrowEnd = new Date(todayEnd);
+  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+  if (due <= tomorrowEnd) return 'tomorrow';
+
+  return undefined;
 }

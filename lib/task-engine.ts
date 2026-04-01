@@ -11,6 +11,7 @@ import type { Meeting } from './meeting-types';
 import type { DealRow } from './types';
 import type { SystemTask, TaskAction } from './task-types';
 import { PULSE_CHECK_DEFAULT_DAYS } from './constants';
+import { toAction } from './intelligence/action';
 
 // ── CONFIGURATION ───────────────────────────────────────────
 
@@ -79,7 +80,7 @@ export function generateMeetingTasks(meetings: Meeting[]): SystemTask[] {
       tasks.push({
         id: `prep_${meeting.id}`,
         type: 'meeting_prep',
-        title: `Prep for ${meeting.title}`,
+        title: toAction(`Prep for ${meeting.title}`),
         subtitle: meeting.dealId ? 'Review deal context' : 'Review briefing',
         contextId: meeting.id,
         priority,
@@ -112,8 +113,8 @@ export function generateMeetingTasks(meetings: Meeting[]): SystemTask[] {
       tasks.push({
         id: `followup_${meeting.id}`,
         type: 'meeting_followup',
-        title: `Log notes from ${meeting.title}`,
-        subtitle: 'Capture while it\'s fresh',
+        title: toAction(`Log notes from ${meeting.title}`),
+        subtitle: 'Capture while fresh',
         contextId: meeting.id,
         priority,
         timeRelevance: formatTimeSince(msSince),
@@ -148,8 +149,8 @@ export function generateDealTasks(deals: DealRow[]): SystemTask[] {
       tasks.push({
         id: `nextstep_${deal.id}`,
         type: 'deal_next_step',
-        title: `Define next step for ${deal.name}`,
-        subtitle: 'no action set',
+        title: toAction(`Define next step for ${deal.name}`),
+        subtitle: 'No action set',
         contextId: deal.id,
         priority,
         action: { kind: 'open_deal', dealId: deal.id },
@@ -166,8 +167,8 @@ export function generateDealTasks(deals: DealRow[]): SystemTask[] {
       tasks.push({
         id: `reengage_${deal.id}`,
         type: 'reengage',
-        title: `Re-engage ${deal.name}`,
-        subtitle: `${daysSince}d since last activity`,
+        title: toAction(`Re-engage ${deal.name}`),
+        subtitle: `${daysSince}d without activity`,
         contextId: deal.id,
         priority,
         timeRelevance: `${daysSince}d ago`,
