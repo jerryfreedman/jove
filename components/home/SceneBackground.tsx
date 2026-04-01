@@ -7,6 +7,7 @@ import {
   getScenePair,
   blendScenes,
 } from '@/lib/scene-interpolation';
+import { initSolarTime, isSolarInitialized } from '@/lib/solar-time';
 import type { SceneConfig } from '@/lib/design-system';
 
 // Fixed star positions — generated once, never changes
@@ -136,6 +137,21 @@ interface SceneBackgroundProps {
 }
 
 export default function SceneBackground({ onCelestialPosition }: SceneBackgroundProps) {
+  // ── Initialize solar time system on mount ──────────────
+  // Non-blocking: requests geolocation, computes solar anchors,
+  // then triggers a re-render so scene boundaries update.
+  // Falls back to fixed-hour boundaries if location unavailable.
+  const [, setSolarReady] = useState(false);
+
+  useEffect(() => {
+    if (!isSolarInitialized()) {
+      initSolarTime().then(() => {
+        setSolarReady(true);     // trigger re-render with solar boundaries
+        setFh(getFractionalHour()); // recompute scene with new boundaries
+      });
+    }
+  }, []);
+
   // ── Real-time state: update every 30 seconds ──────────
   const [fh, setFh] = useState(getFractionalHour);
 

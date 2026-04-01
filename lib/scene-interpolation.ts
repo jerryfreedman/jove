@@ -3,24 +3,20 @@
 // Smooth, continuous transitions between time-of-day scenes.
 // Interpolates gradients, colors, and numeric properties
 // so the environment flows through time instead of snapping.
+//
+// Session 2: Scene boundaries are now dynamic — driven by real
+// solar timing when location is available, fixed-hour fallback
+// when it's not. The interpolation logic is unchanged.
 // ============================================================
 
 import { type SceneConfig, getSceneForHour } from './design-system';
+import { getActiveBoundaries, checkDayRollover, FIXED_BOUNDARIES } from './solar-time';
 
 // ── SCENE SCHEDULE ──────────────────────────────────────────
-// Each entry defines the hour a scene BEGINS.
-// Order matters — must be chronological across a 24h cycle.
-// This mirrors the boundaries in getSceneForHour exactly.
-const SCENE_BOUNDARIES = [
-  { hour: 0,  label: 'deepNight'  },
-  { hour: 5,  label: 'preDawn'    },
-  { hour: 6,  label: 'sunrise'    },
-  { hour: 8,  label: 'morning'    },
-  { hour: 11, label: 'midday'     },
-  { hour: 16, label: 'goldenHour' },
-  { hour: 19, label: 'dusk'       },
-  { hour: 22, label: 'deepNight2' },
-] as const;
+// Fixed boundaries preserved as reference / fallback.
+// Active boundaries come from getActiveBoundaries() which
+// returns solar-derived boundaries when available.
+const SCENE_BOUNDARIES_FIXED = FIXED_BOUNDARIES;
 
 // ── TIME NORMALIZATION ──────────────────────────────────────
 /** Returns fractional hour: 14.5 = 2:30 PM */
@@ -38,39 +34,62 @@ type ScenePair = {
   toHour: number;      // boundary hour of "to" scene
 };
 
+// ── LABEL → FIXED HOUR MAPPING ─────────────────────────────
+// Maps scene labels to their original fixed hours so that
+// getSceneForHour() always receives the canonical hour for
+// each scene identity, regardless of when the solar boundary
+// actually occurs.
+const LABEL_TO_FIXED_HOUR: Record<string, number> = {};
+for (const b of SCENE_BOUNDARIES_FIXED) {
+  LABEL_TO_FIXED_HOUR[b.label] = b.hour;
+}
+
 /**
  * Given a fractional hour, determine the two bounding scenes
  * and how far we are between them (0 = fully "from", 1 = fully "to").
+ *
+ * Uses solar-derived boundaries when available, fixed fallback otherwise.
+ * Checks for day rollover to recompute solar anchors on date change.
  */
 export function getScenePair(fractionalHour: number): ScenePair {
+  // Check if date changed — recompute solar anchors if needed
+  checkDayRollover();
+
+  const boundaries = getActiveBoundaries();
   const fh = ((fractionalHour % 24) + 24) % 24; // normalize to 0..24
 
   // Find which boundary we're in
-  let fromIdx = SCENE_BOUNDARIES.length - 1; // default: last boundary
-  for (let i = SCENE_BOUNDARIES.length - 1; i >= 0; i--) {
-    if (fh >= SCENE_BOUNDARIES[i].hour) {
+  let fromIdx = boundaries.length - 1; // default: last boundary
+  for (let i = boundaries.length - 1; i >= 0; i--) {
+    if (fh >= boundaries[i].hour) {
       fromIdx = i;
       break;
     }
   }
 
-  const toIdx = (fromIdx + 1) % SCENE_BOUNDARIES.length;
-  const fromHour = SCENE_BOUNDARIES[fromIdx].hour;
-  const toHour = SCENE_BOUNDARIES[toIdx].hour;
+  const toIdx = (fromIdx + 1) % boundaries.length;
+  const fromBoundary = boundaries[fromIdx];
+  const toBoundary = boundaries[toIdx];
 
   // Compute duration of this scene segment (handle midnight wrap)
-  const duration = toHour > fromHour
-    ? toHour - fromHour
-    : (24 - fromHour) + toHour;
+  const duration = toBoundary.hour > fromBoundary.hour
+    ? toBoundary.hour - fromBoundary.hour
+    : (24 - fromBoundary.hour) + toBoundary.hour;
 
   // How far into this segment are we?
-  const elapsed = fh >= fromHour
-    ? fh - fromHour
-    : (24 - fromHour) + fh;
+  const elapsed = fh >= fromBoundary.hour
+    ? fh - fromBoundary.hour
+    : (24 - fromBoundary.hour) + fh;
 
   const t = Math.max(0, Math.min(1, elapsed / duration));
 
-  // Get the actual SceneConfig for each boundary hour
+  // Map scene labels to their canonical fixed hours for getSceneForHour().
+  // This ensures we always get the correct scene CONFIG (visuals)
+  // even when the boundary TIMING has shifted due to solar data.
+  const fromHour = LABEL_TO_FIXED_HOUR[fromBoundary.label] ?? fromBoundary.hour;
+  const toHour = LABEL_TO_FIXED_HOUR[toBoundary.label] ?? toBoundary.hour;
+
+  // Get the actual SceneConfig for each scene identity
   const from = getSceneForHour(fromHour);
   const to = getSceneForHour(toHour);
 
