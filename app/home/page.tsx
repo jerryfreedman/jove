@@ -265,7 +265,7 @@ function HomePageInner() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setChatSheetVisible(true);
-        setTimeout(() => chatInputRef.current?.focus(), 320);
+        setTimeout(() => chatInputRef.current?.focus(), 240);
       });
     });
   }, []);
@@ -285,7 +285,7 @@ function HomePageInner() {
           });
         });
       }
-    }, 340);
+    }, 260);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1816,7 +1816,7 @@ function HomePageInner() {
         }}
       />
 
-      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: page-wide brightness lift ── */}
+      {/* ── ENVIRONMENTAL ACKNOWLEDGMENT: full-surface brightness lift ── */}
       <div
         key={`ack-bright-${ackToken}`}
         style={{
@@ -2252,11 +2252,11 @@ function HomePageInner() {
             style={{
               position:       'fixed',
               inset:          0,
-              zIndex:         290,
-              background:     chatSheetVisible ? 'rgba(4,8,14,0.55)' : 'rgba(4,8,14,0)',
-              backdropFilter: chatSheetVisible ? 'blur(14px)' : 'blur(0px)',
-              WebkitBackdropFilter: chatSheetVisible ? 'blur(14px)' : 'blur(0px)',
-              transition:     'background 0.32s ease, backdrop-filter 0.32s ease, -webkit-backdrop-filter 0.32s ease',
+              zIndex:         80,
+              background:     chatSheetVisible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
+              backdropFilter: chatSheetVisible ? 'blur(10px)' : 'blur(0px)',
+              WebkitBackdropFilter: chatSheetVisible ? 'blur(10px)' : 'blur(0px)',
+              transition:     'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
             }}
           />
 
@@ -2268,7 +2268,7 @@ function HomePageInner() {
               bottom:         0,
               left:           0,
               right:          0,
-              zIndex:         300,
+              zIndex:         85,
               maxHeight:      '88dvh',
               display:        'flex',
               flexDirection:  'column',
@@ -2276,10 +2276,10 @@ function HomePageInner() {
               backdropFilter: 'blur(40px) saturate(1.3)',
               WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
               borderRadius:   '22px 22px 0 0',
-              borderTop:      '0.5px solid rgba(240,235,224,0.10)',
-              boxShadow:      '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.04) inset',
+              borderTop:      '0.5px solid rgba(240,235,224,0.06)',
+              boxShadow:      '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
               transform:      chatSheetVisible ? 'translateY(0)' : 'translateY(100%)',
-              transition:     'transform 0.32s cubic-bezier(.32,.72,0,1)',
+              transition:     'transform 220ms cubic-bezier(.32,.72,0,1)',
               fontFamily:     "'DM Sans', sans-serif",
             }}
           >
@@ -2698,7 +2698,7 @@ function HomePageInner() {
         <div style={{
           position:       'fixed',
           inset:          0,
-          zIndex:         200,
+          zIndex:         110,
           background:     '#060a12',
           display:        'flex',
           alignItems:     'center',
@@ -2762,10 +2762,10 @@ function HomePageInner() {
             style={{
               position:       'fixed',
               inset:          0,
-              zIndex:         290,
-              background:     'rgba(13,15,18,0.6)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
+              zIndex:         60,
+              background:     'rgba(6,10,18,0.38)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
             }}
           />
 
@@ -2784,12 +2784,14 @@ function HomePageInner() {
               top:            '50%',
               left:           '50%',
               transform:      'translate(-50%, -50%)',
-              zIndex:         300,
+              zIndex:         65,
               width:          'calc(100% - 48px)',
               maxWidth:       340,
-              background:     '#0f1420',
-              borderRadius:   18,
-              border:         '0.5px solid rgba(232,160,48,0.18)',
+              background:     'rgba(20,24,32,0.72)',
+              backdropFilter: 'blur(32px)',
+              WebkitBackdropFilter: 'blur(32px)',
+              borderRadius:   22,
+              border:         '0.5px solid rgba(232,160,48,0.10)',
               padding:        '22px 20px 18px',
               fontFamily:     "'DM Sans', sans-serif",
             }}

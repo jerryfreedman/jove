@@ -602,7 +602,7 @@ export default function DealDetailPage() {
       height:        '100dvh',
       overflow:      'hidden',
       fontFamily:    "'DM Sans', sans-serif",
-      animation:     'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      animation:     'surfaceReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
       background:    '#F7F3EC',
     }}>
 
@@ -1575,7 +1575,7 @@ export default function DealDetailPage() {
           style={{
             position:      'fixed',
             inset:         0,
-            zIndex:        290,
+            zIndex:        86,
             background:    'rgba(26,20,16,0.4)',
             backdropFilter:'blur(4px)',
           }}
@@ -1585,7 +1585,7 @@ export default function DealDetailPage() {
           bottom:       0,
           left:         '50%',
           transform:    'translateX(-50%)',
-          zIndex:       300,
+          zIndex:       87,
           width:        '100%',
           background:   '#F7F3EC',
           borderTop:    '0.5px solid rgba(200,160,80,0.3)',
@@ -1718,7 +1718,7 @@ export default function DealDetailPage() {
       <div style={{
         position:   'fixed',
         inset:       0,
-        zIndex:      150,
+        zIndex:      88,
         background: '#F7F3EC',
         display:    'flex',
         flexDirection: 'column',

@@ -1502,7 +1502,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           style={{
             position:      'fixed',
             inset:         0,
-            zIndex:        290,
+            zIndex:        86,
             background:    'rgba(0,0,0,0.4)',
             backdropFilter:'blur(4px)',
           }}
@@ -1512,7 +1512,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           bottom:       0,
           left:         '50%',
           transform:    'translateX(-50%)',
-          zIndex:       300,
+          zIndex:       87,
           width:        '100%',
           background:   'rgba(26,32,44,0.95)',
           borderTop:    '0.5px solid rgba(200,160,80,0.3)',
@@ -1634,7 +1634,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
       <div style={{
         position:   'fixed',
         inset:       0,
-        zIndex:      150,
+        zIndex:      88,
         background: 'rgba(26,32,44,0.95)',
         display:    'flex',
         flexDirection: 'column',

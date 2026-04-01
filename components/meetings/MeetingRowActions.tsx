@@ -120,7 +120,7 @@ export default function MeetingRowActions({
             position: 'absolute',
             right: 0,
             top: 'calc(100% + 4px)',
-            zIndex: 300,
+            zIndex: 87,
             background: 'rgba(18,22,30,0.96)',
             backdropFilter: 'blur(24px)',
             WebkitBackdropFilter: 'blur(24px)',

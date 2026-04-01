@@ -104,7 +104,7 @@ export default function FocusOverlay({
     } else {
       setAnimateIn(false);
       setShowFocusHint(false);
-      const timer = setTimeout(() => setVisible(false), 200);
+      const timer = setTimeout(() => setVisible(false), 240);
       return () => clearTimeout(timer);
     }
   }, [open]);
@@ -174,11 +174,11 @@ export default function FocusOverlay({
         alignItems: 'center',
         justifyContent: 'center',
         background: animateIn
-          ? 'rgba(6,10,18,0.15)'
+          ? 'rgba(6,10,18,0.38)'
           : 'rgba(6,10,18,0)',
-        backdropFilter: animateIn ? 'blur(6px)' : 'blur(0px)',
-        WebkitBackdropFilter: animateIn ? 'blur(6px)' : 'blur(0px)',
-        transition: 'background 200ms ease, backdrop-filter 200ms ease, -webkit-backdrop-filter 200ms ease',
+        backdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
+        WebkitBackdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
+        transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
         WebkitTapHighlightColor: 'transparent',
       }}
     >
@@ -191,11 +191,11 @@ export default function FocusOverlay({
           background: 'rgba(20,24,32,0.72)',
           backdropFilter: 'blur(32px)',
           WebkitBackdropFilter: 'blur(32px)',
-          border: '0.5px solid rgba(240,235,224,0.08)',
-          borderRadius: 20,
-          transform: animateIn ? 'scale(1)' : 'scale(0.96)',
+          border: '0.5px solid rgba(240,235,224,0.06)',
+          borderRadius: 22,
+          transform: animateIn ? 'scale(1)' : 'scale(0.97)',
           opacity: animateIn ? 1 : 0,
-          transition: 'transform 200ms ease, opacity 180ms ease',
+          transition: 'transform 200ms cubic-bezier(.32,.72,0,1), opacity 200ms ease',
           display: 'flex',
           flexDirection: 'column',
           gap: isEmpty ? 0 : 14,

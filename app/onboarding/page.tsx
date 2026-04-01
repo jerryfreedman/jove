@@ -77,7 +77,7 @@ export default function OnboardingPage() {
       <div
         className="absolute inset-0 flex flex-col items-center justify-center"
         style={{
-          zIndex:     100,
+          zIndex:     105,
           background: 'rgba(13,15,18,0.92)',
           opacity:    readyFadingOut ? 0 : (visible ? 1 : 1),
           transition: 'opacity 0.6s ease',

@@ -108,7 +108,7 @@ export default function SpotlightTour({
 
   const tooltipStyle: React.CSSProperties = {
     position: 'fixed',
-    zIndex: 102,
+    zIndex: 107,
     width: tooltipWidth,
     left: tooltipLeft,
     background: '#1A1E28',
@@ -147,7 +147,7 @@ export default function SpotlightTour({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 100,
+          zIndex: 105,
           background: `radial-gradient(circle ${r}px at ${cx}px ${cy}px, transparent 0%, transparent ${r}px, rgba(0,0,0,0.78) ${r + 20}px)`,
         }}
         onClick={handleGotIt}
@@ -157,7 +157,7 @@ export default function SpotlightTour({
       <div
         style={{
           position: 'fixed',
-          zIndex: 101,
+          zIndex: 106,
           left: rect.left - padding,
           top: rect.top - padding,
           width: rect.width + padding * 2,

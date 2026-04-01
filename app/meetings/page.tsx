@@ -323,7 +323,7 @@ function MeetingsPageInner() {
       height:      '100dvh',
       overflow:    'hidden',
       fontFamily:  "'DM Sans', sans-serif",
-      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      animation:   'surfaceReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
       {/* Header */}
       <div style={{
@@ -608,7 +608,7 @@ function MeetingsPageInner() {
           <div
             onClick={() => setShowAdd(false)}
             style={{
-              position: 'fixed', inset: 0, zIndex: 290,
+              position: 'fixed', inset: 0, zIndex: 86,
               background: 'rgba(26,20,16,0.4)',
               backdropFilter: 'blur(4px)',
             }}
@@ -616,7 +616,7 @@ function MeetingsPageInner() {
           <div style={{
             position:     'fixed', bottom: 0,
             left:         '50%', transform: 'translateX(-50%)',
-            zIndex:       300, width: '100%',
+            zIndex:       87, width: '100%',
             background:   '#F7F3EC',
             borderTop:    '0.5px solid rgba(200,160,80,0.3)',
             borderRadius: '22px 22px 0 0',
@@ -862,7 +862,7 @@ function MeetingEditSheet({
       <div
         onClick={onClose}
         style={{
-          position: 'fixed', inset: 0, zIndex: 290,
+          position: 'fixed', inset: 0, zIndex: 86,
           background: 'rgba(26,20,16,0.4)',
           backdropFilter: 'blur(4px)',
           opacity: visible ? 1 : 0,
@@ -876,7 +876,7 @@ function MeetingEditSheet({
           ? 'translateX(-50%) translateY(0)'
           : 'translateX(-50%) translateY(100%)',
         transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
-        zIndex: 300, width: '100%',
+        zIndex: 87, width: '100%',
         background: '#F7F3EC',
         borderTop: '0.5px solid rgba(200,160,80,0.3)',
         borderRadius: '22px 22px 0 0',

@@ -132,7 +132,7 @@ export default function PrepPage() {
       height: '100dvh',
       overflow: 'hidden',
       fontFamily: FONTS.sans,
-      animation: 'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      animation: 'surfaceReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
 
       {/* Zone 1: Header */}

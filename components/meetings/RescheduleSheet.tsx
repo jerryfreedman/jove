@@ -112,7 +112,7 @@ export default function RescheduleSheet({
 
   const handleClose = useCallback(() => {
     setVisible(false);
-    setTimeout(onClose, 280);
+    setTimeout(onClose, 260);
   }, [onClose]);
 
   const handleQuickPick = useCallback(
@@ -143,9 +143,11 @@ export default function RescheduleSheet({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 400,
-          background: visible ? 'rgba(4,8,14,0.50)' : 'rgba(4,8,14,0)',
-          transition: 'background 0.26s ease',
+          zIndex: 95,
+          background: visible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
+          backdropFilter: visible ? 'blur(10px)' : 'blur(0px)',
+          WebkitBackdropFilter: visible ? 'blur(10px)' : 'blur(0px)',
+          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
         }}
       />
 
@@ -157,16 +159,16 @@ export default function RescheduleSheet({
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 405,
+          zIndex: 100,
           background:
             'linear-gradient(180deg, rgba(18,22,30,0.96) 0%, rgba(14,17,24,0.98) 100%)',
           backdropFilter: 'blur(40px) saturate(1.3)',
           WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
-          borderRadius: '20px 20px 0 0',
-          borderTop: '0.5px solid rgba(240,235,224,0.10)',
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.28)',
+          borderRadius: '22px 22px 0 0',
+          borderTop: '0.5px solid rgba(240,235,224,0.06)',
+          boxShadow: '0 -4px 24px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
           transform: visible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 0.28s cubic-bezier(.32,.72,0,1)',
+          transition: 'transform 220ms cubic-bezier(.32,.72,0,1)',
           fontFamily: FONTS.sans,
           paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
         }}

@@ -128,12 +128,11 @@ export default function CaptureOverlay({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 290,
-          background: 'rgba(13,15,18,0.45)',
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)',
-          opacity: animateIn ? 1 : 0,
-          transition: 'opacity 0.2s ease',
+          zIndex: 60,
+          background: animateIn ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
+          backdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
+          WebkitBackdropFilter: animateIn ? 'blur(10px)' : 'blur(0px)',
+          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
         }}
       />
 
@@ -147,20 +146,20 @@ export default function CaptureOverlay({
           transform: animateIn
             ? 'translate(-50%, 0) scale(1)'
             : 'translate(-50%, 8px) scale(0.97)',
-          zIndex: 300,
+          zIndex: 65,
           width: 'calc(100% - 48px)',
           maxWidth: 360,
           // Glass container
-          background: 'rgba(15,20,32,0.82)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderRadius: 16,
-          border: '0.5px solid rgba(232,160,48,0.12)',
+          background: 'rgba(20,24,32,0.72)',
+          backdropFilter: 'blur(32px)',
+          WebkitBackdropFilter: 'blur(32px)',
+          borderRadius: 22,
+          border: '0.5px solid rgba(232,160,48,0.10)',
           padding: '16px 16px 14px',
           fontFamily: "'DM Sans', sans-serif",
           opacity: animateIn ? 1 : 0,
-          transition: 'all 0.18s ease',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          transition: 'transform 200ms cubic-bezier(.32,.72,0,1), opacity 200ms ease',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
         }}
       >
         {/* ── Confirmation state ──────────────────────── */}

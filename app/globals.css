@@ -24,7 +24,7 @@ body {
   margin: 0;
 }
 
-@keyframes pageReveal {
+@keyframes surfaceReveal {
   from {
     opacity: 0;
     transform: translateY(18px);
@@ -35,7 +35,7 @@ body {
   }
 }
 
-@keyframes pageFadeIn {
+@keyframes surfaceFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }

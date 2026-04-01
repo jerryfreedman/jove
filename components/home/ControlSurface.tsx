@@ -144,12 +144,12 @@ export default function ControlSurface({
 
   const handleClose = useCallback(() => {
     setSheetVisible(false);
-    setTimeout(onClose, 340);
+    setTimeout(onClose, 260);
   }, [onClose]);
 
   const openSurface = useCallback((surfaceId: string, params?: Record<string, string>) => {
     handleClose();
-    setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), 200);
+    setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), 180);
   }, [handleClose, navigateTo]);
 
   // ── Meeting actions ──
@@ -413,9 +413,9 @@ export default function ControlSurface({
   // Consistent padding, font, truncation across all items.
 
   const ROW_STYLE = {
-    background: 'rgba(240,235,224,0.03)',
-    border: '0.5px solid rgba(240,235,224,0.06)',
-    borderRadius: 12,
+    background: 'rgba(240,235,224,0.025)',
+    border: '0.5px solid rgba(240,235,224,0.04)',
+    borderRadius: 14,
     padding: '11px 14px',
     transition: 'border-color 0.15s ease, opacity 0.2s ease',
   } as const;
@@ -432,7 +432,7 @@ export default function ControlSurface({
         onClick={item.onClick}
         style={{
           ...ROW_STYLE,
-          borderColor: isExpanded ? 'rgba(240,235,224,0.10)' : undefined,
+          borderColor: isExpanded ? 'rgba(240,235,224,0.06)' : undefined,
           cursor: item.onClick ? 'pointer' : 'default',
           opacity: isPending ? 0.4 : 1,
         }}
@@ -517,7 +517,7 @@ export default function ControlSurface({
               gap: 6,
               marginTop: 10,
               paddingTop: 10,
-              borderTop: '0.5px solid rgba(240,235,224,0.06)',
+              borderTop: '0.5px solid rgba(240,235,224,0.04)',
               flexWrap: 'wrap',
             }}
           >
@@ -734,11 +734,11 @@ export default function ControlSurface({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 280,
-          background: sheetVisible ? 'rgba(4,8,14,0.55)' : 'rgba(4,8,14,0)',
-          backdropFilter: sheetVisible ? 'blur(14px)' : 'blur(0px)',
-          WebkitBackdropFilter: sheetVisible ? 'blur(14px)' : 'blur(0px)',
-          transition: 'background 0.32s ease, backdrop-filter 0.32s ease, -webkit-backdrop-filter 0.32s ease',
+          zIndex: 70,
+          background: sheetVisible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
+          backdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
+          WebkitBackdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
+          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
         }}
       />
 
@@ -750,7 +750,7 @@ export default function ControlSurface({
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 285,
+          zIndex: 75,
           maxHeight: '82dvh',
           display: 'flex',
           flexDirection: 'column',
@@ -758,10 +758,10 @@ export default function ControlSurface({
           backdropFilter: 'blur(40px) saturate(1.3)',
           WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
           borderRadius: '22px 22px 0 0',
-          borderTop: '0.5px solid rgba(240,235,224,0.10)',
-          boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.04) inset',
+          borderTop: '0.5px solid rgba(240,235,224,0.06)',
+          boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
           transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
+          transition: 'transform 220ms cubic-bezier(.32,.72,0,1)',
           fontFamily: FONTS.sans,
         }}
       >
@@ -781,7 +781,7 @@ export default function ControlSurface({
               width: 36,
               height: 4,
               borderRadius: 2,
-              background: 'rgba(240,235,224,0.14)',
+              background: 'rgba(240,235,224,0.10)',
               cursor: 'pointer',
             }}
           />

@@ -594,7 +594,7 @@ export default function CaptureSheet({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 290,
+          zIndex: 86,
           background: 'rgba(4,8,14,0.72)',
           backdropFilter: 'blur(10px)',
           opacity: visible ? 1 : 0,
@@ -612,7 +612,7 @@ export default function CaptureSheet({
             ? 'translateX(-50%) translateY(0)'
             : 'translateX(-50%) translateY(100%)',
           transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
-          zIndex: 300,
+          zIndex: 87,
           width: '100%',
           maxWidth: '100%',
           background: '#0f1420',

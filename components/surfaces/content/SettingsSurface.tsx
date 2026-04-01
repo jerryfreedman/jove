@@ -293,7 +293,7 @@ export default function SettingsSurface() {
       overflowX:   'hidden',
       maxWidth:    '100vw',
       fontFamily:  "'DM Sans', sans-serif",
-      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      animation:   'surfaceReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
       {/* Zone 1: Header */}
       <div style={{
@@ -1054,7 +1054,7 @@ export default function SettingsSurface() {
               color:        'rgba(252,246,234,0.4)',
               marginBottom: 12,
             }}>
-              Show the feature walkthrough again on each page
+              Reset the feature walkthrough
             </div>
             <button
               onClick={() => {

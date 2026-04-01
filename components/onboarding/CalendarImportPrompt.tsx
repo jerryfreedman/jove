@@ -18,7 +18,7 @@ export default function CalendarImportPrompt({
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.5)',
-          zIndex: 210,
+          zIndex: 108,
         }}
       />
 
@@ -29,7 +29,7 @@ export default function CalendarImportPrompt({
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 211,
+          zIndex: 109,
           background: '#1A1E28',
           borderRadius: '24px 24px 0 0',
           padding: '32px 24px',

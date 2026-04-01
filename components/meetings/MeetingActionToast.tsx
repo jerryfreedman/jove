@@ -34,7 +34,7 @@ export default function MeetingActionToast() {
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
         left: 16,
         right: 16,
-        zIndex: 350,
+        zIndex: 90,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',

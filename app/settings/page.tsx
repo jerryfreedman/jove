@@ -302,7 +302,7 @@ export default function SettingsPage() {
       overflowX:   'hidden',
       maxWidth:    '100vw',
       fontFamily:  "'DM Sans', sans-serif",
-      animation:   'pageReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+      animation:   'surfaceReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
     }}>
       {/* Zone 1: Header */}
       <div style={{

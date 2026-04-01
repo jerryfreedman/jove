@@ -39,14 +39,14 @@ export default function SurfaceContainer({
 
   const handleClose = useCallback(() => {
     setSheetVisible(false);
-    setTimeout(onClose, 340);
+    setTimeout(onClose, 260);
   }, [onClose]);
 
   if (!open) return null;
 
   // Z-index: Level 2 sits above Level 1
-  const backdropZ = level === 2 ? 290 : 280;
-  const sheetZ    = level === 2 ? 295 : 285;
+  const backdropZ = level === 2 ? 80 : 70;
+  const sheetZ    = level === 2 ? 85 : 75;
 
   return (
     <>
@@ -57,10 +57,10 @@ export default function SurfaceContainer({
           position: 'fixed',
           inset: 0,
           zIndex: backdropZ,
-          background: sheetVisible ? 'rgba(4,8,14,0.55)' : 'rgba(4,8,14,0)',
-          backdropFilter: sheetVisible ? 'blur(14px)' : 'blur(0px)',
-          WebkitBackdropFilter: sheetVisible ? 'blur(14px)' : 'blur(0px)',
-          transition: 'background 0.32s ease, backdrop-filter 0.32s ease, -webkit-backdrop-filter 0.32s ease',
+          background: sheetVisible ? 'rgba(6,10,18,0.38)' : 'rgba(6,10,18,0)',
+          backdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
+          WebkitBackdropFilter: sheetVisible ? 'blur(10px)' : 'blur(0px)',
+          transition: 'background 220ms ease, backdrop-filter 220ms ease, -webkit-backdrop-filter 220ms ease',
         }}
       />
 
@@ -80,10 +80,10 @@ export default function SurfaceContainer({
           backdropFilter: 'blur(40px) saturate(1.3)',
           WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
           borderRadius: '22px 22px 0 0',
-          borderTop: '0.5px solid rgba(240,235,224,0.10)',
-          boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.04) inset',
+          borderTop: '0.5px solid rgba(240,235,224,0.06)',
+          boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
           transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 0.32s cubic-bezier(.32,.72,0,1)',
+          transition: 'transform 220ms cubic-bezier(.32,.72,0,1)',
           fontFamily: FONTS.sans,
         }}
       >
@@ -103,7 +103,7 @@ export default function SurfaceContainer({
               width: 36,
               height: 4,
               borderRadius: 2,
-              background: 'rgba(240,235,224,0.14)',
+              background: 'rgba(240,235,224,0.10)',
               cursor: 'pointer',
             }}
           />
