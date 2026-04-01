@@ -26,6 +26,8 @@ import { getDayPhase } from '@/lib/daily-loop';
 import { decideSunOutput, type SunDecision } from '@/lib/intelligence/decide';
 import { toAction } from '@/lib/intelligence/action';
 import type { DealRow } from '@/lib/types';
+import { dedupeSurfaceItems } from '@/lib/intelligence/dedupe';
+import { isWeakAction } from '@/lib/intelligence/action-quality';
 
 // ── TYPES ──────────────────────────────────────────────────
 
@@ -128,7 +130,18 @@ export default function FocusOverlay({
       }
     }
 
-    return decideSunOutput(items);
+    // Session 15C: Deduplicate and filter weak items before decision
+    const dedupedItems = dedupeSurfaceItems(
+      items.map((item, i) => ({ ...item, id: `sun-${i}` }))
+    ).map(({ id, ...rest }) => rest);
+
+    // Filter items with weak titles
+    const qualityItems = dedupedItems.filter(item => {
+      const titleToCheck = item.nextAction ?? item.title;
+      return !isWeakAction(titleToCheck);
+    });
+
+    return decideSunOutput(qualityItems.length > 0 ? qualityItems : dedupedItems);
   }, [dbTasks, legacyTasks, urgentDeals]);
 
   // ── CLOSE ON BACKDROP TAP ───────────────────────────────

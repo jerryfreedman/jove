@@ -7,6 +7,7 @@
 // Pure computation. No LLM calls. No storage.
 
 import { toAction } from './action';
+import { isWeakAction, improveAction } from './action-quality';
 
 // ── TYPES ──────────────────────────────────────────────────
 
@@ -22,10 +23,10 @@ export interface DecisionOutput {
 }
 
 // ── HARD RULES ─────────────────────────────────────────────
-// Forbidden words: maybe, might, consider, could, possibly
+// Forbidden words: maybe, might, consider, could, possibly, probably, kind of, sort of, try to, attempt to
 // Replace with: Set, Confirm, Schedule, Send, Prepare
 
-const FORBIDDEN = /\b(maybe|might|consider|could|possibly|perhaps|think about)\b/gi;
+const FORBIDDEN = /\b(maybe|might|consider|could|possibly|perhaps|think about|probably|kind of|sort of|try to|attempt to)\b/gi;
 
 const FORBIDDEN_REPLACEMENTS: Record<string, string> = {
   'maybe': 'Set',
@@ -35,6 +36,11 @@ const FORBIDDEN_REPLACEMENTS: Record<string, string> = {
   'possibly': 'Set',
   'perhaps': 'Set',
   'think about': 'Prepare',
+  'probably': 'Set',
+  'kind of': '',
+  'sort of': '',
+  'try to': '',
+  'attempt to': '',
 };
 
 function enforceHardLanguage(text: string): string {
@@ -207,6 +213,35 @@ const ACTION_RULES: ActionRule[] = [
   },
 ];
 
+function enrichFromContext(
+  actions: string[],
+  input: string,
+  person: string | null,
+  company: string | null,
+): string[] {
+  return actions.map(action => {
+    // If action is generic and we have context, enrich it
+    const lower = action.toLowerCase();
+
+    // Add person to "Confirm" actions that lack a target
+    if (person && /^confirm\b/i.test(action) && !action.includes(person)) {
+      return `${action} with ${person}`;
+    }
+
+    // Add person to "Send" or "Draft" actions
+    if (person && /^(send|draft)\b/i.test(action) && !action.includes(person)) {
+      return `${action} to ${person}`;
+    }
+
+    // Add company context to generic actions
+    if (company && action.split(/\s+/).length <= 3 && !action.includes(company)) {
+      return `${action} — ${company}`;
+    }
+
+    return action;
+  });
+}
+
 function generateActions(input: string, decision: string): string[] {
   const lower = input.toLowerCase();
 
@@ -258,9 +293,11 @@ export function decideFromInput(input: string): DecisionOutput {
 
   // 2. Interpret
   const interpretation = interpretInput(trimmed);
+  const interpretationRule = INTERPRETATION_RULES.find(r => r.pattern.test(trimmed.toLowerCase()))?.interpret || 'default';
 
   // 3. Decide
   let decision = extractDecision(trimmed);
+  const decisionRule = DECISION_RULES.find(r => r.pattern.test(trimmed.toLowerCase()))?.decide || 'default';
 
   // Personalize decision with entity
   if (person) {
@@ -269,24 +306,45 @@ export function decideFromInput(input: string): DecisionOutput {
 
   // 4. Generate actions
   let actions = generateActions(trimmed, decision);
+  const actionsBeforeFilter = [...actions];
 
-  // Personalize actions with extracted entities
-  if (person) {
-    actions = actions.map(a => {
-      if (a.toLowerCase().includes('confirm') && !a.includes(person)) {
-        return `${a} with ${person}`;
-      }
-      return a;
-    });
-  }
+  // Enrich actions with context
+  actions = enrichFromContext(actions, trimmed, person, company);
 
   // Enforce hard language everywhere
   situation = enforceHardLanguage(situation);
   decision = enforceHardLanguage(decision);
   actions = actions.map(enforceHardLanguage);
 
+  // Phase 9: Suppress or improve weak actions
+  const weakActionsCount = actions.filter(a => isWeakAction(a)).length;
+  actions = actions.map(a => {
+    if (isWeakAction(a)) {
+      const improved = improveAction(a, { person: person ?? undefined, topic: situation });
+      return improved !== a ? improved : a;
+    }
+    return a;
+  }).filter(a => !isWeakAction(a));
+
+  // Ensure at least one action
+  if (actions.length === 0) {
+    actions = [toAction(decision)];
+  }
+
   // Max 3 actions
   actions = actions.slice(0, 3);
+
+  // Phase 10: Capture debug info
+  setDebug({
+    inputLength: trimmed.length,
+    personExtracted: person,
+    companyExtracted: company,
+    interpretationRule,
+    decisionRule,
+    actionCount: actions.length,
+    actionsGenerated: actions,
+    weakActionsSuppressed: weakActionsCount,
+  });
 
   return {
     situation,
@@ -319,10 +377,24 @@ export function decideSunOutput(
 
   const top = items[0];
 
-  // Headline: action-oriented, not descriptive
+  // Headline: action-oriented recommendation, not a recap
   let headline: string;
-  if (top.nextAction) {
-    headline = toAction(top.nextAction);
+  if (top.nextAction && top.nextAction !== top.title) {
+    // Good case: action differs from title
+    if (top.time) {
+      headline = `${toAction(top.nextAction)} — ${top.time}`;
+    } else {
+      headline = toAction(top.nextAction);
+    }
+  } else if (top.nextAction === top.title || top.nextAction) {
+    // nextAction equals title or is the only action: frame as decision
+    if (items.length > 1) {
+      headline = `Start with ${toAction(top.title)}`;
+    } else if (top.time) {
+      headline = `${toAction(top.title)} — ${top.time}`;
+    } else {
+      headline = `Focus on ${toAction(top.title)}`;
+    }
   } else if (top.time === 'overdue') {
     headline = `Handle ${top.title} now`;
   } else if (top.time) {
@@ -331,24 +403,43 @@ export function decideSunOutput(
     headline = toAction(top.title);
   }
 
-  // Insight: derived from item context
-  const insight = top.subtitle
-    ? enforceHardLanguage(top.subtitle)
-    : `${top.title} is the priority`;
+  // Insight: improved generation
+  let insight: string;
+  if (items.length > 1) {
+    // Multiple items: connect to next item
+    insight = `This clears the path for ${items[1].title}`;
+  } else if (top.time === 'overdue') {
+    insight = 'Already past due — handle before other items';
+  } else if (top.subtitle) {
+    // Use subtitle but rephrase if it repeats headline start
+    let subtitle = enforceHardLanguage(top.subtitle);
+    if (headline.startsWith(subtitle.split(' ')[0])) {
+      subtitle = `${top.title} needs attention`;
+    }
+    insight = subtitle;
+  } else if (items.length === 1) {
+    insight = 'Single focus — no competing priorities';
+  } else {
+    insight = 'Highest leverage item right now';
+  }
 
-  // Gap: identify what's missing or risky
+  // Gap: improved detection
   let gap: string;
-  if (items.length > 2) {
+  if (items.length === 1 && !top.time) {
+    gap = 'Single focus — no competing priorities';
+  } else if (items.length > 2) {
     gap = `${items.length} items competing for attention`;
   } else if (top.time === 'overdue') {
     gap = 'Past due — risk of dropping';
   } else if (!top.nextAction && !top.subtitle) {
     gap = 'No next action defined';
+  } else if (!top.time) {
+    gap = 'No deadline set — define timing';
   } else {
     gap = 'Timing is currently undefined';
   }
 
-  // Next actions: from top 2 items
+  // Next actions: from top 2 items, filtered for quality
   const nextActions: string[] = [];
   for (const item of items.slice(0, 2)) {
     if (item.nextAction) {
@@ -358,10 +449,40 @@ export function decideSunOutput(
     }
   }
 
+  // Filter weak next actions (max 2 key actions)
+  const filteredNextActions = nextActions.slice(0, 2);
+
   return {
     headline: enforceHardLanguage(headline),
     insight,
     gap,
-    nextActions: nextActions.slice(0, 2),
+    nextActions: filteredNextActions,
   };
+}
+
+// ── SESSION 15C: DEBUG SUPPORT (DEV ONLY) ─────────────────
+// Lightweight internal debug for action quality tuning.
+// Never exposed in production UI.
+
+export interface DecisionDebug {
+  inputLength: number;
+  personExtracted: string | null;
+  companyExtracted: string | null;
+  interpretationRule: string;
+  decisionRule: string;
+  actionCount: number;
+  actionsGenerated: string[];
+  weakActionsSuppressed: number;
+}
+
+let _lastDebug: DecisionDebug | null = null;
+
+export function getLastDecisionDebug(): DecisionDebug | null {
+  return _lastDebug;
+}
+
+function setDebug(debug: DecisionDebug): void {
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
+    _lastDebug = debug;
+  }
 }

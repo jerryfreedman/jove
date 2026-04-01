@@ -1,4 +1,4 @@
-// ── SESSION 15A: ACTION NORMALIZATION ─────────────────────────
+// ── SESSION 15A+15C: ACTION NORMALIZATION ─────────────────────
 // Every action must:
 //   → start with a verb
 //   → be <= 6 words ideally
@@ -73,6 +73,26 @@ export function toAction(text: string): string {
     action = words.slice(0, 8).join(' ');
   }
 
+  // Session 15C: Hard quality rules
+  // Rule: must start with strong verb — if not, reject filler verbs
+  const finalFirstWord = action.split(/\s+/)[0]?.toLowerCase() ?? '';
+  const FILLER_VERBS = new Set(['review', 'consider', 'think', 'check']);
+  const actionWordCount = action.split(/\s+/).length;
+
+  // If filler verb with no target (<=2 words), upgrade the verb
+  if (FILLER_VERBS.has(finalFirstWord) && actionWordCount <= 2) {
+    const VERB_UPGRADES: Record<string, string> = {
+      'review': 'Assess',
+      'consider': 'Decide',
+      'think': 'Define',
+      'check': 'Verify',
+    };
+    const upgrade = VERB_UPGRADES[finalFirstWord];
+    if (upgrade) {
+      action = upgrade + action.slice(finalFirstWord.length);
+    }
+  }
+
   return action;
 }
 
@@ -120,11 +140,23 @@ export function normalizeActions(texts: string[]): string[] {
   for (const text of texts) {
     const normalized = toAction(text);
     const key = normalized.toLowerCase();
-    if (!seen.has(key)) {
+    if (!seen.has(key) && normalized.length > 0) {
       seen.add(key);
       result.push(normalized);
     }
   }
+
+  // Session 15C: Sort by action quality — prefer specific, verb-strong actions
+  result.sort((a, b) => {
+    const aWords = a.split(/\s+/).length;
+    const bWords = b.split(/\s+/).length;
+    // Prefer 3-8 word actions (ideal range)
+    const aIdeal = aWords >= 3 && aWords <= 8 ? 1 : 0;
+    const bIdeal = bWords >= 3 && bWords <= 8 ? 1 : 0;
+    if (aIdeal !== bIdeal) return bIdeal - aIdeal;
+    // Prefer actions with more specificity (more words, up to 8)
+    return Math.min(bWords, 8) - Math.min(aWords, 8);
+  });
 
   return result.slice(0, 3);
 }

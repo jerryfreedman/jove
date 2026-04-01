@@ -59,17 +59,50 @@ function toDisplayTask(row: TaskRow): DisplayTask {
   };
 }
 
-// ── WHAT MATTERS ORDERING ──────────────────────────────────
-// Deterministic, explainable sort for the primary task surface.
-//
-// Order:
-//   1. due_at soonest (nulls last)
-//   2. explicit priority (lower = more urgent, nulls last)
-//   3. system urgency (system tasks before user tasks as tiebreak)
-//   4. created_at recency as final fallback
+// ── SESSION 15C: ENHANCED PRIORITIZATION ──────────────────
+// Tuned weights for intelligent task ordering:
+//   1. Time-sensitive items first (due within 4h get boost)
+//   2. Due date soonest (nulls last)
+//   3. Explicit priority (lower = urgent, nulls last)
+//   4. User-created > system-inferred (explicit intent wins)
+//   5. Specific actions (strong verbs) > generic items
+//   6. Committed items (has dealId/meetingId) > unlinked
+//   7. Penalize generic/short titles
+//   8. Recency as final fallback
+
+const STRONG_ACTION_VERBS = new Set([
+  'confirm', 'send', 'schedule', 'call', 'prepare', 'lock',
+  'draft', 'ask', 'decide', 'align', 'book', 'submit', 'notify',
+]);
+
+const GENERIC_TITLE_PATTERNS = [
+  /^follow\s+up$/i,
+  /^check\s+in$/i,
+  /^review\s+project$/i,
+  /^think\s+about/i,
+  /^consider\s+/i,
+];
+
+function isGenericTitle(title: string): boolean {
+  if (title.trim().split(/\s+/).length <= 2) return true;
+  return GENERIC_TITLE_PATTERNS.some(p => p.test(title));
+}
+
+function hasStrongVerb(title: string): boolean {
+  const firstWord = title.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  return STRONG_ACTION_VERBS.has(firstWord);
+}
 
 function whatMattersSort(a: DisplayTask, b: DisplayTask): number {
-  // 1. Due date: soonest first, nulls last
+  const now = Date.now();
+
+  // 1. Items due within 4 hours always win over items without near-term due dates
+  const aImminentDue = a.dueAt && (new Date(a.dueAt).getTime() - now) <= 4 * 60 * 60 * 1000 && new Date(a.dueAt).getTime() > 0;
+  const bImminentDue = b.dueAt && (new Date(b.dueAt).getTime() - now) <= 4 * 60 * 60 * 1000 && new Date(b.dueAt).getTime() > 0;
+  if (aImminentDue && !bImminentDue) return -1;
+  if (!aImminentDue && bImminentDue) return 1;
+
+  // 2. Due date: soonest first, nulls last
   if (a.dueAt && b.dueAt) {
     const diff = new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
     if (diff !== 0) return diff;
@@ -79,7 +112,7 @@ function whatMattersSort(a: DisplayTask, b: DisplayTask): number {
     return 1;
   }
 
-  // 2. Priority: lower number = more urgent, nulls last
+  // 3. Priority: lower number = more urgent, nulls last
   if (a.priority !== null && b.priority !== null) {
     const diff = a.priority - b.priority;
     if (diff !== 0) return diff;
@@ -89,12 +122,30 @@ function whatMattersSort(a: DisplayTask, b: DisplayTask): number {
     return 1;
   }
 
-  // 3. System urgency: system tasks before user tasks
+  // 4. User-created > system-inferred (explicit intent wins)
   if (a.source !== b.source) {
-    return a.source === 'system' ? -1 : 1;
+    return a.source === 'user' ? -1 : 1;
   }
 
-  // 4. Recency: newest first
+  // 5. Strong action verbs sort before generic titles
+  const aStrong = hasStrongVerb(a.title);
+  const bStrong = hasStrongVerb(b.title);
+  if (aStrong && !bStrong) return -1;
+  if (!aStrong && bStrong) return 1;
+
+  // 6. Committed items (linked to deal/meeting) > unlinked
+  const aLinked = !!(a.dealId || a.meetingId);
+  const bLinked = !!(b.dealId || b.meetingId);
+  if (aLinked && !bLinked) return -1;
+  if (!aLinked && bLinked) return 1;
+
+  // 7. Penalize generic/short titles
+  const aGeneric = isGenericTitle(a.title);
+  const bGeneric = isGenericTitle(b.title);
+  if (!aGeneric && bGeneric) return -1;
+  if (aGeneric && !bGeneric) return 1;
+
+  // 8. Recency: newest first
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 

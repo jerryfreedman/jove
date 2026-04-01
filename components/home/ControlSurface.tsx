@@ -34,6 +34,8 @@ import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 import { getDayPhase } from '@/lib/daily-loop';
 import { toAction } from '@/lib/intelligence/action';
+import { dedupeSurfaceItems } from '@/lib/intelligence/dedupe';
+import { isWeakAction } from '@/lib/intelligence/action-quality';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -494,9 +496,20 @@ export default function ControlSurface({
       }
     }
 
+    // Session 15C: Deduplicate across sections and filter weak actions
+    const dedupedAttention = dedupeSurfaceItems(attentionItems);
+    const dedupedNext = dedupeSurfaceItems(nextItems).filter(
+      item => !dedupedAttention.some(a => a.title.toLowerCase() === item.title.toLowerCase())
+    );
+
+    // Filter weak actions from top sections (attention + next)
+    const filteredAttention = dedupedAttention.filter(item => !isWeakAction(item.title));
+    const filteredNext = dedupedNext.filter(item => !isWeakAction(item.title));
+
+    // If filtering removed everything, fall back to unfiltered
     return {
-      attention: attentionItems,
-      next: nextItems,
+      attention: filteredAttention.length > 0 ? filteredAttention : dedupedAttention,
+      next: filteredNext.length > 0 ? filteredNext : dedupedNext,
       active: activeItems,
       people: peopleItems,
     };
