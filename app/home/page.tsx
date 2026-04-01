@@ -7,6 +7,8 @@ import SceneBackground from '@/components/home/SceneBackground';
 import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import ControlSurface from '@/components/home/ControlSurface';
+import { SurfaceProvider, useSurface } from '@/components/surfaces/SurfaceManager';
+import SurfaceRenderer from '@/components/surfaces/SurfaceRenderer';
 // Logo removed — Session 4: world-first homepage, no app chrome
 import {
   saveInteraction,
@@ -106,8 +108,17 @@ function getFirstName(user: UserRow | null): string {
 
 // ── COMPONENT ─────────────────────────────────────────────
 export default function HomePage() {
+  return (
+    <SurfaceProvider>
+      <HomePageInner />
+    </SurfaceProvider>
+  );
+}
+
+function HomePageInner() {
   const router   = useRouter();
   const supabase = createClient();
+  const { navigateTo: surfaceNavigateTo } = useSurface();
 
   const [data, setData]       = useState<HomeData | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -1587,7 +1598,7 @@ export default function HomePage() {
               breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div
             ref={sunRef}
-            onClick={() => router.push('/briefing')}
+            onClick={() => surfaceNavigateTo('briefing')}
             onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.92)'; }}
             onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
             onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
@@ -1799,6 +1810,9 @@ export default function HomePage() {
         urgentDeals={data?.urgentDeals ?? []}
         meetings={data?.meetings ?? []}
       />
+
+      {/* ── SURFACE RENDERER (deep surfaces: deals, meetings, ideas, etc.) ── */}
+      <SurfaceRenderer />
 
       {/* ── UNIFIED INTERACTION BAR — floating object in the world ───────── */}
       {!chatOpen && (

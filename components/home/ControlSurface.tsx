@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   COLORS,
   STAGE_STYLES,
@@ -22,6 +21,7 @@ import {
   DEFAULT_DOMAIN_PROFILE,
   getControlSurfaceLabels,
 } from '@/lib/semantic-labels';
+import { useSurface } from '@/components/surfaces/SurfaceManager';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -86,7 +86,7 @@ export default function ControlSurface({
   meetings,
   domainProfile,
 }: ControlSurfaceProps) {
-  const router = useRouter();
+  const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
   const labels = useMemo(
     () => getControlSurfaceLabels(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
@@ -111,10 +111,10 @@ export default function ControlSurface({
     setTimeout(onClose, 340);
   }, [onClose]);
 
-  const navigateTo = useCallback((path: string) => {
+  const openSurface = useCallback((surfaceId: string, params?: Record<string, string>) => {
     handleClose();
-    setTimeout(() => router.push(path), 200);
-  }, [handleClose, router]);
+    setTimeout(() => navigateTo(surfaceId as import('@/components/surfaces/SurfaceManager').SurfaceId, params), 200);
+  }, [handleClose, navigateTo]);
 
   // ── ADAPTIVE MODULE PRIORITY ────────────────────────────
   const priority = useMemo<ModulePriorityResult>(() => {
@@ -196,7 +196,7 @@ export default function ControlSurface({
           return (
             <div
               key={deal.id}
-              onClick={() => navigateTo(`/deals/${deal.id}`)}
+              onClick={() => openSurface('deal-detail', { dealId: deal.id })}
               style={{
                 background: isProminent
                   ? 'rgba(232,160,48,0.08)'
@@ -283,16 +283,16 @@ export default function ControlSurface({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {upcomingMeetings.map((meeting, idx) => {
-            const destination = meeting.deal_id
-              ? `/deals/${meeting.deal_id}/prep`
-              : '/briefing';
             // First meeting gets emphasis when prominent and imminent
             const isHighlighted = isProminent && isImminent && idx === 0;
 
             return (
               <div
                 key={meeting.id}
-                onClick={() => navigateTo(destination)}
+                onClick={() => meeting.deal_id
+                  ? openSurface('deal-prep', { dealId: meeting.deal_id })
+                  : openSurface('briefing')
+                }
                 style={{
                   background: isHighlighted
                     ? 'rgba(232,160,48,0.06)'
@@ -366,7 +366,7 @@ export default function ControlSurface({
           return (
             <div
               key={deal.id}
-              onClick={() => navigateTo(`/deals/${deal.id}`)}
+              onClick={() => openSurface('deal-detail', { dealId: deal.id })}
               style={{
                 background: isProminent
                   ? 'rgba(240,235,224,0.04)'
@@ -457,73 +457,44 @@ export default function ControlSurface({
   );
 
   // ── DEEP LINKS (always present, always last) ────────────
+  const deepLinkStyle = {
+    flex: 1,
+    padding: '12px 0',
+    borderRadius: 12,
+    border: '0.5px solid rgba(240,235,224,0.08)',
+    background: 'rgba(240,235,224,0.03)',
+    color: 'rgba(240,235,224,0.56)',
+    fontSize: 12,
+    fontWeight: 500 as const,
+    cursor: 'pointer' as const,
+    fontFamily: FONTS.sans,
+    transition: 'border-color 0.15s ease',
+    letterSpacing: '0.2px',
+  };
+
   const renderDeepLinks = () => (
-    <div
-      key="deep_links"
-      style={{
-        display: 'flex',
-        gap: 8,
-        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-        paddingTop: 4,
-      }}
-    >
-      <button
-        onClick={() => navigateTo('/deals')}
-        style={{
-          flex: 1,
-          padding: '12px 0',
-          borderRadius: 12,
-          border: '0.5px solid rgba(240,235,224,0.08)',
-          background: 'rgba(240,235,224,0.03)',
-          color: 'rgba(240,235,224,0.56)',
-          fontSize: 12,
-          fontWeight: 500,
-          cursor: 'pointer',
-          fontFamily: FONTS.sans,
-          transition: 'border-color 0.15s ease',
-          letterSpacing: '0.2px',
-        }}
-      >
-        {labels.allDeals}
-      </button>
-      <button
-        onClick={() => navigateTo('/meetings')}
-        style={{
-          flex: 1,
-          padding: '12px 0',
-          borderRadius: 12,
-          border: '0.5px solid rgba(240,235,224,0.08)',
-          background: 'rgba(240,235,224,0.03)',
-          color: 'rgba(240,235,224,0.56)',
-          fontSize: 12,
-          fontWeight: 500,
-          cursor: 'pointer',
-          fontFamily: FONTS.sans,
-          transition: 'border-color 0.15s ease',
-          letterSpacing: '0.2px',
-        }}
-      >
-        {labels.meetings}
-      </button>
-      <button
-        onClick={() => navigateTo('/settings')}
-        style={{
-          flex: 1,
-          padding: '12px 0',
-          borderRadius: 12,
-          border: '0.5px solid rgba(240,235,224,0.08)',
-          background: 'rgba(240,235,224,0.03)',
-          color: 'rgba(240,235,224,0.56)',
-          fontSize: 12,
-          fontWeight: 500,
-          cursor: 'pointer',
-          fontFamily: FONTS.sans,
-          transition: 'border-color 0.15s ease',
-          letterSpacing: '0.2px',
-        }}
-      >
-        {labels.settings}
-      </button>
+    <div key="deep_links" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', paddingTop: 4 }}>
+      {/* Primary row */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <button onClick={() => openSurface('deals')} style={deepLinkStyle}>
+          {labels.allDeals}
+        </button>
+        <button onClick={() => openSurface('meetings')} style={deepLinkStyle}>
+          {labels.meetings}
+        </button>
+        <button onClick={() => openSurface('ideas')} style={deepLinkStyle}>
+          Ideas
+        </button>
+      </div>
+      {/* Secondary row */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => openSurface('briefing')} style={deepLinkStyle}>
+          Briefing
+        </button>
+        <button onClick={() => openSurface('settings')} style={deepLinkStyle}>
+          {labels.settings}
+        </button>
+      </div>
     </div>
   );
 
