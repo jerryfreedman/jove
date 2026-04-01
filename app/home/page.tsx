@@ -1664,7 +1664,7 @@ export default function HomePage() {
 
       <div
         className="absolute inset-0 flex flex-col items-center"
-        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 28vh)' }}
+        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16vh)' }}
       >
         {/* ── GREETING + NAME (upper third — secondary to sun) ── */}
         <div
@@ -1788,47 +1788,6 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* ── CONTROL SURFACE ENTRY POINT (bottom-right orb) ── */}
-      {!controlOpen && (
-        <div
-          onClick={() => setControlOpen(true)}
-          onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.90)'; }}
-          onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
-          onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
-          style={{
-            position:       'fixed',
-            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 88px)',
-            right:          22,
-            zIndex:         26,
-            width:          42,
-            height:         42,
-            borderRadius:   '50%',
-            background:     'rgba(15,20,32,0.48)',
-            backdropFilter: 'blur(32px) saturate(1.4)',
-            WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-            border:         '0.5px solid rgba(240,235,224,0.11)',
-            borderTop:      '0.5px solid rgba(240,235,224,0.16)',
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'center',
-            cursor:         'pointer',
-            opacity:        chatOpen ? 0 : visible ? 1 : 0,
-            pointerEvents:  chatOpen ? 'none' : 'auto',
-            transition:     'opacity 0.4s ease, transform 0.18s ease, box-shadow 0.18s ease',
-            WebkitTapHighlightColor: 'transparent',
-            boxShadow:      '0 2px 16px rgba(0,0,0,0.18), 0 0.5px 0 rgba(240,235,224,0.04) inset',
-          }}
-          aria-label="Open overview"
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
-            <rect x="10.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
-            <rect x="2" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
-            <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.48)" strokeWidth="1" />
-          </svg>
-        </div>
-      )}
-
       {/* ── CONTROL SURFACE ────────────────────────── */}
       <ControlSurface
         open={controlOpen}
@@ -1838,7 +1797,7 @@ export default function HomePage() {
         meetings={data?.meetings ?? []}
       />
 
-      {/* ── CHAT BAR (bottom, calm entry point) ───────── */}
+      {/* ── UNIFIED INTERACTION BAR (control entry + chat entry) ───────── */}
       {!chatOpen && (
         <div
           style={{
@@ -1855,12 +1814,10 @@ export default function HomePage() {
           }}
         >
           <div
-            onClick={openChat}
             style={{
-              width:          'calc(100% - 64px)',
-              maxWidth:       360,
+              width:          'calc(100% - 48px)',
+              maxWidth:       380,
               pointerEvents:  'auto',
-              cursor:         'pointer',
               WebkitTapHighlightColor: 'transparent',
             }}
           >
@@ -1872,27 +1829,66 @@ export default function HomePage() {
               borderRadius:    22,
               border:          '0.5px solid rgba(240,235,224,0.11)',
               borderTop:       '0.5px solid rgba(240,235,224,0.16)',
-              padding:         '15px 20px',
+              padding:         '6px 6px 6px 6px',
               display:         'flex',
               alignItems:      'center',
+              gap:             0,
               boxShadow:       '0 2px 16px rgba(0,0,0,0.18), 0 0.5px 0 rgba(240,235,224,0.04) inset',
-              transition:      'transform 0.18s ease, box-shadow 0.18s ease',
             }}
-            onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.975)'; }}
-            onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
-            onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
           >
-            <span
+            {/* Control surface entry — left side */}
+            <div
+              onClick={() => setControlOpen(true)}
+              onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.88)'; }}
+              onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+              onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
               style={{
-                fontFamily:    "'DM Sans', sans-serif",
-                fontSize:      14,
-                fontWeight:    300,
-                color:         'rgba(240,235,224,0.38)',
-                letterSpacing: '0.15px',
+                width:          38,
+                height:         38,
+                borderRadius:   14,
+                display:        'flex',
+                alignItems:     'center',
+                justifyContent: 'center',
+                cursor:         'pointer',
+                flexShrink:     0,
+                transition:     'transform 0.15s ease, background 0.15s ease',
+                background:     'rgba(240,235,224,0.06)',
+              }}
+              aria-label="Open overview"
+            >
+              <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
+                <rect x="10.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
+                <rect x="2" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
+                <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
+              </svg>
+            </div>
+
+            {/* Chat entry — tappable area fills remaining space */}
+            <div
+              onClick={openChat}
+              onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.7'; }}
+              onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+              onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+              style={{
+                flex:           1,
+                padding:        '10px 14px',
+                cursor:         'pointer',
+                transition:     'opacity 0.15s ease',
               }}
             >
-              Talk to Jove&hellip;
-            </span>
+              <span
+                style={{
+                  fontFamily:    "'DM Sans', sans-serif",
+                  fontSize:      14,
+                  fontWeight:    300,
+                  color:         'rgba(240,235,224,0.38)',
+                  letterSpacing: '0.15px',
+                }}
+              >
+                Talk to Jove&hellip;
+              </span>
+            </div>
           </div>
         </div>
         </div>
@@ -1970,26 +1966,9 @@ export default function HomePage() {
                 minHeight:    0,
               }}
             >
+              {/* Empty state — no separate prompt; input placeholder serves as the sole CTA */}
               {chatMessages.length === 0 && (
-                <div
-                  style={{
-                    textAlign:     'center',
-                    paddingTop:    48,
-                    paddingBottom: 48,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily:    "'Cormorant Garamond', serif",
-                      fontSize:      16,
-                      fontWeight:    300,
-                      color:         'rgba(240,235,224,0.28)',
-                      letterSpacing: '0.2px',
-                    }}
-                  >
-                    What&apos;s on your mind?
-                  </span>
-                </div>
+                <div style={{ paddingTop: 48, paddingBottom: 48 }} />
               )}
 
               {chatMessages.map((msg) => (
