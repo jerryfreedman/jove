@@ -368,6 +368,22 @@ export type TaskRow = {
   updated_at: string;
 };
 
+// ── People Types (Session 11E: Universal Relationship Layer) ─
+
+export type PersonRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  relationship: string | null;
+  email: string | null;
+  phone: string | null;
+  organization_id: string | null;
+  notes: string | null;
+  last_interaction_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // ── Item Types (Session 11D: Universal Primary Entity) ─────
 
 export type ItemStatus = 'active' | 'paused' | 'waiting' | 'done' | 'dropped';
