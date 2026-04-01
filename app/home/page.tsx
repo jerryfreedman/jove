@@ -8,6 +8,7 @@ import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import ControlSurface from '@/components/home/ControlSurface';
 import FocusOverlay from '@/components/home/FocusOverlay';
+import CaptureOverlay from '@/components/home/CaptureOverlay';
 import { SurfaceProvider, useSurface } from '@/components/surfaces/SurfaceManager';
 import SurfaceRenderer from '@/components/surfaces/SurfaceRenderer';
 // Logo removed — Session 4: world-first homepage, no app chrome
@@ -52,6 +53,12 @@ import { renderMarkdown } from '@/lib/renderMarkdown';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { detectMeetingMutation, applyMeetingMutation } from '@/lib/meeting-mutations';
 import { routeUniversalIntent } from '@/lib/universal-routing';
+import {
+  createTaskFromIntent,
+  createItemFromIntent,
+  findOrCreatePerson,
+  createEventFromIntent,
+} from '@/lib/universal-persistence';
 import { createUserTask } from '@/lib/task-persistence';
 
 // ── TYPES ──────────────────────────────────────────────────
@@ -155,6 +162,10 @@ function HomePageInner() {
   const birdPositionRef = useRef({ x: 0, y: 0 });
   const birdHitboxRef = useRef<HTMLDivElement>(null);
   const birdModalInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── SESSION 13B: CAPTURE OVERLAY STATE ─────────────────────
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureSaving, setCaptureSaving] = useState(false);
 
   // Session 6: birdAnsweredCount removed — birdQuestion now derives from
   // assistantTrigger which re-evaluates when data changes via homeRefreshKey.
@@ -1470,6 +1481,81 @@ function HomePageInner() {
     executeBirdSave(birdQuestion.dealId);
   };
 
+  // ── SESSION 13B: CAPTURE OVERLAY SUBMIT ────────────────────
+  // Routes input through universal routing (11F) → persists → triggers acknowledgment.
+  // No intermediate screens. No confirmation dialogs. Instant.
+  const handleCaptureSubmit = useCallback(async (text: string) => {
+    if (!data?.user) return;
+    setCaptureSaving(true);
+
+    try {
+      const userId = data.user.id;
+
+      // ── Route through universal system ──────────────────
+      const routed = routeUniversalIntent(text);
+
+      if (routed) {
+        // Resolve person first if detected
+        let personId: string | null = null;
+        if (routed.person) {
+          const personResult = await findOrCreatePerson(supabase, userId, routed.person);
+          if (personResult) personId = personResult.id;
+        }
+
+        // Create entities based on intent
+        let itemId: string | null = null;
+
+        if (routed.item) {
+          const itemResult = await createItemFromIntent(supabase, userId, {
+            name: routed.item.name,
+          });
+          if (itemResult) itemId = itemResult.id;
+        }
+
+        if (routed.intent === 'create_event' && routed.event) {
+          await createEventFromIntent(supabase, userId, {
+            title: routed.event.title,
+            scheduledAt: routed.event.scheduledAt,
+            eventType: routed.event.eventType,
+            personId,
+          });
+        }
+
+        if (routed.task) {
+          await createTaskFromIntent(supabase, userId, {
+            title: routed.task.title,
+            dueAt: routed.task.dueAt,
+            itemId: routed.links.taskToItem ? itemId : null,
+            personId: routed.links.taskToPerson ? personId : null,
+          });
+        }
+
+        // Item-only intent (no task) — already created above
+      } else {
+        // ── Fallback: store as a user task (accept anything) ────
+        await createUserTask(supabase, userId, {
+          title: text.charAt(0).toUpperCase() + text.slice(1),
+        });
+      }
+
+      // ── Environmental acknowledgment + bird soar ──────────
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          triggerEnvironmentalAcknowledgment({ source: 'bird' });
+        });
+      });
+
+      // ── Refresh control panel after brief delay ───────────
+      setTimeout(() => setHomeRefreshKey(k => k + 1), 800);
+
+    } catch (err) {
+      console.error('Capture submit error:', err);
+    } finally {
+      setCaptureSaving(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, supabase]);
+
   const richnessLevel   = Math.min((data?.signals.length ?? 0) / 12, 1);
 
   // ── ENVIRONMENTAL ACKNOWLEDGMENT HELPER ──────────────────
@@ -1598,19 +1684,24 @@ function HomePageInner() {
       <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
-      {/* Only interactive when bird has a valid curiosity target */}
+      {/* Session 13B: Always interactive — opens capture overlay.
+          If bird has a curiosity question, opens old question modal instead. */}
       <div
         ref={birdHitboxRef}
         onClick={() => {
-          if (!birdModalOpen && birdQuestion) {
+          if (birdQuestion && !birdModalOpen) {
+            // Legacy curiosity question flow
             setBirdModalInput('');
             setBirdModalOpen(true);
             setTimeout(() => birdModalInputRef.current?.focus(), 200);
+          } else if (!captureOpen) {
+            // Session 13B: open capture overlay
+            setCaptureOpen(true);
           }
         }}
-        onPointerDown={(e) => { if (birdQuestion) (e.currentTarget as HTMLElement).style.transform = `${(e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''} scale(0.9)`; }}
-        onPointerUp={(e) => { if (birdQuestion) (e.currentTarget as HTMLElement).style.transform = (e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''; }}
-        onPointerLeave={(e) => { if (birdQuestion) (e.currentTarget as HTMLElement).style.transform = (e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''; }}
+        onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = `${(e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''} scale(0.9)`; }}
+        onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = (e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''; }}
+        onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = (e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''; }}
         style={{
           position:     'fixed',
           top:          0,
@@ -1619,8 +1710,8 @@ function HomePageInner() {
           height:       44,
           borderRadius: '50%',
           zIndex:       23,
-          pointerEvents: birdQuestion ? 'auto' : 'none',
-          cursor:       birdQuestion ? 'pointer' : 'default',
+          pointerEvents: 'auto',
+          cursor:       'pointer',
           willChange:   'transform',
           WebkitTapHighlightColor: 'transparent',
           ...(birdQuestion ? {
@@ -1628,7 +1719,7 @@ function HomePageInner() {
             animation: 'celestialGlow 4s ease-in-out infinite',
           } : {}),
         }}
-        aria-label={birdQuestion ? 'Tap bird to answer' : 'Bird is resting'}
+        aria-label={birdQuestion ? 'Tap bird to answer' : 'Tap bird to capture'}
       />
 
       {/* ── ACKNOWLEDGMENT + SUN KEYFRAMES ──────────── */}
@@ -2584,7 +2675,15 @@ function HomePageInner() {
       )}
 
 
-      {/* ── BIRD CAPTURE MODAL ──────────────────────── */}
+      {/* ── SESSION 13B: CAPTURE OVERLAY ───────────── */}
+      <CaptureOverlay
+        open={captureOpen}
+        onClose={() => setCaptureOpen(false)}
+        onSubmit={handleCaptureSubmit}
+        saving={captureSaving}
+      />
+
+      {/* ── BIRD CAPTURE MODAL (legacy curiosity questions) ── */}
       {birdModalOpen && birdQuestion && (
         <>
           {/* Backdrop — tap to dismiss */}
