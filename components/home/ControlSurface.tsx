@@ -684,8 +684,10 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── EMPTY STATE ─────────────────────────────────────────
-  // Intentional, not broken. Feels like calm, not absence.
+  // ── SESSION 12C: ZERO STATE + EMPTY STATE ────────────────
+  // Zero state: calm, confident, minimal. Not a tutorial.
+  // Low data: "You're clear beyond this." — calm, not empty.
+  // Full clear: "You're clear." — intentional, not broken.
   const renderEmptyState = () => (
     <div
       style={{
@@ -703,7 +705,7 @@ export default function ControlSurface({
         }}
       >
         {isLowDataState
-          ? 'Your world is taking shape.'
+          ? 'What\u2019s going on today?'
           : "You\u2019re clear."}
       </div>
       {isLowDataState && (
@@ -717,7 +719,7 @@ export default function ControlSurface({
             margin: '8px auto 0',
           }}
         >
-          Add what&apos;s happening and it will organize here.
+          Tell me anything — I&apos;ll organize it.
         </div>
       )}
     </div>
@@ -801,6 +803,22 @@ export default function ControlSurface({
               {renderWhatMatters()}
               {renderComingUp()}
               {renderEverythingElse()}
+              {/* Session 12C: Low data calm reinforcement — only when sparse */}
+              {isLowDataState && whatMatters.length > 0 && whatMatters.length <= 3 && comingUp.length === 0 && everythingElse.length === 0 && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '12px 0 4px',
+                }}>
+                  <span style={{
+                    fontFamily: FONTS.serif,
+                    fontSize: 13,
+                    fontWeight: 300,
+                    color: 'rgba(240,235,224,0.20)',
+                  }}>
+                    You&apos;re clear beyond this.
+                  </span>
+                </div>
+              )}
               {renderAccess()}
             </>
           ) : (

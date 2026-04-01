@@ -50,6 +50,8 @@ import {
 import { renderMarkdown } from '@/lib/renderMarkdown';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { detectMeetingMutation, applyMeetingMutation } from '@/lib/meeting-mutations';
+import { routeUniversalIntent } from '@/lib/universal-routing';
+import { createUserTask } from '@/lib/task-persistence';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -702,6 +704,79 @@ function HomePageInner() {
         return;
       }
 
+      // ── SESSION 12C: UNIVERSAL ROUTING — INSTANT VALUE ────────────
+      // Before sales classification, check if the input creates a universal
+      // primitive (task, item, event). If so, create it immediately and
+      // confirm — no classification, no clarification, no friction.
+      const universalResult = routeUniversalIntent(text);
+      if (universalResult) {
+        if (universalResult.intent === 'create_task' && universalResult.task) {
+          // Create task in DB immediately
+          const taskResult = await createUserTask(supabase, data.user.id, {
+            title: universalResult.task.title,
+            dueAt: universalResult.task.dueAt ?? undefined,
+          });
+
+          if (taskResult) {
+            // Build confirmation message — minimal, calm, no explanation
+            const timePart = universalResult.task.dueAt
+              ? (() => {
+                  const d = new Date(universalResult.task.dueAt!);
+                  const now = new Date();
+                  const isToday = d.toDateString() === now.toDateString();
+                  const tomorrow = new Date(now);
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+                  if (isToday) return ' for today';
+                  if (isTomorrow) return ' for tomorrow';
+                  return '';
+                })()
+              : '';
+            addAndPersistAssistantMessage(`Got it — I added that${timePart}.`);
+            chatSaveStateRef.current.hasSaved = true;
+            // Refresh so task appears in What Matters
+            setTimeout(() => setHomeRefreshKey(k => k + 1), 300);
+          } else {
+            addAndPersistAssistantMessage("Got it — I saved that.");
+          }
+          setChatProcessing(false);
+          return;
+        }
+
+        if (universalResult.intent === 'create_event' && universalResult.event) {
+          // Events also become tasks with a time
+          const taskResult = await createUserTask(supabase, data.user.id, {
+            title: universalResult.event.title,
+            dueAt: universalResult.event.scheduledAt ?? undefined,
+          });
+
+          if (taskResult) {
+            addAndPersistAssistantMessage(`Got it — ${universalResult.event.title} is on your list.`);
+            chatSaveStateRef.current.hasSaved = true;
+            setTimeout(() => setHomeRefreshKey(k => k + 1), 300);
+          } else {
+            addAndPersistAssistantMessage("Got it — I saved that.");
+          }
+          setChatProcessing(false);
+          return;
+        }
+
+        if (universalResult.intent === 'create_item' && universalResult.item) {
+          // Save as a note for now — items are tracked but not yet fully surfaced
+          await chatSaveInteraction(text, null, 'note', {
+            intentType: 'general_intel',
+            routingConfidence: 1,
+            routingMetadata: {
+              classifierBucket: 'universal_item' as any,
+              routingPath: 'auto',
+            },
+          });
+          addAndPersistAssistantMessage(`Got it — I'm tracking that.`);
+          setChatProcessing(false);
+          return;
+        }
+      }
+
       // Phase 1: Classify message
       const classification = classifyMessage(
         text,
@@ -786,7 +861,7 @@ function HomePageInner() {
         // ── NEW DEAL PATH ───────────────────────────────────
         case 'new_deal': {
           addAndPersistAssistantMessage(
-            'Should I create a new deal for this?',
+            'Should I track this as something you\u2019re working on?',
             { uiMode: 'new_deal_confirm', pendingMessageId: userMsgId },
           );
           // Pre-populate form with extracted entity name
@@ -2188,7 +2263,7 @@ function HomePageInner() {
                           padding:    '4px 0',
                         }}
                       >
-                        Save without a deal
+                        Just save it
                       </button>
                     </div>
                   )}
@@ -2268,7 +2343,7 @@ function HomePageInner() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
                         <input
                           type="text"
-                          placeholder="Deal name *"
+                          placeholder="Name *"
                           value={newDealForm.dealName}
                           onChange={(e) => setNewDealForm(prev => prev ? { ...prev, dealName: e.target.value } : prev)}
                           style={{
@@ -2286,7 +2361,7 @@ function HomePageInner() {
                         />
                         <input
                           type="text"
-                          placeholder="Account name *"
+                          placeholder="Organization *"
                           value={newDealForm.accountName}
                           onChange={(e) => setNewDealForm(prev => prev ? { ...prev, accountName: e.target.value } : prev)}
                           style={{
@@ -2417,7 +2492,7 @@ function HomePageInner() {
                       closeChat();
                     }
                   }}
-                  placeholder="What needs to happen?"
+                  placeholder="Tell me anything..."
                   style={{
                     flex:        1,
                     background:  'transparent',

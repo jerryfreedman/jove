@@ -29,16 +29,19 @@ const DOMAIN_PRESETS: Record<UserDomainKey, Omit<UserDomainProfile, 'domain'>> =
     accountLabel: 'Firms',
   },
   custom: {
-    primaryEntityLabel: 'Deals',
-    contactLabel: 'Contacts',
-    accountLabel: 'Accounts',
+    primaryEntityLabel: 'Items',
+    contactLabel: 'People',
+    accountLabel: 'Organizations',
   },
 };
 
 // ── DEFAULT PROFILE ─────────────────────────────────────────
+// Session 12C: Default is now domain-neutral. No sales bias on first run.
 export const DEFAULT_DOMAIN_PROFILE: UserDomainProfile = {
-  domain: 'sales',
-  ...DOMAIN_PRESETS.sales,
+  domain: 'custom',
+  primaryEntityLabel: 'Items',
+  contactLabel: 'People',
+  accountLabel: 'Organizations',
 };
 
 // ── BUILD PROFILE FROM DOMAIN KEY ───────────────────────────
@@ -72,6 +75,8 @@ const SINGULAR_MAP: Record<string, string> = {
   Deals: 'deal',
   Contacts: 'contact',
   Accounts: 'account',
+  Items: 'item',
+  People: 'person',
   Listings: 'listing',
   Buyers: 'buyer',
   Brokerages: 'brokerage',
@@ -101,9 +106,9 @@ export function getControlSurfaceLabels(profile: UserDomainProfile = DEFAULT_DOM
     whatMatters: 'What matters',
     comingUp: 'Coming up',
     everythingElse: 'Everything else',
-    // Surface access labels (domain-adaptive)
+    // Surface access labels (domain-adaptive, neutral by default)
     allItems: `All ${primary.toLowerCase()}`,
-    meetings: 'Meetings',
+    meetings: 'Calendar',
     settings: 'Settings',
   };
 }

@@ -61,7 +61,8 @@ export function scoreItemStaleness(deal: DealRow): number {
 // ── SURFACE EVALUATION ─────────────────────────────────────
 
 export function evaluateModulePriority(input: SurfaceEvalInput): SurfaceEvalResult {
-  const totalDataPoints = input.allDeals.length + input.meetings.length;
+  // Session 12C: Include task count in data assessment
+  const totalDataPoints = input.allDeals.length + input.meetings.length + (input.systemTaskCount ?? 0);
   return {
     isLowDataState: totalDataPoints <= 1,
   };
