@@ -24,6 +24,8 @@ import {
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { useMeetingActions } from '@/lib/meeting-actions';
+import { useTaskEngine } from '@/lib/task-engine';
+import type { SystemTask, TaskAction } from '@/lib/task-types';
 import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
@@ -144,10 +146,13 @@ export default function ControlSurface({
     setRescheduleTarget(null);
   }, [rescheduleTarget, rescheduleMeeting]);
 
+  // ── SESSION 9: System-derived task engine ──
+  const systemTasks = useTaskEngine(allDeals);
+
   // ── ADAPTIVE MODULE PRIORITY ────────────────────────────
   const priority = useMemo<ModulePriorityResult>(() => {
-    return evaluateModulePriority({ allDeals, urgentDeals, meetings });
-  }, [allDeals, urgentDeals, meetings]);
+    return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: systemTasks.length });
+  }, [allDeals, urgentDeals, meetings, systemTasks.length]);
 
   // ── Session 7: Meeting store for status-aware filtering ──
   const meetingStoreData = useMeetingStore(state => state.meetings);
@@ -207,8 +212,37 @@ export default function ControlSurface({
   // Each module is a self-contained render function keyed by ModuleId.
   // The adaptive system calls them in priority order.
 
+  // ── SESSION 9: Task action handler ──
+  const handleTaskAction = useCallback((action: TaskAction) => {
+    switch (action.kind) {
+      case 'open_prep':
+        if (action.dealId) {
+          openSurface('deal-prep', { dealId: action.dealId });
+        } else {
+          openSurface('briefing');
+        }
+        break;
+      case 'open_chat':
+        if (action.dealId) {
+          openSurface('deal-chat', { dealId: action.dealId });
+        } else {
+          // Fall back to briefing for non-deal meetings
+          openSurface('briefing');
+        }
+        break;
+      case 'open_deal':
+        openSurface('deal-detail', { dealId: action.dealId });
+        break;
+      case 'open_briefing':
+        openSurface('briefing');
+        break;
+    }
+  }, [openSurface]);
+
   const renderModule = (moduleId: ModuleId, isProminent: boolean) => {
     switch (moduleId) {
+      case 'system_tasks':
+        return renderSystemTasks(isProminent);
       case 'needs_attention':
         return renderNeedsAttention(isProminent);
       case 'upcoming_meetings':
@@ -220,6 +254,137 @@ export default function ControlSurface({
       default:
         return null;
     }
+  };
+
+  // ── SESSION 9: SYSTEM TASKS ─────────────────────────────
+  const TASK_ICON: Record<string, string> = {
+    meeting_prep: '◉',
+    meeting_followup: '↩',
+    deal_next_step: '→',
+    reengage: '↻',
+  };
+
+  const TASK_ACCENT: Record<string, { color: string; bg: string; border: string }> = {
+    meeting_prep: {
+      color: COLORS.amber,
+      bg: 'rgba(232,160,48,0.08)',
+      border: 'rgba(232,160,48,0.16)',
+    },
+    meeting_followup: {
+      color: COLORS.teal,
+      bg: 'rgba(56,184,200,0.08)',
+      border: 'rgba(56,184,200,0.16)',
+    },
+    deal_next_step: {
+      color: 'rgba(240,235,224,0.60)',
+      bg: 'rgba(240,235,224,0.04)',
+      border: 'rgba(240,235,224,0.10)',
+    },
+    reengage: {
+      color: COLORS.red,
+      bg: 'rgba(224,88,64,0.06)',
+      border: 'rgba(224,88,64,0.14)',
+    },
+  };
+
+  const renderSystemTasks = (isProminent: boolean) => {
+    if (systemTasks.length === 0) return null;
+
+    return (
+      <div key="system_tasks" style={{ marginBottom: 20 }}>
+        <div
+          style={{
+            fontSize: isProminent ? 11 : 10,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: isProminent ? '1.4px' : '1.2px',
+            color: COLORS.amber,
+            marginBottom: 10,
+            paddingLeft: 2,
+          }}
+        >
+          Do next
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {systemTasks.map((task) => {
+            const accent = TASK_ACCENT[task.type] ?? TASK_ACCENT.deal_next_step;
+            const icon = TASK_ICON[task.type] ?? '·';
+
+            return (
+              <div
+                key={task.id}
+                onClick={() => handleTaskAction(task.action)}
+                style={{
+                  background: isProminent ? accent.bg : accent.bg,
+                  border: `0.5px solid ${accent.border}`,
+                  borderRadius: 12,
+                  padding: isProminent ? '13px 14px' : '11px 14px',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: accent.color,
+                        flexShrink: 0,
+                        width: 16,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {icon}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 400,
+                        color: 'rgba(252,246,234,0.88)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {task.title}
+                    </span>
+                  </div>
+                  {task.timeRelevance && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: accent.color,
+                        marginLeft: 10,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {task.timeRelevance}
+                    </span>
+                  )}
+                </div>
+                {task.subtitle && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 300,
+                      color: 'rgba(240,235,224,0.38)',
+                      marginTop: 3,
+                      paddingLeft: 24,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {task.subtitle}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   // ── NEEDS ATTENTION ─────────────────────────────────────

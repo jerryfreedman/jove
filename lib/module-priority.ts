@@ -19,7 +19,7 @@ import type { DealRow, MeetingRow } from './types';
 
 // ── TYPES ──────────────────────────────────────────────────
 
-export type ModuleId = 'needs_attention' | 'upcoming_meetings' | 'top_deals' | 'deep_links';
+export type ModuleId = 'system_tasks' | 'needs_attention' | 'upcoming_meetings' | 'top_deals' | 'deep_links';
 
 export interface ModuleVisibility {
   id: ModuleId;
@@ -47,6 +47,8 @@ export interface ModulePriorityInput {
   allDeals: DealWithAccount[];
   urgentDeals: DealWithAccount[];
   meetings: MeetingRow[];
+  /** Session 9: Number of system-derived tasks from useTaskEngine */
+  systemTaskCount?: number;
 }
 
 // ── HELPERS (reuse patterns from ControlSurface / assistant-trigger) ──
@@ -186,9 +188,32 @@ export function evaluateModulePriority(input: ModulePriorityInput): ModulePriori
   const totalDataPoints = allDeals.length + meetings.length;
   const isLowDataState = totalDataPoints <= 1;
 
+  // Session 9: System-derived tasks
+  const hasSystemTasks = (input.systemTaskCount ?? 0) > 0;
+
   // ── Evaluate each module ──────────────────────────────────
 
   const modules: ModuleVisibility[] = [];
+
+  // --- SYSTEM TASKS (Session 9) ---
+  // Highest priority module: derived intelligence tasks
+  if (hasSystemTasks) {
+    modules.push({
+      id: 'system_tasks',
+      shouldShow: true,
+      priority: 2,   // above everything else
+      reason: `${input.systemTaskCount} system-derived task(s) need action`,
+      isProminent: false,
+    });
+  } else {
+    modules.push({
+      id: 'system_tasks',
+      shouldShow: false,
+      priority: 2,
+      reason: 'No system tasks derived — module hidden',
+      isProminent: false,
+    });
+  }
 
   // --- NEEDS ATTENTION ---
   if (hasAttentionItems) {
