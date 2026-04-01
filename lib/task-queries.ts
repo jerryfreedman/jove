@@ -10,10 +10,11 @@
 
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase';
 import type { TaskRow, TaskStatus } from '@/lib/types';
 import type { TaskAction } from '@/lib/task-types';
+import { onReflection } from '@/lib/chat/reflection';
 
 // ── TYPES ──────────────────────────────────────────────────
 
@@ -197,6 +198,18 @@ export function useTasks(userId: string | null): UseTasksResult {
     fetchTasks();
   }, [fetchTasks]);
 
+  // Session 15C.1: Auto-refetch when new data arrives via reflection events.
+  // This ensures the control panel reflects new inputs quickly.
+  useEffect(() => {
+    const unsubs = [
+      onReflection('task:created', fetchTasks),
+      onReflection('task:updated', fetchTasks),
+      onReflection('task:completed', fetchTasks),
+      onReflection('data:changed', fetchTasks),
+    ];
+    return () => unsubs.forEach(u => u());
+  }, [fetchTasks]);
+
   return { tasks, loading, error, refetch: fetchTasks };
 }
 
@@ -271,6 +284,9 @@ export async function markTaskDone(taskId: string): Promise<boolean> {
     console.error('markTaskDone error:', error);
     return false;
   }
+  // Session 15C.1: Emit reflection so surfaces update immediately
+  const { emitReflection } = await import('@/lib/chat/reflection');
+  emitReflection('task:completed');
   return true;
 }
 
@@ -285,5 +301,8 @@ export async function skipTask(taskId: string): Promise<boolean> {
     console.error('skipTask error:', error);
     return false;
   }
+  // Session 15C.1: Emit reflection so surfaces update immediately
+  const { emitReflection } = await import('@/lib/chat/reflection');
+  emitReflection('task:updated');
   return true;
 }

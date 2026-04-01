@@ -12,6 +12,8 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { PersonReference } from '@/lib/universal-routing';
+import { emitReflection } from '@/lib/chat/reflection';
+import { checkDuplicateTask } from '@/lib/chat/duplicate-guard';
 
 // ── TASK FROM INTENT ────────────────────────────────────────
 
@@ -26,7 +28,14 @@ export async function createTaskFromIntent(
     meetingId?: string | null;
     personId?: string | null;
   },
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; wasDuplicate?: boolean } | null> {
+  // Session 15C.1: Check for duplicate before creating
+  const dupCheck = await checkDuplicateTask(supabase, userId, params.title);
+  if (dupCheck.isDuplicate && dupCheck.existingId) {
+    // Return existing instead of creating duplicate
+    return { id: dupCheck.existingId, wasDuplicate: true };
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .insert({
@@ -49,6 +58,8 @@ export async function createTaskFromIntent(
     console.error('createTaskFromIntent error:', error);
     return null;
   }
+  // Session 15C.1: Trigger reflection so control panel updates immediately
+  emitReflection('task:created');
   return data;
 }
 
@@ -97,6 +108,8 @@ export async function createItemFromIntent(
     console.error('createItemFromIntent error:', error);
     return null;
   }
+  // Session 15C.1: Trigger reflection
+  emitReflection('item:created');
   return data;
 }
 
@@ -155,6 +168,8 @@ export async function findOrCreatePerson(
     console.error('findOrCreatePerson error:', error);
     return null;
   }
+  // Session 15C.1: Trigger reflection
+  emitReflection('person:created');
   return { id: data.id, isNew: true };
 }
 
@@ -195,6 +210,8 @@ export async function createEventFromIntent(
     console.error('createEventFromIntent error:', error);
     return null;
   }
+  // Session 15C.1: Trigger reflection
+  emitReflection('event:created');
   return data;
 }
 

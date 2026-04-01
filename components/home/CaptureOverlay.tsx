@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { COLORS, FONTS, TIMING, EASING, TRANSITIONS, CLOSE_DELAY } from '@/lib/design-system';
+import { detectSyncState, getBirdAcknowledgment, type SyncState } from '@/lib/chat/acknowledgment';
 
 // ── SESSION 13B: BIRD CAPTURE OVERLAY ──────────────────────
 // Lightweight, instant capture moment.
@@ -16,16 +17,8 @@ const PLACEHOLDERS = [
 ];
 
 // ── CONFIRMATION MESSAGES ──────────────────────────────────
+// Session 15C.1: Sync-aware confirmations via acknowledgment module.
 // Brief, human, non-structural. User never sees "task created".
-// Session 14F: Added variety to reinforce the capture loop.
-const CONFIRMATIONS = [
-  'Got it',
-  'Saved',
-  'On it',
-  'Noted',
-  'Done',
-  'Captured',
-];
 
 function randomFrom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -85,8 +78,21 @@ export default function CaptureOverlay({
     const trimmed = value.trim();
     if (!trimmed || saving) return;
 
-    // Fire submission
-    await onSubmit(trimmed);
+    // Session 15C.1: Detect sync state BEFORE submission
+    const preSyncState = detectSyncState();
+
+    // Fire submission — track success/failure for truthful confirmation
+    let writeSucceeded = true;
+    try {
+      await onSubmit(trimmed);
+    } catch {
+      writeSucceeded = false;
+    }
+
+    // Session 15C.1: Determine actual sync state based on write result
+    const syncState: SyncState = writeSucceeded
+      ? detectSyncState(true)
+      : (preSyncState === 'offline' ? 'offline' : detectSyncState(false));
 
     // Session 14F: Increment capture count for micro-reinforcement
     captureCountRef.current += 1;
@@ -100,10 +106,16 @@ export default function CaptureOverlay({
       }
       // Truncate for display
       const display = trimmed.length > 30 ? trimmed.slice(0, 30) + '…' : trimmed;
-      setConfirmation(`Added "${display}"`);
+      // Session 15C.1: Even first capture is sync-aware
+      if (syncState === 'offline') {
+        setConfirmation(`Captured "${display}" — syncing soon`);
+      } else {
+        setConfirmation(`Added "${display}"`);
+      }
       setCapturedText(trimmed);
     } else {
-      setConfirmation(randomFrom(CONFIRMATIONS));
+      // Session 15C.1: Use sync-aware bird acknowledgment
+      setConfirmation(getBirdAcknowledgment(syncState));
       setCapturedText(null);
     }
     setValue('');

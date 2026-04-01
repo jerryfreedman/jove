@@ -7,6 +7,8 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { saveInteraction, triggerExtraction } from '@/lib/capture-utils';
+import { emitReflection } from '@/lib/chat/reflection';
+import { checkDuplicateInteraction } from '@/lib/chat/duplicate-guard';
 import type {
   InteractionType,
   InteractionIntentType,
@@ -172,6 +174,15 @@ export async function ingestChatMessage(
     return null;
   }
 
+  // Session 15C.1: Check for recent duplicate before creating
+  const dupCheck = await checkDuplicateInteraction(supabase, userId, message, dealId);
+  if (dupCheck.isDuplicate) {
+    // Already captured — don't create duplicate
+    return dupCheck.existingId
+      ? { interactionId: dupCheck.existingId, assessment }
+      : null;
+  }
+
   try {
     const result = await saveInteraction(supabase, {
       userId,
@@ -192,6 +203,8 @@ export async function ingestChatMessage(
     if (result?.id) {
       // Trigger extraction pipeline — fire and forget
       triggerExtraction(result.id, userId);
+      // Session 15C.1: Emit reflection so control panel and sun update
+      emitReflection('interaction:created');
       return { interactionId: result.id, assessment };
     }
   } catch (err) {

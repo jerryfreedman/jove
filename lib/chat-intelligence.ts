@@ -578,6 +578,8 @@ export function classifyMessage(
 
 // ── ACKNOWLEDGMENT MESSAGES ──────────────────────────────────
 // Short, human, calm. No badges, no banners.
+// Session 15C.1: Legacy function preserved for backward compatibility.
+// For sync-aware acknowledgments, use lib/chat/acknowledgment.ts instead.
 
 export function getAcknowledgment(
   bucket: MessageBucket,
