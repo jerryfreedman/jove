@@ -7,7 +7,7 @@ import SceneBackground from '@/components/home/SceneBackground';
 import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import ControlSurface from '@/components/home/ControlSurface';
-import Logo from '@/components/ui/Logo';
+// Logo removed — Session 4: world-first homepage, no app chrome
 import {
   saveInteraction,
   updateInteractionLinkage,
@@ -117,7 +117,7 @@ export default function HomePage() {
   const [fetchError, setFetchError] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
-  const [logoBloom, setLogoBloom] = useState(false);
+  // logoBloom removed — Session 4
 
   // ── CONTROL SURFACE STATE ──────────────────────────────
   const [controlOpen, setControlOpen] = useState(false);
@@ -170,7 +170,7 @@ export default function HomePage() {
 
   // ── TOUR REFS ────────────────────────────────────────────
   const sunRef     = useRef<HTMLDivElement>(null);
-  const logoRef    = useRef<HTMLDivElement>(null);
+  // logoRef removed — Session 4
 
   // ── CHAT STATE ──────────────────────────────────────────
   const [chatOpen, setChatOpen] = useState(false);
@@ -1163,20 +1163,12 @@ export default function HomePage() {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
 
-  // ── LOGO BLOOM + MILESTONE LISTENER ──────────────────────
-  const [logoMilestone, setLogoMilestone] = useState(false);
-
+  // ── CROSS-TAB ENVIRONMENTAL LISTENER (logo bloom removed — Session 4) ──
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'jove_bloom_trigger') {
-        setLogoBloom(true);
-        setTimeout(() => setLogoBloom(false), 800);
         // Environmental response for cross-tab capture / Save to Jove
         triggerEnvironmentalAcknowledgment({ source: 'other' });
-      }
-      if (e.key === 'jove_milestone_trigger') {
-        setLogoMilestone(true);
-        setTimeout(() => setLogoMilestone(false), 2000);
       }
     };
     window.addEventListener('storage', handleStorage);
@@ -1626,28 +1618,31 @@ export default function HomePage() {
         </>
       ) : null}
 
-      {/* ── OFFLINE BANNER ─────────────────────────── */}
+      {/* ── OFFLINE BANNER (softened — Session 4) ──────── */}
       <div style={{
         position:   'absolute',
-        top:        0,
-        left:       0,
-        right:      0,
+        top:        'env(safe-area-inset-top, 0px)',
+        left:       16,
+        right:      16,
         zIndex:     50,
         height:     isOffline ? 28 : 0,
         overflow:   'hidden',
         transition: 'height 0.3s ease',
       }}>
         <div style={{
-          height:      28,
-          background:  'rgba(224,88,64,0.9)',
-          display:     'flex',
-          alignItems:  'center',
-          justifyContent: 'center',
+          height:        28,
+          background:    'rgba(224,88,64,0.7)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderRadius:  '0 0 12px 12px',
+          display:       'flex',
+          alignItems:    'center',
+          justifyContent:'center',
         }}>
           <span style={{
             fontSize:   10,
             fontWeight: 400,
-            color:      '#FFFFFF',
+            color:      'rgba(255,255,255,0.9)',
             fontFamily: "'DM Sans', sans-serif",
           }}>
             You&apos;re offline — some features unavailable.
@@ -1655,53 +1650,11 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ── TOP BAR (z:30 — above bird) ─────────── */}
-      <div
-        style={{
-          position:      'absolute',
-          top:           0,
-          left:          0,
-          right:         0,
-          zIndex:        30,
-          pointerEvents: 'none',
-        }}
-      >
-        <div
-          className="flex items-start justify-between"
-          style={{ paddingTop: 'env(safe-area-inset-top)', paddingLeft: 22, paddingRight: 22, pointerEvents: 'auto', ...anim(0.06) }}
-        >
-          {/* Logo — taps to settings */}
-          <div
-            ref={logoRef}
-            style={{
-              transition: logoMilestone
-                ? 'box-shadow 2s ease, transform 2s ease'
-                : 'box-shadow 0.4s ease, transform 0.4s ease',
-              borderRadius: 12,
-              ...(logoMilestone
-                ? {
-                    boxShadow: '0 0 24px 12px rgba(232,160,48,0.4)',
-                    transform: 'scale(1.2)',
-                  }
-                : logoBloom
-                  ? {
-                      boxShadow: '0 0 24px rgba(232,160,48,0.5)',
-                      transform: 'scale(1.15)',
-                    }
-                  : {
-                      boxShadow: 'none',
-                      transform: 'scale(1)',
-                    }),
-            }}
-          >
-            <Logo light={scene.lightText} showWordmark size={30} />
-          </div>
-        </div>
-      </div>
+      {/* Session 4: Top bar removed — environment owns the full canvas */}
 
       <div
         className="absolute inset-0 flex flex-col items-center"
-        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10vh)' }}
+        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 11vh)' }}
       >
         {/* ── GREETING + NAME (top third — anchor, never competes with sun) ── */}
         <div
@@ -1847,12 +1800,12 @@ export default function HomePage() {
         meetings={data?.meetings ?? []}
       />
 
-      {/* ── UNIFIED INTERACTION BAR (control entry + chat entry) ───────── */}
+      {/* ── UNIFIED INTERACTION BAR — floating object in the world ───────── */}
       {!chatOpen && (
         <div
           style={{
             position:       'fixed',
-            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 14px)',
+            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 12px)',
             left:           0,
             right:          0,
             display:        'flex',
@@ -1867,24 +1820,24 @@ export default function HomePage() {
           <div
             style={{
               width:          '90%',
-              maxWidth:       360,
+              maxWidth:       480,
               pointerEvents:  'auto',
               WebkitTapHighlightColor: 'transparent',
             }}
           >
           <div
             style={{
-              background:      'rgba(15,20,32,0.48)',
+              background:      'rgba(15,20,32,0.42)',
               backdropFilter:  'blur(32px) saturate(1.4)',
               WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-              borderRadius:    22,
-              border:          '0.5px solid rgba(240,235,224,0.11)',
-              borderTop:       '0.5px solid rgba(240,235,224,0.16)',
-              padding:         '5px 5px 5px 5px',
+              borderRadius:    24,
+              border:          '0.5px solid rgba(240,235,224,0.09)',
+              borderTop:       '0.5px solid rgba(240,235,224,0.14)',
+              padding:         '5px 6px 5px 5px',
               display:         'flex',
               alignItems:      'center',
               gap:             0,
-              boxShadow:       '0 4px 24px rgba(0,0,0,0.22), 0 0.5px 0 rgba(240,235,224,0.04) inset',
+              boxShadow:       '0 6px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.12), 0 0.5px 0 rgba(240,235,224,0.03) inset',
             }}
           >
             {/* Control surface entry — left side */}
@@ -1896,14 +1849,14 @@ export default function HomePage() {
               style={{
                 width:          36,
                 height:         36,
-                borderRadius:   12,
+                borderRadius:   14,
                 display:        'flex',
                 alignItems:     'center',
                 justifyContent: 'center',
                 cursor:         'pointer',
                 flexShrink:     0,
                 transition:     'transform 0.15s ease, background 0.15s ease',
-                background:     'rgba(240,235,224,0.09)',
+                background:     'rgba(240,235,224,0.07)',
               }}
               aria-label="Open overview"
             >
@@ -2409,7 +2362,7 @@ export default function HomePage() {
           transition:     'opacity 0.7s ease',
           pointerEvents:  firstVisitOpacity < 1 ? 'none' : 'auto',
         }}>
-          <Logo light size={48} showWordmark />
+          {/* Session 4: Logo removed — clean fade from dark to environment */}
         </div>
       )}
 
