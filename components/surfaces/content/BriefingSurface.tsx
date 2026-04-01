@@ -1657,8 +1657,8 @@ export default function BriefingSurface() {
                   color:      'rgba(252,246,234,0.44)',
                 }}>
                   {attentionDeals.length > 0
-                    ? 'Every deal has been reviewed.'
-                    : 'All deals have confirmed next steps.'}
+                    ? 'Nothing pressing.'
+                    : 'Every deal has a next step.'}
                 </p>
               </div>
             ) : (

@@ -1510,8 +1510,8 @@ export default function BriefingPage() {
                   color:      'rgba(26,20,16,0.44)',
                 }}>
                   {attentionDeals.length > 0
-                    ? 'Every deal has been reviewed.'
-                    : 'All deals have confirmed next steps.'}
+                    ? 'Nothing pressing.'
+                    : 'Every deal has a next step.'}
                 </p>
               </div>
             ) : (

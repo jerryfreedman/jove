@@ -97,12 +97,16 @@ export function getEntityLabelSingular(
 export function getControlSurfaceLabels(profile: UserDomainProfile = DEFAULT_DOMAIN_PROFILE) {
   const primary = getEntityLabel('primary', profile);
   return {
+    // Session 10: simplified control panel sections
+    whatMatters: 'What matters',
+    comingUp: 'Coming up',
+    everythingElse: 'Everything else',
+    // Deep link labels
     topDeals: `Top ${primary.toLowerCase()}`,
     allDeals: `All ${primary.toLowerCase()}`,
-    needsAttention: 'Needs attention',   // generic — works across domains
+    needsAttention: 'Needs attention',
     upcoming: 'Upcoming',
-    comingUp: 'Coming up',
-    meetings: 'Meetings',               // meetings stay universal for now
+    meetings: 'Meetings',
     settings: 'Settings',
   };
 }

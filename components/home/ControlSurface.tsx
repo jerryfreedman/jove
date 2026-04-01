@@ -7,13 +7,11 @@ import {
   getDaysColor,
   FONTS,
 } from '@/lib/design-system';
-import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import {
   evaluateModulePriority,
   isNeedsAttention,
   scoreDealRelevance,
   scoreAttentionUrgency,
-  type ModuleId,
   type ModulePriorityResult,
 } from '@/lib/module-priority';
 import type { DealRow, MeetingRow, UserDomainProfile } from '@/lib/types';
@@ -25,7 +23,7 @@ import { useSurface } from '@/components/surfaces/SurfaceManager';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { useMeetingActions } from '@/lib/meeting-actions';
 import { useTaskEngine } from '@/lib/task-engine';
-import type { SystemTask, TaskAction } from '@/lib/task-types';
+import type { TaskAction } from '@/lib/task-types';
 import RescheduleSheet from '@/components/meetings/RescheduleSheet';
 import MeetingActionToast from '@/components/meetings/MeetingActionToast';
 
@@ -94,6 +92,7 @@ export default function ControlSurface({
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [everythingElseOpen, setEverythingElseOpen] = useState(false);
   const labels = useMemo(
     () => getControlSurfaceLabels(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
     [domainProfile],
@@ -132,7 +131,6 @@ export default function ControlSurface({
   } | null>(null);
 
   const handleRescheduleOpen = useCallback((meetingId: string) => {
-    // Look up meeting in store for current startTime
     const storeMeeting = useMeetingStore.getState().getMeetingById(meetingId);
     const meetingRow = meetings.find(m => m.id === meetingId);
     const title = storeMeeting?.title ?? meetingRow?.title ?? 'Meeting';
@@ -176,26 +174,21 @@ export default function ControlSurface({
       .slice(0, 5);
 
     // Session 7: Upcoming meetings — filter through store status.
-    // ONLY show meetings with status === "scheduled"
     const upcomingMeetings = meetings
       .filter(m => {
         const storeMeeting = meetingStoreData[m.id];
-        // If meeting is in store, respect its status
         if (storeMeeting) {
           return storeMeeting.status === 'scheduled' && storeMeeting.startTime >= now.getTime() - 2 * 60 * 60 * 1000;
         }
-        // Not in store yet — show if future
         return new Date(m.scheduled_at) >= now;
       })
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
       .slice(0, 3);
 
-    // Cancelled meetings (for potential "Cancelled" section)
     const cancelledMeetings = Object.values(meetingStoreData)
       .filter(m => m.status === 'cancelled')
       .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
 
-    // Completed meetings
     const completedMeetings = Object.values(meetingStoreData)
       .filter(m => m.status === 'completed')
       .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
@@ -206,11 +199,7 @@ export default function ControlSurface({
   if (!open) return null;
 
   const { attentionItems, topDeals, upcomingMeetings } = preparedData;
-  const { visibleModules, isLowDataState } = priority;
-
-  // ── MODULE RENDERERS ────────────────────────────────────
-  // Each module is a self-contained render function keyed by ModuleId.
-  // The adaptive system calls them in priority order.
+  const { isLowDataState } = priority;
 
   // ── SESSION 9: Task action handler ──
   const handleTaskAction = useCallback((action: TaskAction) => {
@@ -226,7 +215,6 @@ export default function ControlSurface({
         if (action.dealId) {
           openSurface('deal-chat', { dealId: action.dealId });
         } else {
-          // Fall back to briefing for non-deal meetings
           openSurface('briefing');
         }
         break;
@@ -239,31 +227,7 @@ export default function ControlSurface({
     }
   }, [openSurface]);
 
-  const renderModule = (moduleId: ModuleId, isProminent: boolean) => {
-    switch (moduleId) {
-      case 'system_tasks':
-        return renderSystemTasks(isProminent);
-      case 'needs_attention':
-        return renderNeedsAttention(isProminent);
-      case 'upcoming_meetings':
-        return renderUpcomingMeetings(isProminent);
-      case 'top_deals':
-        return renderTopDeals(isProminent);
-      case 'deep_links':
-        return renderDeepLinks();
-      default:
-        return null;
-    }
-  };
-
-  // ── SESSION 9: SYSTEM TASKS ─────────────────────────────
-  const TASK_ICON: Record<string, string> = {
-    meeting_prep: '◉',
-    meeting_followup: '↩',
-    deal_next_step: '→',
-    reengage: '↻',
-  };
-
+  // ── SESSION 10: TASK ACCENT STYLES ─────────────────────
   const TASK_ACCENT: Record<string, { color: string; bg: string; border: string }> = {
     meeting_prep: {
       color: COLORS.amber,
@@ -287,68 +251,60 @@ export default function ControlSurface({
     },
   };
 
-  const renderSystemTasks = (isProminent: boolean) => {
-    if (systemTasks.length === 0) return null;
+  // ── SESSION 10: "WHAT MATTERS" ──────────────────────────
+  // Unified section: system tasks + attention items, max 5 total
+  const whatMattersItems = systemTasks.length > 0 || attentionItems.length > 0;
+
+  const renderWhatMatters = () => {
+    if (!whatMattersItems) return null;
 
     return (
-      <div key="system_tasks" style={{ marginBottom: 20 }}>
+      <div key="what_matters" style={{ marginBottom: 24 }}>
         <div
           style={{
-            fontSize: isProminent ? 11 : 10,
+            fontSize: 11,
             fontWeight: 600,
             textTransform: 'uppercase',
-            letterSpacing: isProminent ? '1.4px' : '1.2px',
+            letterSpacing: '1.4px',
             color: COLORS.amber,
             marginBottom: 10,
             paddingLeft: 2,
           }}
         >
-          Do next
+          {labels.whatMatters}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {systemTasks.map((task) => {
+          {/* System tasks first */}
+          {systemTasks.slice(0, 5).map((task) => {
             const accent = TASK_ACCENT[task.type] ?? TASK_ACCENT.deal_next_step;
-            const icon = TASK_ICON[task.type] ?? '·';
-
             return (
               <div
                 key={task.id}
                 onClick={() => handleTaskAction(task.action)}
                 style={{
-                  background: isProminent ? accent.bg : accent.bg,
+                  background: accent.bg,
                   border: `0.5px solid ${accent.border}`,
                   borderRadius: 12,
-                  padding: isProminent ? '13px 14px' : '11px 14px',
+                  padding: '13px 14px',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s ease',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: accent.color,
-                        flexShrink: 0,
-                        width: 16,
-                        textAlign: 'center',
-                      }}
-                    >
-                      {icon}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 400,
-                        color: 'rgba(252,246,234,0.88)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {task.title}
-                    </span>
-                  </div>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: 'rgba(252,246,234,0.88)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      flex: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    {task.title}
+                  </span>
                   {task.timeRelevance && (
                     <span
                       style={{
@@ -370,7 +326,6 @@ export default function ControlSurface({
                       fontWeight: 300,
                       color: 'rgba(240,235,224,0.38)',
                       marginTop: 3,
-                      paddingLeft: 24,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -382,124 +337,93 @@ export default function ControlSurface({
               </div>
             );
           })}
+
+          {/* Attention items — only if space remains under 5 total */}
+          {systemTasks.length < 5 && attentionItems.slice(0, 5 - systemTasks.length).map((deal) => {
+            const days = getDaysSince(deal.last_activity_at);
+            return (
+              <div
+                key={deal.id}
+                onClick={() => openSurface('deal-detail', { dealId: deal.id })}
+                style={{
+                  background: 'rgba(232,160,48,0.06)',
+                  border: '0.5px solid rgba(232,160,48,0.12)',
+                  borderRadius: 12,
+                  padding: '11px 14px',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: 'rgba(252,246,234,0.88)',
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {deal.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: getDaysColor(days),
+                      marginLeft: 10,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {days}d ago
+                  </span>
+                </div>
+                {deal.next_action && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 300,
+                      color: 'rgba(240,235,224,0.42)',
+                      marginTop: 3,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {deal.next_action}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
   };
 
-  // ── NEEDS ATTENTION ─────────────────────────────────────
-  const renderNeedsAttention = (isProminent: boolean) => (
-    <div key="needs_attention" style={{ marginBottom: 20 }}>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '1.2px',
-          color: COLORS.amber,
-          marginBottom: 10,
-          paddingLeft: 2,
-          // Prominent: slightly larger label
-          ...(isProminent ? { fontSize: 11, letterSpacing: '1.4px' } : {}),
-        }}
-      >
-        {labels.needsAttention}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {attentionItems.map((deal) => {
-          const days = getDaysSince(deal.last_activity_at);
-          return (
-            <div
-              key={deal.id}
-              onClick={() => openSurface('deal-detail', { dealId: deal.id })}
-              style={{
-                background: isProminent
-                  ? 'rgba(232,160,48,0.08)'
-                  : 'rgba(232,160,48,0.06)',
-                border: isProminent
-                  ? '0.5px solid rgba(232,160,48,0.16)'
-                  : '0.5px solid rgba(232,160,48,0.12)',
-                borderRadius: 12,
-                padding: isProminent ? '13px 14px' : '11px 14px',
-                cursor: 'pointer',
-                transition: 'border-color 0.15s ease',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: 'rgba(252,246,234,0.88)',
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {deal.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: getDaysColor(days),
-                    marginLeft: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  {days}d ago
-                </span>
-              </div>
-              {deal.next_action && (
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 300,
-                    color: 'rgba(240,235,224,0.42)',
-                    marginTop: 3,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {deal.next_action}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  // ── UPCOMING MEETINGS ───────────────────────────────────
-  const renderUpcomingMeetings = (isProminent: boolean) => {
-    // Check if the first meeting is imminent for visual emphasis
-    const firstMeeting = upcomingMeetings[0];
-    const isImminent = firstMeeting && minutesUntil(firstMeeting.scheduled_at) <= 120;
+  // ── SESSION 10: "COMING UP" ─────────────────────────────
+  const renderComingUp = () => {
+    if (upcomingMeetings.length === 0) return null;
 
     return (
-      <div key="upcoming_meetings" style={{ marginBottom: 20 }}>
+      <div key="coming_up" style={{ marginBottom: 24 }}>
         <div
           style={{
-            fontSize: isProminent ? 11 : 10,
+            fontSize: 10,
             fontWeight: 600,
             textTransform: 'uppercase',
-            letterSpacing: isProminent ? '1.4px' : '1.2px',
-            color: isProminent && isImminent
-              ? COLORS.amber
-              : 'rgba(240,235,224,0.36)',
+            letterSpacing: '1.2px',
+            color: 'rgba(240,235,224,0.36)',
             marginBottom: 10,
             paddingLeft: 2,
           }}
         >
-          {isImminent ? labels.comingUp : labels.upcoming}
+          {labels.comingUp}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {upcomingMeetings.map((meeting, idx) => {
-            // First meeting gets emphasis when prominent and imminent
-            const isHighlighted = isProminent && isImminent && idx === 0;
+          {upcomingMeetings.map((meeting) => {
             const isExpanded = expandedMeetingId === meeting.id;
 
             return (
@@ -507,18 +431,14 @@ export default function ControlSurface({
                 key={meeting.id}
                 onClick={() => setExpandedMeetingId(isExpanded ? null : meeting.id)}
                 style={{
-                  background: isHighlighted
-                    ? 'rgba(232,160,48,0.06)'
-                    : isExpanded
-                      ? 'rgba(240,235,224,0.05)'
-                      : 'rgba(240,235,224,0.03)',
-                  border: isHighlighted
-                    ? '0.5px solid rgba(232,160,48,0.14)'
-                    : isExpanded
-                      ? '0.5px solid rgba(240,235,224,0.10)'
-                      : '0.5px solid rgba(240,235,224,0.06)',
+                  background: isExpanded
+                    ? 'rgba(240,235,224,0.05)'
+                    : 'rgba(240,235,224,0.03)',
+                  border: isExpanded
+                    ? '0.5px solid rgba(240,235,224,0.10)'
+                    : '0.5px solid rgba(240,235,224,0.06)',
                   borderRadius: 12,
-                  padding: isHighlighted ? '12px 14px' : '10px 14px',
+                  padding: '10px 14px',
                   cursor: 'pointer',
                   transition: 'all 0.18s ease',
                 }}
@@ -540,10 +460,8 @@ export default function ControlSurface({
                   <span
                     style={{
                       fontSize: 11,
-                      fontWeight: isHighlighted ? 500 : 400,
-                      color: isHighlighted
-                        ? COLORS.amber
-                        : 'rgba(240,235,224,0.42)',
+                      fontWeight: 400,
+                      color: 'rgba(240,235,224,0.42)',
                       flexShrink: 0,
                     }}
                   >
@@ -551,7 +469,7 @@ export default function ControlSurface({
                   </span>
                 </div>
 
-                {/* Session 8: Expanded inline actions */}
+                {/* Expanded inline actions */}
                 {isExpanded && (
                   <div
                     style={{
@@ -578,7 +496,7 @@ export default function ControlSurface({
                         fontFamily: FONTS.sans,
                       }}
                     >
-                      ✓ Complete
+                      Done
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRescheduleOpen(meeting.id); }}
@@ -595,7 +513,7 @@ export default function ControlSurface({
                         fontFamily: FONTS.sans,
                       }}
                     >
-                      ↻ Reschedule
+                      Move
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); cancelMeeting(meeting.id); setExpandedMeetingId(null); }}
@@ -612,9 +530,8 @@ export default function ControlSurface({
                         fontFamily: FONTS.sans,
                       }}
                     >
-                      ✕ Cancel
+                      Cancel
                     </button>
-                    {/* Navigate to prep/briefing */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -636,7 +553,7 @@ export default function ControlSurface({
                         marginLeft: 'auto',
                       }}
                     >
-                      Open →
+                      Open
                     </button>
                   </div>
                 )}
@@ -648,121 +565,134 @@ export default function ControlSurface({
     );
   };
 
-  // ── TOP DEALS ───────────────────────────────────────────
-  const renderTopDeals = (isProminent: boolean) => (
-    <div key="top_deals" style={{ marginBottom: 20 }}>
-      <div
-        style={{
-          fontSize: isProminent ? 11 : 10,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: isProminent ? '1.4px' : '1.2px',
-          color: 'rgba(240,235,224,0.36)',
-          marginBottom: 10,
-          paddingLeft: 2,
-        }}
-      >
-        {labels.topDeals}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {topDeals.map((deal) => {
-          const stageStyle = STAGE_STYLES[deal.stage] ?? STAGE_STYLES.Prospect;
-          const days = getDaysSince(deal.last_activity_at);
-          const valueStr = formatDealValue(deal.value, deal.value_type);
-          return (
-            <div
-              key={deal.id}
-              onClick={() => openSurface('deal-detail', { dealId: deal.id })}
-              style={{
-                background: isProminent
-                  ? 'rgba(240,235,224,0.04)'
-                  : 'rgba(240,235,224,0.03)',
-                border: isProminent
-                  ? '0.5px solid rgba(240,235,224,0.08)'
-                  : '0.5px solid rgba(240,235,224,0.06)',
-                borderRadius: 12,
-                padding: isProminent ? '11px 14px' : '10px 14px',
-                cursor: 'pointer',
-                transition: 'border-color 0.15s ease',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: 'rgba(252,246,234,0.88)',
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {deal.name}
-                </span>
-                {valueStr && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: 'rgba(240,235,224,0.50)',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {valueStr}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                {/* Stage badge */}
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 500,
-                    color: stageStyle.color,
-                    background: stageStyle.bg,
-                    border: `0.5px solid ${stageStyle.border}`,
-                    borderRadius: 6,
-                    padding: '2px 7px',
-                    lineHeight: '1.4',
-                  }}
-                >
-                  {deal.stage}
-                </span>
-                {deal.accounts?.name && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 300,
-                      color: 'rgba(240,235,224,0.36)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {deal.accounts.name}
-                  </span>
-                )}
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 400,
-                    color: getDaysColor(days),
-                    marginLeft: 'auto',
-                    flexShrink: 0,
-                  }}
-                >
-                  {days === 0 ? 'today' : `${days}d`}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  // ── SESSION 10: "EVERYTHING ELSE" (collapsed) ───────────
+  const hasEverythingElse = topDeals.length > 0;
 
-  // ── DEEP LINKS (always present, always last) ────────────
+  const renderEverythingElse = () => {
+    if (!hasEverythingElse) return null;
+
+    return (
+      <div key="everything_else" style={{ marginBottom: 16 }}>
+        <div
+          onClick={() => setEverythingElseOpen(prev => !prev)}
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '1.2px',
+            color: 'rgba(240,235,224,0.24)',
+            marginBottom: everythingElseOpen ? 10 : 0,
+            paddingLeft: 2,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            transition: 'color 0.15s ease',
+          }}
+        >
+          {labels.everythingElse}
+          <span style={{ fontSize: 9, opacity: 0.6 }}>
+            {everythingElseOpen ? '−' : '+'}
+          </span>
+        </div>
+
+        {everythingElseOpen && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {topDeals.map((deal) => {
+              const stageStyle = STAGE_STYLES[deal.stage] ?? STAGE_STYLES.Prospect;
+              const days = getDaysSince(deal.last_activity_at);
+              const valueStr = formatDealValue(deal.value, deal.value_type);
+              return (
+                <div
+                  key={deal.id}
+                  onClick={() => openSurface('deal-detail', { dealId: deal.id })}
+                  style={{
+                    background: 'rgba(240,235,224,0.03)',
+                    border: '0.5px solid rgba(240,235,224,0.06)',
+                    borderRadius: 12,
+                    padding: '10px 14px',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 400,
+                        color: 'rgba(252,246,234,0.88)',
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {deal.name}
+                    </span>
+                    {valueStr && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: 'rgba(240,235,224,0.50)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {valueStr}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        color: stageStyle.color,
+                        background: stageStyle.bg,
+                        border: `0.5px solid ${stageStyle.border}`,
+                        borderRadius: 6,
+                        padding: '2px 7px',
+                        lineHeight: '1.4',
+                      }}
+                    >
+                      {deal.stage}
+                    </span>
+                    {deal.accounts?.name && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 300,
+                          color: 'rgba(240,235,224,0.36)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {deal.accounts.name}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 400,
+                        color: getDaysColor(days),
+                        marginLeft: 'auto',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {days === 0 ? 'today' : `${days}d`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── DEEP LINKS ──────────────────────────────────────────
   const deepLinkStyle = {
     flex: 1,
     padding: '12px 0',
@@ -780,7 +710,6 @@ export default function ControlSurface({
 
   const renderDeepLinks = () => (
     <div key="deep_links" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', paddingTop: 4 }}>
-      {/* Primary row */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <button onClick={() => openSurface('deals')} style={deepLinkStyle}>
           {labels.allDeals}
@@ -792,7 +721,6 @@ export default function ControlSurface({
           Ideas
         </button>
       </div>
-      {/* Secondary row */}
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={() => openSurface('briefing')} style={deepLinkStyle}>
           Briefing
@@ -804,13 +732,11 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── LOW DATA / EMPTY STATE ──────────────────────────────
-  // Shown when the only visible module is deep_links (no real content).
-  const hasContentModules = visibleModules.some(
-    m => m.id !== 'deep_links'
-  );
+  // ── SESSION 10: EMPTY / CLEAR STATE ─────────────────────
+  // Direct voice. No fluff.
+  const hasContent = whatMattersItems || upcomingMeetings.length > 0;
 
-  const renderLowDataState = () => (
+  const renderEmptyState = () => (
     <div
       style={{
         textAlign: 'center',
@@ -824,27 +750,26 @@ export default function ControlSurface({
           fontWeight: 300,
           color: 'rgba(252,246,234,0.44)',
           lineHeight: 1.5,
-          marginBottom: 8,
         }}
       >
         {isLowDataState
-          ? 'Your world is taking shape'
-          : 'All clear for now'}
+          ? 'Your world is taking shape.'
+          : "You\u2019re clear."}
       </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 300,
-          color: 'rgba(240,235,224,0.24)',
-          lineHeight: 1.5,
-          maxWidth: 260,
-          margin: '0 auto',
-        }}
-      >
-        {isLowDataState
-          ? `As you add ${labels.allDeals.toLowerCase()} and meetings, this surface will show what matters most.`
-          : 'Nothing needs your attention right now. This will update as things change.'}
-      </div>
+      {isLowDataState && (
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 300,
+            color: 'rgba(240,235,224,0.24)',
+            lineHeight: 1.5,
+            maxWidth: 260,
+            margin: '8px auto 0',
+          }}
+        >
+          {`Add ${labels.allDeals.toLowerCase()} and meetings to get started.`}
+        </div>
+      )}
     </div>
   );
 
@@ -894,7 +819,7 @@ export default function ControlSurface({
             display: 'flex',
             justifyContent: 'center',
             paddingTop: 12,
-            paddingBottom: 4,
+            paddingBottom: 16,
             flexShrink: 0,
           }}
         >
@@ -910,27 +835,10 @@ export default function ControlSurface({
           />
         </div>
 
-        {/* Header */}
-        <div
-          style={{
-            padding: '8px 22px 16px',
-            flexShrink: 0,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: FONTS.serif,
-              fontSize: 22,
-              fontWeight: 300,
-              color: 'rgba(252,246,234,0.92)',
-              letterSpacing: '-0.3px',
-            }}
-          >
-            Your world
-          </div>
-        </div>
+        {/* Session 10: No header — section labels are enough.
+            The panel answers one question: What matters right now? */}
 
-        {/* Scrollable modules — rendered in adaptive priority order */}
+        {/* Scrollable content — three-tier layout */}
         <div
           style={{
             flex: 1,
@@ -941,18 +849,19 @@ export default function ControlSurface({
             WebkitOverflowScrolling: 'touch',
           }}
         >
-          {/* Content modules in priority order */}
-          {hasContentModules
-            ? visibleModules.map(mod =>
-                renderModule(mod.id, mod.isProminent)
-              )
-            : (
-              <>
-                {renderLowDataState()}
-                {renderDeepLinks()}
-              </>
-            )
-          }
+          {hasContent ? (
+            <>
+              {renderWhatMatters()}
+              {renderComingUp()}
+              {renderEverythingElse()}
+              {renderDeepLinks()}
+            </>
+          ) : (
+            <>
+              {renderEmptyState()}
+              {renderDeepLinks()}
+            </>
+          )}
         </div>
       </div>
 

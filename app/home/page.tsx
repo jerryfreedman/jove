@@ -393,7 +393,7 @@ function HomePageInner() {
       if (!res.ok || !res.body) {
         setChatMessages(prev => prev.map(m =>
           m.id === assistantMsgId
-            ? { ...m, content: "Didn\u2019t catch that \u2014 try again?" }
+            ? { ...m, content: "Something went wrong. Try again." }
             : m
         ));
         setChatStreaming(false);
@@ -2018,7 +2018,7 @@ function HomePageInner() {
                   letterSpacing: '0.15px',
                 }}
               >
-                What&apos;s on your mind?
+                What&apos;s going on today?
               </span>
             </div>
           </div>
@@ -2416,7 +2416,7 @@ function HomePageInner() {
                       closeChat();
                     }
                   }}
-                  placeholder="What's on your mind?"
+                  placeholder="What needs to happen?"
                   style={{
                     flex:        1,
                     background:  'transparent',
