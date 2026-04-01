@@ -63,6 +63,8 @@ interface AmbientBirdProps {
   firstUseHint?: boolean;
   /** Session 13C: First-run discovery pulse — draws attention on first app load */
   discoverPulse?: boolean;
+  /** Session 17B: Pause animation loop when not visible (tab hidden, overlay open) */
+  paused?: boolean;
 }
 
 export default function AmbientBird({
@@ -74,9 +76,14 @@ export default function AmbientBird({
   isInteractive = false,
   firstUseHint = false,
   discoverPulse = false,
+  paused = false,
 }: AmbientBirdProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const birdPositionRef = useRef({ x: 0, y: 0 });
+
+  // Session 17B: Pause-aware ref (updated via effect, read in tick)
+  const pausedRef = useRef(paused);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
 
   // ── DERIVED GROWTH FACTOR ─────────────────────────────────
   const growthFactor = useMemo(
@@ -181,6 +188,11 @@ export default function AmbientBird({
 
   // ── ANIMATION LOOP ──────────────────────────────────────
   const tick = useCallback((now: number) => {
+    // Session 17B: Skip computation when paused (tab hidden, overlay open)
+    if (pausedRef.current) {
+      frameRef.current = requestAnimationFrame(tick);
+      return;
+    }
     const s = stateRef.current;
     const el = birdElRef.current;
     const g = growthRef.current;

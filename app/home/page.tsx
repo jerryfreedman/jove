@@ -11,6 +11,8 @@ import FocusOverlay from '@/components/home/FocusOverlay';
 import CaptureOverlay from '@/components/home/CaptureOverlay';
 import FullScreenChat from '@/components/home/FullScreenChat';
 import type { ChatThread } from '@/components/home/FullScreenChat';
+import { ChatControllerProvider, useChatController } from '@/components/chat/ChatController';
+import type { ChatMessage } from '@/components/chat/ChatController';
 import { SurfaceProvider, useSurface } from '@/components/surfaces/SurfaceManager';
 import SurfaceRenderer from '@/components/surfaces/SurfaceRenderer';
 // Logo removed — Session 4: world-first homepage, no app chrome
@@ -72,24 +74,7 @@ import { emitReflection, onReflection } from '@/lib/chat/reflection';
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
 
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  /** Classification result attached to user messages after processing */
-  classification?: ClassificationResult;
-  /** Whether this message resulted in a saved interaction */
-  saved?: boolean;
-  /** Inline UI mode for special flows (new deal form, clarification, deal picker) */
-  uiMode?: 'clarification' | 'new_deal_confirm' | 'new_deal_form' | 'deal_picker';
-  /** For clarification: the original message ID being clarified */
-  pendingMessageId?: string;
-}
-
-/** Tracks whether any real intelligence was saved during this chat session */
-type ChatSaveState = {
-  hasSaved: boolean;
-};
+// ChatMessage and ChatSaveState types moved to ChatController (Session 17B)
 
 interface HomeData {
   user:          UserRow | null;
@@ -130,7 +115,9 @@ function getFirstName(user: UserRow | null): string {
 export default function HomePage() {
   return (
     <SurfaceProvider>
-      <HomePageInner />
+      <ChatControllerProvider>
+        <HomePageInner />
+      </ChatControllerProvider>
     </SurfaceProvider>
   );
 }
@@ -140,6 +127,21 @@ function HomePageInner() {
   const supabase = createClient();
   const { navigateTo: surfaceNavigateTo } = useSurface();
 
+  // ── SESSION 17B: Chat state from isolated controller (no rerenders to parent) ──
+  const {
+    chatOpen, setChatOpen,
+    chatMessages, setChatMessages,
+    chatInput, setChatInput,
+    chatProcessing, setChatProcessing,
+    chatStreaming, setChatStreaming,
+    chatThreads, setChatThreads,
+    activeThreadId, setActiveThreadId,
+    newDealForm, setNewDealForm,
+    chatInputRef, chatScrollRef,
+    chatIdCounter, chatSaveStateRef,
+    chatThreadIdRef, pendingClarificationRef,
+  } = useChatController();
+
   const [data, setData]       = useState<HomeData | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [time, setTime]       = useState(formatTime());
@@ -148,6 +150,18 @@ function HomePageInner() {
   const [fetchError, setFetchError] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
+
+  // ── SESSION 17B: DEBOUNCED REFRESH KEY ──────────────────
+  // Single debounced updater prevents multiple Supabase fetch bursts
+  // from overlapping reflection events and setTimeout calls.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      setHomeRefreshKey(k => k + 1);
+      refreshTimerRef.current = null;
+    }, 250);
+  }, []);
   // logoBloom removed — Session 4
 
   // ── CONTROL SURFACE STATE ──────────────────────────────
@@ -162,6 +176,14 @@ function HomePageInner() {
   const urgentItemCount = (data?.urgentDeals?.length ?? 0)
     + loopTasks.filter(t => t.dueAt && new Date(t.dueAt).getTime() < Date.now()).length;
   const dailyLoop = useDailyLoop(pendingTaskCount, urgentItemCount);
+
+  // ── SESSION 17B: PAGE VISIBILITY — pause expensive loops when hidden ──
+  const [pageVisible, setPageVisible] = useState(true);
+  useEffect(() => {
+    const handleVisibility = () => setPageVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   // ── SESSION 13A: FOCUS OVERLAY STATE ────────────────────
   const [focusOverlayOpen, setFocusOverlayOpen] = useState(false);
@@ -241,38 +263,8 @@ function HomePageInner() {
   const sunRef     = useRef<HTMLDivElement>(null);
   // logoRef removed — Session 4
 
-  // ── CHAT STATE ──────────────────────────────────────────
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatProcessing, setChatProcessing] = useState(false);
-  const [chatStreaming, setChatStreaming] = useState(false);
-  const chatInputRef = useRef<HTMLInputElement>(null);
-  const chatScrollRef = useRef<HTMLDivElement>(null);
-  const chatIdCounter = useRef(0);
-  const chatSaveStateRef = useRef<ChatSaveState>({ hasSaved: false });
-  // ── CHAT PERSISTENCE: thread ID for durable message storage ──
-  const chatThreadIdRef = useRef<string>(generateThreadId('home_chat'));
-  // ── SESSION 15B: Thread management for full-screen chat ──
-  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string>(chatThreadIdRef.current);
-
-  // Pending message waiting for clarification resolution
-  // Session 3: also holds savedInteractionId so resolution updates the existing row
-  const pendingClarificationRef = useRef<{
-    messageId: string;
-    originalText: string;
-    classification: ClassificationResult;
-    /** ID of the already-saved interaction (raw preserved), updated on resolution */
-    savedInteractionId: string | null;
-  } | null>(null);
-  // New deal form state (inline in chat)
-  const [newDealForm, setNewDealForm] = useState<{
-    dealName: string;
-    accountName: string;
-    value: string;
-    originalText: string;
-  } | null>(null);
+  // ── CHAT STATE (Session 17B: moved to ChatController for isolation) ──
+  // All chat state is now accessed via useChatController() above.
 
   const openChat = useCallback(() => {
     setChatOpen(true);
@@ -464,14 +456,26 @@ function HomePageInner() {
       const decoder = new TextDecoder();
       let accumulated = '';
 
+      // Session 17B: Update only the last message (the streaming one)
+      // instead of .map() over the entire array per chunk.
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         accumulated += decoder.decode(value, { stream: true });
         const current = accumulated;
-        setChatMessages(prev => prev.map(m =>
-          m.id === assistantMsgId ? { ...m, content: current } : m
-        ));
+        setChatMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last && last.id === assistantMsgId) {
+            // Shallow-clone only the last element, reuse the rest
+            const updated = [...prev];
+            updated[updated.length - 1] = { ...last, content: current };
+            return updated;
+          }
+          // Fallback: full scan (shouldn't happen)
+          return prev.map(m =>
+            m.id === assistantMsgId ? { ...m, content: current } : m
+          );
+        });
       }
 
       // ── Persist final assistant reply durably (fire-and-forget) ──
@@ -794,7 +798,7 @@ function HomePageInner() {
             addAndPersistAssistantMessage(`Got it — I added that${timePart}.`);
             chatSaveStateRef.current.hasSaved = true;
             // Refresh so task appears in What Matters
-            setTimeout(() => setHomeRefreshKey(k => k + 1), 300);
+            debouncedRefresh();
           } else {
             addAndPersistAssistantMessage("Got it — I saved that.");
           }
@@ -812,7 +816,7 @@ function HomePageInner() {
           if (taskResult) {
             addAndPersistAssistantMessage(`Got it — ${universalResult.event.title} is on your list.`);
             chatSaveStateRef.current.hasSaved = true;
-            setTimeout(() => setHomeRefreshKey(k => k + 1), 300);
+            debouncedRefresh();
           } else {
             addAndPersistAssistantMessage("Got it — I saved that.");
           }
@@ -1048,12 +1052,8 @@ function HomePageInner() {
     }
   }, [chatInput, chatProcessing, chatStreaming, data, chatMessages, chatSaveInteraction, streamAssistantResponse, addAndPersistAssistantMessage, buildRoutingMetadata, isConversational]);
 
-  // Auto-scroll chat to bottom on new messages
-  useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-    }
-  }, [chatMessages]);
+  // Session 17B: Scroll removed — FullScreenChat owns its own scroll effect.
+  // Having both caused double-scroll during streaming.
 
   // ── CONTINUOUS SCENE (synced with SceneBackground's 30s tick) ──
   const [sceneFh, setSceneFh] = useState(getFractionalHour);
@@ -1185,8 +1185,10 @@ function HomePageInner() {
   }, []);
 
 
-  // ── BIRD HITBOX TRACKING ────────────────────────────────
+  // ── BIRD HITBOX TRACKING (Session 17B: paused when not visible/overlay open) ──
+  const hitboxPaused = !pageVisible || chatOpen || captureOpen;
   useEffect(() => {
+    if (hitboxPaused) return; // No RAF when paused
     let rafId: number;
     const track = () => {
       const el = birdHitboxRef.current;
@@ -1200,7 +1202,7 @@ function HomePageInner() {
     };
     rafId = requestAnimationFrame(track);
     return () => cancelAnimationFrame(rafId);
-  }, []);
+  }, [hitboxPaused]);
 
   // ── SESSION 13C: "Anything else?" hint after first bird capture ──
   useEffect(() => {
@@ -1450,18 +1452,19 @@ function HomePageInner() {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
 
-  // ── SESSION 17A: REFLECTION-DRIVEN HOME REFRESH ─────────────
-  // Subscribe to reflection events so the home page stays consistent
-  // with all other surfaces after writes and extractions complete.
+  // ── SESSION 17A/17B: REFLECTION-DRIVEN HOME REFRESH (debounced) ──
+  // Subscribe to reflection events so the home page stays consistent.
+  // Session 17B: All events route through debouncedRefresh to prevent
+  // multiple Supabase fetch bursts from overlapping events.
   useEffect(() => {
     const unsubs = [
-      onReflection('extraction:complete', () => setHomeRefreshKey(k => k + 1)),
-      onReflection('interaction:created', () => setHomeRefreshKey(k => k + 1)),
-      onReflection('task:created', () => setHomeRefreshKey(k => k + 1)),
-      onReflection('task:updated', () => setHomeRefreshKey(k => k + 1)),
+      onReflection('extraction:complete', debouncedRefresh),
+      onReflection('interaction:created', debouncedRefresh),
+      onReflection('task:created', debouncedRefresh),
+      onReflection('task:updated', debouncedRefresh),
     ];
     return () => unsubs.forEach(u => u());
-  }, []);
+  }, [debouncedRefresh]);
 
   // ── CROSS-TAB ENVIRONMENTAL LISTENER (logo bloom removed — Session 4) ──
   useEffect(() => {
@@ -1591,7 +1594,7 @@ function HomePageInner() {
 
       // ── Refresh control panel after brief delay ───────────
       // Session 14F: Reduced from 800ms → 400ms for snappier capture→reflect loop
-      setTimeout(() => setHomeRefreshKey(k => k + 1), 400);
+      debouncedRefresh();
 
     } catch (err) {
       console.error('Capture submit error:', err);
@@ -1740,7 +1743,7 @@ function HomePageInner() {
       }}
     >
       <SceneBackground onCelestialPosition={setCelestialPos} />
-      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} discoverPulse={birdDiscoverPulse} />
+      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} discoverPulse={birdDiscoverPulse} paused={!pageVisible || chatOpen || captureOpen} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
       {/* Always opens capture overlay */}
@@ -2132,18 +2135,20 @@ function HomePageInner() {
         )}
       </div>
 
-      {/* ── CONTROL SURFACE ────────────────────────── */}
-      <ControlSurface
-        open={controlOpen}
-        onClose={() => setControlOpen(false)}
-        allDeals={data?.allDeals ?? []}
-        urgentDeals={data?.urgentDeals ?? []}
-        meetings={data?.meetings ?? []}
-        userId={data?.user?.id ?? null}
-        completedTodayCount={completedTodayCount}
-        closureMessage={dailyLoop.showClosure ? dailyLoop.closureMessage : null}
-        onClosureDismiss={dailyLoop.dismissClosure}
-      />
+      {/* ── CONTROL SURFACE (Session 17B: gated — zero work when closed) ── */}
+      {controlOpen && (
+        <ControlSurface
+          open={controlOpen}
+          onClose={() => setControlOpen(false)}
+          allDeals={data?.allDeals ?? []}
+          urgentDeals={data?.urgentDeals ?? []}
+          meetings={data?.meetings ?? []}
+          userId={data?.user?.id ?? null}
+          completedTodayCount={completedTodayCount}
+          closureMessage={dailyLoop.showClosure ? dailyLoop.closureMessage : null}
+          onClosureDismiss={dailyLoop.dismissClosure}
+        />
+      )}
 
       {/* ── SESSION 13A: FOCUS OVERLAY (sun → instant clarity) ── */}
       <FocusOverlay
