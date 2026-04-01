@@ -1430,6 +1430,9 @@ export default function HomePage() {
             setTimeout(() => birdModalInputRef.current?.focus(), 200);
           }
         }}
+        onPointerDown={(e) => { if (birdQuestion) (e.currentTarget as HTMLElement).style.transform = `${(e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''} scale(0.9)`; }}
+        onPointerUp={(e) => { if (birdQuestion) (e.currentTarget as HTMLElement).style.transform = (e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''; }}
+        onPointerLeave={(e) => { if (birdQuestion) (e.currentTarget as HTMLElement).style.transform = (e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''; }}
         style={{
           position:     'fixed',
           top:          0,
@@ -1442,6 +1445,10 @@ export default function HomePage() {
           cursor:       birdQuestion ? 'pointer' : 'default',
           willChange:   'transform',
           WebkitTapHighlightColor: 'transparent',
+          ...(birdQuestion ? {
+            boxShadow: '0 0 14px 6px rgba(232,160,48,0.15)',
+            animation: 'celestialGlow 4s ease-in-out infinite',
+          } : {}),
         }}
         aria-label={birdQuestion ? 'Tap bird to answer' : 'Bird is resting'}
       />
@@ -1562,11 +1569,36 @@ export default function HomePage() {
       {/* ── SUN TAP TARGET + BREATHING GLOW ─────────── */}
       {(scene.sun.opacity > 0 || isNight) ? (
         <>
+          {/* Subtle glow ring — discoverable without being explicit */}
+          <div
+            style={{
+              position:     'absolute',
+              left:         `calc(${sunCenterLeft} - 36px)`,
+              top:          `calc(${sunCenterTop} - 36px)`,
+              width:        72,
+              height:       72,
+              borderRadius: '50%',
+              background:   isNight
+                ? 'radial-gradient(circle, rgba(200,210,230,0.12) 0%, transparent 70%)'
+                : 'radial-gradient(circle, rgba(250,200,70,0.12) 0%, transparent 70%)',
+              zIndex:       14,
+              pointerEvents:'none',
+              animation:    isImminent
+                ? 'celestialGlowImminent 2.5s ease-in-out infinite'
+                : isNight
+                  ? 'celestialGlow 10s ease-in-out infinite'
+                  : 'celestialGlow 6s ease-in-out infinite',
+            }}
+          />
+
           {/* Clickable celestial overlay — uses calc() for centering because the
               breath animation's transform (scale) would override translate(-50%,-50%). */}
           <div
             ref={sunRef}
             onClick={() => router.push('/briefing')}
+            onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.92)'; }}
+            onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+            onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
             style={{
               position:     'absolute',
               left:         `calc(${sunCenterLeft} - 50px)`,
@@ -1584,11 +1616,10 @@ export default function HomePage() {
                 : isNight
                   ? 'breath 12s ease-in-out infinite'
                   : 'breath 5s ease-in-out infinite',
+              transition:   'transform 0.15s ease',
               WebkitTapHighlightColor: 'transparent',
             }}
-            aria-label={isNight
-              ? 'Tap for briefing.'
-              : 'Tap for briefing.'}
+            aria-label="Tap for briefing"
           >
           </div>
 
@@ -1670,13 +1701,14 @@ export default function HomePage() {
 
       <div
         className="absolute inset-0 flex flex-col items-center"
-        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16vh)' }}
+        style={{ zIndex: 20, pointerEvents: 'none', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10vh)' }}
       >
-        {/* ── GREETING + NAME (upper third — secondary to sun) ── */}
+        {/* ── GREETING + NAME (top third — anchor, never competes with sun) ── */}
         <div
           style={{
             textAlign:  'center',
             padding:    '0 32px',
+            maxWidth:   400,
             ...anim(0.14),
           }}
         >
@@ -1688,10 +1720,11 @@ export default function HomePage() {
           >
             <div style={{
               fontFamily:   "'Cormorant Garamond', serif",
-              fontSize:     14,
+              fontSize:     13,
               fontWeight:   300,
               color:        textSecondary,
-              marginBottom: 3,
+              marginBottom: 4,
+              letterSpacing: '0.3px',
             }}>
               {greeting}
             </div>
@@ -1725,14 +1758,18 @@ export default function HomePage() {
                 setChatInput(homepageIntelligenceLine.trigger!.chatPrompt);
               }, 350);
             } : undefined}
+            onPointerDown={homepageIntelligenceLine.trigger ? (e) => { (e.currentTarget as HTMLElement).style.opacity = '0.6'; (e.currentTarget as HTMLElement).style.transform = 'scale(0.97)'; } : undefined}
+            onPointerUp={homepageIntelligenceLine.trigger ? (e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; } : undefined}
+            onPointerLeave={homepageIntelligenceLine.trigger ? (e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; } : undefined}
             style={{
               textAlign:  'center',
               padding:    '0 32px',
-              marginTop:  14,
-              maxWidth:   360,
+              marginTop:  10,
+              maxWidth:   340,
               pointerEvents: homepageIntelligenceLine.trigger ? 'auto' : 'none',
               cursor:     homepageIntelligenceLine.trigger ? 'pointer' : 'default',
               ...anim(0.22),
+              ...(visible ? { transition: 'opacity 0.15s ease, transform 0.15s ease' } : {}),
             }}
           >
             <span style={{
@@ -1742,6 +1779,13 @@ export default function HomePage() {
               color:         textSecondary,
               letterSpacing: '0.2px',
               lineHeight:    '1.5',
+              opacity:       homepageIntelligenceLine.trigger ? 1 : 0.7,
+              transition:    'opacity 0.4s ease',
+              ...(homepageIntelligenceLine.trigger ? {
+                textDecoration: 'underline',
+                textDecorationColor: scene.lightText ? 'rgba(252,246,234,0.18)' : 'rgba(40,30,20,0.15)',
+                textUnderlineOffset: '3px',
+              } : {}),
             }}>
               {homepageIntelligenceLine.text}
             </span>
@@ -1808,7 +1852,7 @@ export default function HomePage() {
         <div
           style={{
             position:       'fixed',
-            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            bottom:         'calc(env(safe-area-inset-bottom, 0px) + 14px)',
             left:           0,
             right:          0,
             display:        'flex',
@@ -1822,8 +1866,8 @@ export default function HomePage() {
         >
           <div
             style={{
-              width:          'calc(100% - 48px)',
-              maxWidth:       380,
+              width:          '90%',
+              maxWidth:       360,
               pointerEvents:  'auto',
               WebkitTapHighlightColor: 'transparent',
             }}
@@ -1836,11 +1880,11 @@ export default function HomePage() {
               borderRadius:    22,
               border:          '0.5px solid rgba(240,235,224,0.11)',
               borderTop:       '0.5px solid rgba(240,235,224,0.16)',
-              padding:         '6px 6px 6px 6px',
+              padding:         '5px 5px 5px 5px',
               display:         'flex',
               alignItems:      'center',
               gap:             0,
-              boxShadow:       '0 2px 16px rgba(0,0,0,0.18), 0 0.5px 0 rgba(240,235,224,0.04) inset',
+              boxShadow:       '0 4px 24px rgba(0,0,0,0.22), 0 0.5px 0 rgba(240,235,224,0.04) inset',
             }}
           >
             {/* Control surface entry — left side */}
@@ -1850,24 +1894,24 @@ export default function HomePage() {
               onPointerUp={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
               onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
               style={{
-                width:          38,
-                height:         38,
-                borderRadius:   14,
+                width:          36,
+                height:         36,
+                borderRadius:   12,
                 display:        'flex',
                 alignItems:     'center',
                 justifyContent: 'center',
                 cursor:         'pointer',
                 flexShrink:     0,
                 transition:     'transform 0.15s ease, background 0.15s ease',
-                background:     'rgba(240,235,224,0.06)',
+                background:     'rgba(240,235,224,0.09)',
               }}
               aria-label="Open overview"
             >
               <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-                <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
-                <rect x="10.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
-                <rect x="2" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
-                <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.44)" strokeWidth="1" />
+                <rect x="2" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.55)" strokeWidth="1.1" />
+                <rect x="10.5" y="2" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.55)" strokeWidth="1.1" />
+                <rect x="2" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.55)" strokeWidth="1.1" />
+                <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1.5" stroke="rgba(240,235,224,0.55)" strokeWidth="1.1" />
               </svg>
             </div>
 
@@ -1879,7 +1923,7 @@ export default function HomePage() {
               onPointerLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
               style={{
                 flex:           1,
-                padding:        '10px 14px',
+                padding:        '9px 14px',
                 cursor:         'pointer',
                 transition:     'opacity 0.15s ease',
               }}
@@ -1889,11 +1933,11 @@ export default function HomePage() {
                   fontFamily:    "'DM Sans', sans-serif",
                   fontSize:      14,
                   fontWeight:    300,
-                  color:         'rgba(240,235,224,0.38)',
+                  color:         'rgba(240,235,224,0.42)',
                   letterSpacing: '0.15px',
                 }}
               >
-                Talk to Jove&hellip;
+                What&apos;s on your mind?
               </span>
             </div>
           </div>
@@ -2291,7 +2335,7 @@ export default function HomePage() {
                       closeChat();
                     }
                   }}
-                  placeholder="Talk to Jove..."
+                  placeholder="What's on your mind?"
                   style={{
                     flex:        1,
                     background:  'transparent',

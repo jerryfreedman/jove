@@ -55,6 +55,26 @@ body {
   to   { transform: translateX(100%); }
 }
 
+@keyframes breath {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.04); }
+}
+
+@keyframes celestialGlow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%      { opacity: 0.6; transform: scale(1.08); }
+}
+
+@keyframes celestialGlowImminent {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.12); }
+}
+
+@keyframes starTwink {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
