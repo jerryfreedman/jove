@@ -367,3 +367,23 @@ export type TaskRow = {
   created_at: string;
   updated_at: string;
 };
+
+// ── Item Types (Session 11D: Universal Primary Entity) ─────
+
+export type ItemStatus = 'active' | 'paused' | 'waiting' | 'done' | 'dropped';
+
+export type ItemRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  status: ItemStatus;
+  category: string | null;
+  context_score: number;
+  due_at: string | null;
+  last_activity_at: string;
+  notes: string | null;
+  is_starred: boolean;
+  snoozed_until: string | null;
+  created_at: string;
+  updated_at: string;
+};
