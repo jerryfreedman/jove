@@ -22,6 +22,7 @@ import type {
   InteractionRow,
   InteractionType,
 } from '@/lib/types';
+import { triggerExtraction } from '@/lib/capture-utils';
 
 // ── HELPERS ────────────────────────────────────────────────
 function getDaysSince(dateStr: string): number {
@@ -354,16 +355,9 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
         intent_type:       'capture',
       }).select('id').single();
 
-      // Fire extraction for close reason — fire and forget
-      if (closeInteraction?.id) {
-        fetch('/api/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            interactionId: closeInteraction.id,
-            userId,
-          }),
-        }).catch(() => {});
+      // Session 17A: Use centralized triggerExtraction with retry
+      if (closeInteraction?.id && userId) {
+        triggerExtraction(closeInteraction.id, userId);
       }
     }
 
@@ -472,15 +466,10 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
       setLogContent('');
       setShowLogSheet(false);
 
-      // Fire extraction in background
-      fetch('/api/extract', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          interactionId: (data as InteractionRow).id,
-          userId,
-        }),
-      }).catch(console.error);
+      // Session 17A: Use centralized triggerExtraction with retry
+      if (userId) {
+        triggerExtraction((data as InteractionRow).id, userId);
+      }
     }
     setSavingLog(false);
   };

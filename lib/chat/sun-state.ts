@@ -132,6 +132,7 @@ export function onSunRelevantChange(callback: () => void): () => void {
     'event:created',
     'blocker:detected',
     'interaction:created',
+    'extraction:complete',  // Session 17A: Refresh when extraction finishes
     'momentum:changed',
     'data:changed',
   ];

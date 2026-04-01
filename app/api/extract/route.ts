@@ -4,6 +4,10 @@ import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import type { SignalType } from '@/lib/types';
+import { invalidateDealCache, invalidateUserCache } from '@/lib/context-cache';
+// Note: emitReflection is client-side only. Server-side extraction
+// communicates status via the extraction_status DB field + cache invalidation.
+// Client-side surfaces observe this via polling or reflection events.
 
 export const maxDuration = 30;
 
@@ -578,6 +582,14 @@ Write the updated summary that preserves all existing info and adds the new cont
       })
       .eq('id', interactionId);
 
+    // ── SESSION 17A: INVALIDATE CONTEXT CACHE AFTER WRITES ──
+    // Ensure next LLM call uses fresh context reflecting new signals,
+    // deal scores, and contact updates.
+    if (trustedDealId) {
+      invalidateDealCache(trustedDealId);
+    }
+    invalidateUserCache(userId);
+
     return NextResponse.json({
       success:        true,
       signalsWritten: newSignalRows.length,
@@ -586,6 +598,33 @@ Write the updated summary that preserves all existing info and adds the new cont
 
   } catch (error) {
     console.error('Extraction error:', error);
+
+    // Session 17A: Best-effort mark the interaction as 'failed' on unhandled errors
+    // so the system has visibility into what needs retry.
+    try {
+      const failCookieStore = await cookies();
+      const failSupabase = createServerClient(
+        SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        {
+          cookies: {
+            getAll() { return failCookieStore.getAll(); },
+            setAll() { /* no-op for error handler */ },
+          },
+        },
+      );
+      const failBody = await request.clone().json().catch(() => ({}));
+      const failedInteractionId = failBody?.interactionId;
+      if (failedInteractionId) {
+        await failSupabase
+          .from('interactions')
+          .update({ extraction_status: 'failed' })
+          .eq('id', failedInteractionId);
+      }
+    } catch {
+      // Best-effort — don't let the failure-marking itself cause issues
+    }
+
     return NextResponse.json(
       { error: 'Extraction failed' },
       { status: 500 }

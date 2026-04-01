@@ -32,3 +32,25 @@ export function invalidateCache(prefix: string): void {
   });
   keysToDelete.forEach(key => cache.delete(key));
 }
+
+/**
+ * Invalidate all cached context for a specific user.
+ * Call after any write that affects LLM context:
+ * interaction, task, item, person, signal, deal update.
+ */
+export function invalidateUserCache(userId: string): void {
+  const keysToDelete: string[] = [];
+  cache.forEach((_, key) => {
+    if (key.includes(userId)) keysToDelete.push(key);
+  });
+  keysToDelete.forEach(key => cache.delete(key));
+}
+
+/**
+ * Invalidate cached context for a specific deal.
+ * Call after any write affecting deal state:
+ * interaction created, signal created, deal updated.
+ */
+export function invalidateDealCache(dealId: string): void {
+  invalidateCache(`chat_context_${dealId}`);
+}

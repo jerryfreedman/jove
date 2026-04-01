@@ -148,6 +148,10 @@ export function getBirdAcknowledgment(syncState: SyncState): string {
 // When a write/update definitively fails.
 // Never show stale success state.
 
+/**
+ * Session 17A: Failure acknowledgment now reflects actual state.
+ * Never imply success when persistence failed.
+ */
 export function getFailureAcknowledgment(): string {
-  return 'Captured, syncing soon.';
+  return 'Having trouble saving this — retrying…';
 }

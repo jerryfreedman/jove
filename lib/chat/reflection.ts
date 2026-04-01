@@ -17,16 +17,18 @@ type ReflectionListener = () => void;
 const listeners: Map<string, Set<ReflectionListener>> = new Map();
 
 export type ReflectionEvent =
-  | 'task:created'      // New task added
-  | 'task:updated'      // Task status changed
-  | 'task:completed'    // Task marked done
-  | 'interaction:created' // New interaction captured
-  | 'event:created'     // New event/meeting added
-  | 'item:created'      // New item added
-  | 'person:created'    // New person added
-  | 'blocker:detected'  // Blocker signal found
-  | 'momentum:changed'  // Session 16A: Real momentum state changed
-  | 'data:changed';     // Generic data change
+  | 'task:created'          // New task added
+  | 'task:updated'          // Task status changed
+  | 'task:completed'        // Task marked done
+  | 'interaction:created'   // New interaction captured
+  | 'extraction:complete'   // Session 17A: Extraction finished successfully
+  | 'extraction:failed'     // Session 17A: Extraction failed (all retries exhausted)
+  | 'event:created'         // New event/meeting added
+  | 'item:created'          // New item added
+  | 'person:created'        // New person added
+  | 'blocker:detected'      // Blocker signal found
+  | 'momentum:changed'      // Session 16A: Real momentum state changed
+  | 'data:changed';         // Generic data change
 
 /**
  * Subscribe to reflection events.

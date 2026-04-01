@@ -14,6 +14,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { PersonReference } from '@/lib/universal-routing';
 import { emitReflection } from '@/lib/chat/reflection';
 import { checkDuplicateTask } from '@/lib/chat/duplicate-guard';
+import { invalidateUserCache } from '@/lib/context-cache';
 
 // ── TASK FROM INTENT ────────────────────────────────────────
 
@@ -60,6 +61,8 @@ export async function createTaskFromIntent(
   }
   // Session 15C.1: Trigger reflection so control panel updates immediately
   emitReflection('task:created');
+  // Session 17A: Invalidate LLM context cache after task creation
+  invalidateUserCache(userId);
   return data;
 }
 
@@ -110,6 +113,8 @@ export async function createItemFromIntent(
   }
   // Session 15C.1: Trigger reflection
   emitReflection('item:created');
+  // Session 17A: Invalidate LLM context cache after item creation
+  invalidateUserCache(userId);
   return data;
 }
 
@@ -170,6 +175,8 @@ export async function findOrCreatePerson(
   }
   // Session 15C.1: Trigger reflection
   emitReflection('person:created');
+  // Session 17A: Invalidate LLM context cache after person creation
+  invalidateUserCache(userId);
   return { id: data.id, isNew: true };
 }
 
@@ -212,6 +219,8 @@ export async function createEventFromIntent(
   }
   // Session 15C.1: Trigger reflection
   emitReflection('event:created');
+  // Session 17A: Invalidate LLM context cache after event creation
+  invalidateUserCache(userId);
   return data;
 }
 

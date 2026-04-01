@@ -9,6 +9,7 @@ import {
   STREAK_MILESTONE_DAYS,
 } from '@/lib/constants';
 import type { DealRow, InteractionType } from '@/lib/types';
+import { triggerExtraction } from '@/lib/capture-utils';
 
 // ── TYPES ──────────────────────────────────────────────────
 type CaptureMode =
@@ -265,16 +266,9 @@ export default function CaptureSheet({
 
       if (interactionError) throw interactionError;
 
-      // Fire extraction in background — do not await, never blocks UI
+      // Session 17A: Use centralized triggerExtraction with retry
       if (interactionData?.id) {
-        fetch('/api/extract', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            interactionId: interactionData.id,
-            userId,
-          }),
-        }).catch(err => console.error('Extraction trigger error:', err));
+        triggerExtraction(interactionData.id, userId);
       }
 
       // Fire voice profile update for email types — fire and forget
@@ -446,16 +440,9 @@ export default function CaptureSheet({
         ...(meetingId ? { meeting_id: meetingId } : {}),
       }).select('id').single();
 
-      // Fire extraction for context interaction — fire and forget
+      // Session 17A: Use centralized triggerExtraction with retry
       if (contextInteraction?.id) {
-        fetch('/api/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            interactionId: contextInteraction.id,
-            userId,
-          }),
-        }).catch(() => {});
+        triggerExtraction(contextInteraction.id, userId);
       }
 
       // Call Claude API for draft

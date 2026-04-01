@@ -10,6 +10,8 @@ import {
   STREAK_WEEKDAYS_ONLY,
   STREAK_MILESTONE_DAYS,
 } from '@/lib/constants';
+import { invalidateDealCache, invalidateUserCache } from '@/lib/context-cache';
+import { emitReflection } from '@/lib/chat/reflection';
 
 // ── SAVE INTERACTION ──────────────────────────────────────
 // Central save path for interactions. Populates memory upgrade
@@ -54,6 +56,16 @@ export async function saveInteraction(
     .single();
 
   if (error) throw error;
+
+  // Session 17A: Invalidate LLM context cache after interaction save
+  // so next LLM call reflects the new interaction
+  if (data?.id) {
+    invalidateUserCache(params.userId);
+    if (params.dealId) {
+      invalidateDealCache(params.dealId);
+    }
+  }
+
   return data;
 }
 
@@ -96,14 +108,62 @@ export async function updateInteractionLinkage(
   return true;
 }
 
-// ── TRIGGER EXTRACTION ────────────────────────────────────
-// Fire-and-forget pattern from CaptureSheet.tsx
+// ── SESSION 17A: EXTRACTION WITH RETRY ────────────────────
+// Replaces fire-and-forget pattern. Retries with exponential backoff.
+// Every interaction eventually resolves to complete OR failed with visibility.
+
+const EXTRACTION_MAX_RETRIES = 3;
+const EXTRACTION_RETRY_DELAYS = [1000, 3000, 10000];
+
+/**
+ * Trigger extraction with automatic retry on failure.
+ * Non-blocking — runs in background but retries transient failures.
+ * Returns void (fire-and-retry, not fire-and-forget).
+ */
 export function triggerExtraction(interactionId: string, userId: string): void {
+  triggerExtractionWithRetry(interactionId, userId, 0);
+}
+
+function triggerExtractionWithRetry(
+  interactionId: string,
+  userId: string,
+  attempt: number,
+): void {
   fetch('/api/extract', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ interactionId, userId }),
-  }).catch((err) => console.error('Extraction trigger error:', err));
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        throw new Error(`Extraction API returned ${res.status}`);
+      }
+      // Session 17A: Emit reflection so surfaces know extraction completed
+      // and can refresh to show new signals/scores.
+      emitReflection('extraction:complete');
+    })
+    .catch((err) => {
+      if (attempt < EXTRACTION_MAX_RETRIES - 1) {
+        const delay = EXTRACTION_RETRY_DELAYS[attempt] ?? 10000;
+        console.warn(
+          `Extraction retry ${attempt + 1}/${EXTRACTION_MAX_RETRIES} for ${interactionId} in ${delay}ms:`,
+          err,
+        );
+        setTimeout(
+          () => triggerExtractionWithRetry(interactionId, userId, attempt + 1),
+          delay,
+        );
+      } else {
+        console.error(
+          `Extraction permanently failed for interaction ${interactionId} after ${EXTRACTION_MAX_RETRIES} attempts:`,
+          err,
+        );
+        // Session 17A: Emit failure so surfaces can reflect this state
+        emitReflection('extraction:failed');
+        // The interaction remains with extraction_status: 'pending' or 'processing'.
+        // The home page recovery logic will pick it up on next load.
+      }
+    });
 }
 
 // ── UPDATE STREAK ─────────────────────────────────────────

@@ -66,6 +66,8 @@ import { useCompletedTodayCount, useWhatMattersTasks } from '@/lib/task-queries'
 import { useDailyLoop, markSessionOpen } from '@/lib/daily-loop';
 // Session 15B: Chat ingestion — capture-worthy detection
 import { ingestChatMessage } from '@/lib/chat/ingest';
+// Session 17A: Reflection-driven state updates (replaces arbitrary timeouts)
+import { emitReflection, onReflection } from '@/lib/chat/reflection';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -394,8 +396,10 @@ function HomePageInner() {
           localStorage.setItem(`curiosity_asked_${activeQ.targetId}`, 'true');
           // Session 6: birdAnsweredCount removed — homeRefreshKey handles recompute
         }
-        // Delayed re-fetch for extraction
-        setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
+        // Session 17A: Trigger immediate reflection instead of arbitrary 3s delay.
+        // The reflection event bus notifies subscribers (control panel, sun)
+        // to re-fetch data. This ensures consistent state without guessing timing.
+        emitReflection('interaction:created');
         return result.id;
       }
     } catch (err) {
@@ -631,7 +635,8 @@ function HomePageInner() {
           triggerExtraction(pending.savedInteractionId, data.user.id);
           await updateStreak(supabase, data.user.id);
           chatSaveStateRef.current.hasSaved = true;
-          setTimeout(() => setHomeRefreshKey(k => k + 1), 3000);
+          // Session 17A: Use reflection instead of arbitrary timeout
+          emitReflection('interaction:created');
         }
       } else {
         // Fallback: no pre-saved interaction (shouldn't happen in normal flow)
@@ -1444,6 +1449,19 @@ function HomePageInner() {
   useEffect(() => {
     fetchHomeData();
   }, [fetchHomeData, homeRefreshKey]);
+
+  // ── SESSION 17A: REFLECTION-DRIVEN HOME REFRESH ─────────────
+  // Subscribe to reflection events so the home page stays consistent
+  // with all other surfaces after writes and extractions complete.
+  useEffect(() => {
+    const unsubs = [
+      onReflection('extraction:complete', () => setHomeRefreshKey(k => k + 1)),
+      onReflection('interaction:created', () => setHomeRefreshKey(k => k + 1)),
+      onReflection('task:created', () => setHomeRefreshKey(k => k + 1)),
+      onReflection('task:updated', () => setHomeRefreshKey(k => k + 1)),
+    ];
+    return () => unsubs.forEach(u => u());
+  }, []);
 
   // ── CROSS-TAB ENVIRONMENTAL LISTENER (logo bloom removed — Session 4) ──
   useEffect(() => {

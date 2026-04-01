@@ -201,14 +201,20 @@ export async function ingestChatMessage(
     });
 
     if (result?.id) {
-      // Trigger extraction pipeline — fire and forget
+      // Session 17A: triggerExtraction now has built-in retry (see Patch 3)
       triggerExtraction(result.id, userId);
       // Session 15C.1: Emit reflection so control panel and sun update
       emitReflection('interaction:created');
       return { interactionId: result.id, assessment };
+    } else {
+      // Session 17A: saveInteraction returned null — write failed
+      console.error('Chat ingestion: saveInteraction returned null for message');
+      return null;
     }
   } catch (err) {
-    // Never lose user input — log but don't throw
+    // Session 17A: Log with enough context to debug, but never throw.
+    // The message text lives in the caller's state — it is not lost
+    // from the user's perspective (still visible in chat UI).
     console.error('Chat ingestion error:', err);
   }
 

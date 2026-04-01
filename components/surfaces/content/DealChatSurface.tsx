@@ -7,6 +7,7 @@ import { COLORS, FONTS, STAGE_STYLES, TIMING, EASING, TRANSITIONS } from '@/lib/
 import type { DealRow, AccountRow } from '@/lib/types';
 import { renderMarkdown } from '@/lib/renderMarkdown';
 import { persistChatMessage, generateThreadId, registerChatThread } from '@/lib/chat-persistence';
+import { triggerExtraction } from '@/lib/capture-utils';
 
 type Message = {
   id: string;
@@ -209,7 +210,8 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
     setInput('');
     setStreaming(true);
 
-    // ── Persist user message durably (fire-and-forget) ──
+    // ── Session 17A: Persist user message durably (awaited) ──
+    // Never confirm success before DB commit.
     if (userId) {
       persistChatMessage(supabase, {
         userId,
@@ -218,6 +220,10 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
         sourceSurface: 'deal_chat',
         messageText: input.trim(),
         dealId,
+      }).then(({ persisted }) => {
+        if (!persisted) {
+          console.warn('User message queued for retry — not yet persisted');
+        }
       });
     }
 
@@ -276,7 +282,7 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
 
       setStreaming(false);
 
-      // ── Persist final assistant reply durably (fire-and-forget) ──
+      // ── Session 17A: Persist final assistant reply durably ──
       if (fullResponse.trim() && userId) {
         persistChatMessage(supabase, {
           userId,
@@ -285,6 +291,10 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
           sourceSurface: 'deal_chat',
           messageText: fullResponse,
           dealId,
+        }).then(({ persisted }) => {
+          if (!persisted) {
+            console.warn('Assistant message queued for retry — not yet persisted');
+          }
         });
       }
 
@@ -338,16 +348,9 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
         intent_type: 'update_confirmation',
       }).select('id').single();
 
-      // Fire extraction for chip interaction — fire and forget
-      if (chipInteraction?.id) {
-        fetch('/api/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            interactionId: chipInteraction.id,
-            userId,
-          }),
-        }).catch(() => {});
+      // Session 17A: Use centralized triggerExtraction with retry
+      if (chipInteraction?.id && userId) {
+        triggerExtraction(chipInteraction.id, userId);
       }
     } else if (chip.type === 'new_contact') {
       const { data: dealData } = await supabase
@@ -404,16 +407,9 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
       intent_type: 'capture',
     }).select('id').single();
 
-    // Fire extraction for logged email — fire and forget
-    if (sentInteraction?.id) {
-      fetch('/api/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          interactionId: sentInteraction.id,
-          userId,
-        }),
-      }).catch(() => {});
+    // Session 17A: Use centralized triggerExtraction with retry
+    if (sentInteraction?.id && userId) {
+      triggerExtraction(sentInteraction.id, userId);
     }
 
     await supabase
@@ -448,15 +444,10 @@ export default function DealChatSurface({ dealId }: { dealId?: string }) {
     // Mark as saved
     setSavedMsgKeys(prev => new Set(prev).add(key));
 
-    // Fire extraction — fire and forget
-    fetch('/api/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        interactionId: noteInteraction.id,
-        userId,
-      }),
-    }).catch(() => {});
+    // Session 17A: Use centralized triggerExtraction with retry
+    if (userId) {
+      triggerExtraction(noteInteraction.id, userId);
+    }
 
     // Show confirmation, fade after 2s
     setSaveConfirmKey(key);
