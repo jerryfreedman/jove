@@ -147,6 +147,33 @@ export default function ControlSurface({
   // ── SESSION 9: System-derived task engine ──
   const systemTasks = useTaskEngine(allDeals);
 
+  // ── SESSION 9: Task action handler ──
+  // IMPORTANT: All hooks must be called before the early return below.
+  const handleTaskAction = useCallback((action: TaskAction) => {
+    switch (action.kind) {
+      case 'open_prep':
+        if (action.dealId) {
+          openSurface('deal-prep', { dealId: action.dealId });
+        } else {
+          openSurface('briefing');
+        }
+        break;
+      case 'open_chat':
+        if (action.dealId) {
+          openSurface('deal-chat', { dealId: action.dealId });
+        } else {
+          openSurface('briefing');
+        }
+        break;
+      case 'open_deal':
+        openSurface('deal-detail', { dealId: action.dealId });
+        break;
+      case 'open_briefing':
+        openSurface('briefing');
+        break;
+    }
+  }, [openSurface]);
+
   // ── ADAPTIVE MODULE PRIORITY ────────────────────────────
   const priority = useMemo<ModulePriorityResult>(() => {
     return evaluateModulePriority({ allDeals, urgentDeals, meetings, systemTaskCount: systemTasks.length });
@@ -196,36 +223,11 @@ export default function ControlSurface({
     return { attentionItems, topDeals, upcomingMeetings, cancelledMeetings, completedMeetings };
   }, [allDeals, urgentDeals, meetings, meetingStoreData]);
 
+  // ── ALL HOOKS ABOVE THIS LINE ───────────────────────────
   if (!open) return null;
 
   const { attentionItems, topDeals, upcomingMeetings } = preparedData;
   const { isLowDataState } = priority;
-
-  // ── SESSION 9: Task action handler ──
-  const handleTaskAction = useCallback((action: TaskAction) => {
-    switch (action.kind) {
-      case 'open_prep':
-        if (action.dealId) {
-          openSurface('deal-prep', { dealId: action.dealId });
-        } else {
-          openSurface('briefing');
-        }
-        break;
-      case 'open_chat':
-        if (action.dealId) {
-          openSurface('deal-chat', { dealId: action.dealId });
-        } else {
-          openSurface('briefing');
-        }
-        break;
-      case 'open_deal':
-        openSurface('deal-detail', { dealId: action.dealId });
-        break;
-      case 'open_briefing':
-        openSurface('briefing');
-        break;
-    }
-  }, [openSurface]);
 
   // ── SESSION 10: TASK ACCENT STYLES ─────────────────────
   const TASK_ACCENT: Record<string, { color: string; bg: string; border: string }> = {
@@ -734,7 +736,7 @@ export default function ControlSurface({
 
   // ── SESSION 10: EMPTY / CLEAR STATE ─────────────────────
   // Direct voice. No fluff.
-  const hasContent = whatMattersItems || upcomingMeetings.length > 0;
+  const hasContent = whatMattersItems || upcomingMeetings.length > 0 || topDeals.length > 0;
 
   const renderEmptyState = () => (
     <div
