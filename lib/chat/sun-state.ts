@@ -67,8 +67,11 @@ export function evaluateSunState(input: SunEvalInput): SunState {
 
   if (pendingTaskCount > 0) {
     // Session 16A: Let momentum tone influence active state headlines
+    // PATCH: Only use momentum headlines that acknowledge ongoing work.
+    // A "settled" tone (e.g. "You're in a good spot") must never appear
+    // when tasks are still pending — that contradicts reality.
     const tone = getMomentumTone();
-    if (tone.headline && pendingTaskCount <= 3) {
+    if (tone.headline && !tone.isSettled && pendingTaskCount <= 3) {
       // Momentum is progressing — reflect that even with pending items
       return {
         level: 'active',

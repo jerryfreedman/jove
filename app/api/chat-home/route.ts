@@ -5,18 +5,6 @@ import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
 import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
-// Session 11B: Task intent detection + creation
-import { detectTaskIntent } from '@/lib/task-intent';
-import { parseTaskTime, formatDueAt } from '@/lib/task-time-parser';
-import { createUserTask } from '@/lib/task-persistence';
-// Session 11F: Universal routing + persistence
-import { routeUniversalIntent, type UniversalRoutingResult } from '@/lib/universal-routing';
-import {
-  createTaskFromIntent,
-  createItemFromIntent,
-  findOrCreatePerson,
-  createEventFromIntent,
-} from '@/lib/universal-persistence';
 // Session 15A: Decision engine
 import { decideFromInput, type DecisionOutput } from '@/lib/intelligence/decide';
 // Session 15B: Chat ingestion
@@ -76,164 +64,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    // ── Session 11F: Universal routing on latest user message ──
-    // Detects tasks, items, people, and events server-side.
-    // Creates entities and injects confirmation context for the LLM.
-    // Falls back to Session 11B task-only detection if universal routing doesn't match.
-    interface UniversalContext {
-      taskCreated: boolean;
-      taskTitle: string | null;
-      taskDueLabel: string | null;
-      itemCreated: boolean;
-      itemName: string | null;
-      eventCreated: boolean;
-      eventTitle: string | null;
-      eventTimeLabel: string | null;
-      personLinked: boolean;
-      personName: string | null;
-    }
-    let universalCtx: UniversalContext | null = null;
+    // ── PATCH: Server-side entity creation removed ──────────────
+    // Entity creation (tasks, items, people, events) is now handled
+    // exclusively by the client-side universal routing in home/page.tsx.
+    // The client sends responseContext with entity creation results.
+    // This eliminates the dual-write race condition.
 
     const latestUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    if (latestUserMsg) {
-      const universalRoute = routeUniversalIntent(latestUserMsg.content);
-
-      if (universalRoute) {
-        // Create Supabase client for writes
-        const writeCookieStore = await cookies();
-        const writeSupabase = createServerClient(
-          SUPABASE_URL,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          {
-            cookies: {
-              getAll() { return writeCookieStore.getAll(); },
-              setAll(cookiesToSet) {
-                try {
-                  cookiesToSet.forEach(({ name, value, options }) =>
-                    writeCookieStore.set(name, value, options)
-                  );
-                } catch {}
-              },
-            },
-          }
-        );
-
-        universalCtx = {
-          taskCreated: false, taskTitle: null, taskDueLabel: null,
-          itemCreated: false, itemName: null,
-          eventCreated: false, eventTitle: null, eventTimeLabel: null,
-          personLinked: false, personName: null,
-        };
-
-        // 1. Person (needed for linking to other entities)
-        let personId: string | null = null;
-        if (universalRoute.person) {
-          const personResult = await findOrCreatePerson(
-            writeSupabase, userId, universalRoute.person
-          );
-          if (personResult) {
-            personId = personResult.id;
-            universalCtx.personLinked = true;
-            universalCtx.personName = universalRoute.person.name;
-          }
-        }
-
-        // 2. Item (needed before task for linking)
-        let itemId: string | null = null;
-        if (universalRoute.item) {
-          const itemResult = await createItemFromIntent(
-            writeSupabase, userId, { name: universalRoute.item.name }
-          );
-          if (itemResult) {
-            itemId = itemResult.id;
-            universalCtx.itemCreated = true;
-            universalCtx.itemName = universalRoute.item.name;
-          }
-        }
-
-        // 3. Task
-        if (universalRoute.task) {
-          const taskResult = await createTaskFromIntent(
-            writeSupabase, userId, {
-              title: universalRoute.task.title,
-              dueAt: universalRoute.task.dueAt,
-              itemId: universalRoute.links.taskToItem ? itemId : null,
-              dealId: dealId ?? null,
-              personId: universalRoute.links.taskToPerson ? personId : null,
-            }
-          );
-          if (taskResult) {
-            universalCtx.taskCreated = true;
-            universalCtx.taskTitle = universalRoute.task.title;
-            universalCtx.taskDueLabel = universalRoute.task.dueAt
-              ? formatDueAt(universalRoute.task.dueAt)
-              : null;
-          }
-        }
-
-        // 4. Event
-        if (universalRoute.event) {
-          const eventResult = await createEventFromIntent(
-            writeSupabase, userId, {
-              title: universalRoute.event.title,
-              scheduledAt: universalRoute.event.scheduledAt,
-              eventType: universalRoute.event.eventType,
-              personId: universalRoute.links.eventToPerson ? personId : null,
-            }
-          );
-          if (eventResult) {
-            universalCtx.eventCreated = true;
-            universalCtx.eventTitle = universalRoute.event.title;
-            universalCtx.eventTimeLabel = universalRoute.event.scheduledAt
-              ? formatDueAt(universalRoute.event.scheduledAt)
-              : null;
-          }
-        }
-      } else {
-        // Fallback: Session 11B task-only detection
-        const taskIntent = detectTaskIntent(latestUserMsg.content);
-        if (taskIntent) {
-          const dueAt = taskIntent.rawTimePart
-            ? parseTaskTime(taskIntent.rawTimePart)
-            : null;
-
-          const taskCookieStore = await cookies();
-          const taskSupabase = createServerClient(
-            SUPABASE_URL,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-            {
-              cookies: {
-                getAll() { return taskCookieStore.getAll(); },
-                setAll(cookiesToSet) {
-                  try {
-                    cookiesToSet.forEach(({ name, value, options }) =>
-                      taskCookieStore.set(name, value, options)
-                    );
-                  } catch {}
-                },
-              },
-            }
-          );
-
-          const result = await createUserTask(taskSupabase, userId, {
-            title: taskIntent.title,
-            dueAt,
-            dealId: dealId ?? null,
-          });
-
-          if (result) {
-            universalCtx = {
-              taskCreated: true,
-              taskTitle: taskIntent.title,
-              taskDueLabel: dueAt ? formatDueAt(dueAt) : null,
-              itemCreated: false, itemName: null,
-              eventCreated: false, eventTitle: null, eventTimeLabel: null,
-              personLinked: false, personName: null,
-            };
-          }
-        }
-      }
-    }
 
     // ── SESSION 15B: CHAT INGESTION (async, non-blocking) ────────
     // Every user message passes through capture-worthy detection.
@@ -467,54 +304,20 @@ ${dedupedSignals.length > 0
     }
 
     // ── Build final system prompt: static rules + per-message responseContext + cached data ──
-    // Session 11F: Merge universal routing context into response context
-    const universalFields = universalCtx ? {
-      ...(universalCtx.taskCreated ? {
-        taskCreated: true,
-        taskTitle: universalCtx.taskTitle,
-        taskDueLabel: universalCtx.taskDueLabel,
-      } : {}),
-      ...(universalCtx.itemCreated ? {
-        itemCreated: true,
-        itemName: universalCtx.itemName,
-      } : {}),
-      ...(universalCtx.eventCreated ? {
-        eventCreated: true,
-        eventTitle: universalCtx.eventTitle,
-        eventTimeLabel: universalCtx.eventTimeLabel,
-      } : {}),
-      ...(universalCtx.personLinked ? {
-        personLinked: true,
-        personName: universalCtx.personName,
-      } : {}),
-    } : {};
+    // PATCH: responseContext now comes solely from the client.
+    // No server-side merge needed — client is the single write path.
 
-    const hasUniversalAction = universalCtx && (
-      universalCtx.taskCreated || universalCtx.itemCreated ||
-      universalCtx.eventCreated || universalCtx.personLinked
-    );
-
-    const mergedResponseContext = responseContext
-      ? { ...responseContext, ...universalFields }
-      : hasUniversalAction
-        ? {
-            classification: 'universal_routing',
-            actionTaken: 'none' as const,
-            ...universalFields,
-          }
-        : null;
-
-    const responseCtxBlock = mergedResponseContext
+    const responseCtxBlock = responseContext
       ? `
 SYSTEM CONTEXT:
-- Classification: ${mergedResponseContext.classification}
-- Action taken: ${mergedResponseContext.actionTaken ?? 'none'}
-- Linked deal: ${mergedResponseContext.linkedDealName ?? mergedResponseContext.linkedDealId ?? 'none'}
-- Ambiguity: ${mergedResponseContext.ambiguity ?? false}
-${mergedResponseContext.taskCreated ? `- Task created: "${mergedResponseContext.taskTitle}"${mergedResponseContext.taskDueLabel ? ` (due ${mergedResponseContext.taskDueLabel})` : ''}` : ''}
-${mergedResponseContext.itemCreated ? `- Item/project created: "${mergedResponseContext.itemName}"` : ''}
-${mergedResponseContext.eventCreated ? `- Event created: "${mergedResponseContext.eventTitle}"${mergedResponseContext.eventTimeLabel ? ` (${mergedResponseContext.eventTimeLabel})` : ''}` : ''}
-${mergedResponseContext.personLinked ? `- Person linked: ${mergedResponseContext.personName}` : ''}
+- Classification: ${responseContext.classification}
+- Action taken: ${responseContext.actionTaken ?? 'none'}
+- Linked deal: ${responseContext.linkedDealName ?? responseContext.linkedDealId ?? 'none'}
+- Ambiguity: ${responseContext.ambiguity ?? false}
+${responseContext.taskCreated ? `- Task created: "${responseContext.taskTitle}"${responseContext.taskDueLabel ? ` (due ${responseContext.taskDueLabel})` : ''}` : ''}
+${responseContext.itemCreated ? `- Item/project created: "${responseContext.itemName}"` : ''}
+${responseContext.eventCreated ? `- Event created: "${responseContext.eventTitle}"${responseContext.eventTimeLabel ? ` (${responseContext.eventTimeLabel})` : ''}` : ''}
+${responseContext.personLinked ? `- Person linked: ${responseContext.personName}` : ''}
 `
       : '';
 
