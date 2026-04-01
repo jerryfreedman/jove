@@ -169,6 +169,35 @@ body {
   50%      { opacity: 1; transform: scale(1); }
 }
 
+/* ── Session 14E: Emotional layer keyframes ──────────────── */
+
+/* Completion reward glow — warm pulse on task done */
+@keyframes completionGlow {
+  0%   { box-shadow: 0 0 0px transparent; background-color: transparent; }
+  30%  { box-shadow: 0 0 12px rgba(232,160,48,0.15), 0 0 4px rgba(72,200,120,0.10); background-color: rgba(232,160,48,0.06); }
+  100% { box-shadow: 0 0 0px transparent; background-color: transparent; }
+}
+
+/* First completion of the day — slightly more celebratory */
+@keyframes firstCompletionGlow {
+  0%   { box-shadow: 0 0 0px transparent; background-color: transparent; transform: scale(1); }
+  20%  { box-shadow: 0 0 16px rgba(232,160,48,0.2), 0 0 6px rgba(72,200,120,0.12); background-color: rgba(232,160,48,0.08); transform: scale(1.005); }
+  60%  { box-shadow: 0 0 8px rgba(232,160,48,0.08); background-color: rgba(232,160,48,0.03); transform: scale(1); }
+  100% { box-shadow: 0 0 0px transparent; background-color: transparent; transform: scale(1); }
+}
+
+/* Momentum pulse — subtle environmental energy increase */
+@keyframes momentumPulse {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 0.04; }
+}
+
+/* Progress ring fill */
+@keyframes progressFill {
+  from { stroke-dashoffset: 100; }
+  to   { stroke-dashoffset: var(--progress-offset, 0); }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

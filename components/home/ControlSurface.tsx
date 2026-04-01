@@ -10,6 +10,9 @@ import {
   TRANSITIONS,
   CLOSE_DELAY,
   TAP_SCALE,
+  COMPLETION_REWARD,
+  MOMENTUM,
+  EMPTY_MESSAGES,
 } from '@/lib/design-system';
 import {
   evaluateModulePriority,
@@ -202,6 +205,18 @@ export default function ControlSurface({
 
   // ── Unified task list — DB primary, legacy fallback ──
   const [taskActionPending, setTaskActionPending] = useState<string | null>(null);
+
+  // ── Session 14E: Emotional state ──
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [sessionCompletions, setSessionCompletions] = useState(0);
+  const [isFirstCompletionToday, setIsFirstCompletionToday] = useState(true);
+
+  // ── Session 14E: Momentum computation ──
+  const momentumLevel = useMemo(() => {
+    if (sessionCompletions >= MOMENTUM.fireThreshold) return 'fire';
+    if (sessionCompletions >= MOMENTUM.activeThreshold) return 'active';
+    return 'rest';
+  }, [sessionCompletions]);
 
   const { unifiedTasks, usingFallback } = useMemo(() => {
     if (!dbTasksLoading && dbTasks.length > 0) {
@@ -494,8 +509,25 @@ export default function ControlSurface({
     e.stopPropagation();
     setTaskActionPending(taskId);
     const ok = await markTaskDone(taskId);
-    setTaskActionPending(null);
-    if (ok) refetchTasks();
+    if (ok) {
+      // Session 14E: Completion reward state
+      setCompletedIds(prev => new Set(prev).add(taskId));
+      setSessionCompletions(prev => prev + 1);
+      // Hold reward glow, then fade and remove
+      setTimeout(() => {
+        setCompletedIds(prev => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+        setTaskActionPending(null);
+        refetchTasks();
+      }, COMPLETION_REWARD.holdMs + COMPLETION_REWARD.fadeMs);
+      // After first completion, mark subsequent ones as not-first
+      setIsFirstCompletionToday(false);
+    } else {
+      setTaskActionPending(null);
+    }
   };
 
   const handleTaskSkip = async (taskId: string, e: React.MouseEvent) => {
@@ -520,6 +552,7 @@ export default function ControlSurface({
 
   const renderRow = (item: SurfaceItem) => {
     const isPending = item.taskActions ? taskActionPending === item.taskActions.taskId : false;
+    const isCompleted = item.taskActions ? completedIds.has(item.taskActions.taskId) : false;
     const isMeeting = item.id.startsWith('meeting-');
     const meetingId = isMeeting ? item.id.replace('meeting-', '') : null;
     const isExpanded = meetingId ? expandedMeetingId === meetingId : false;
@@ -531,9 +564,16 @@ export default function ControlSurface({
         onClick={item.onClick}
         style={{
           ...ROW_STYLE,
-          borderColor: isExpanded ? 'rgba(240,235,224,0.06)' : undefined,
+          borderColor: isCompleted
+            ? 'rgba(72,200,120,0.15)'
+            : isExpanded ? 'rgba(240,235,224,0.06)' : undefined,
           cursor: item.onClick ? 'pointer' : 'default',
-          opacity: isPending ? 0.4 : 1,
+          opacity: isPending && !isCompleted ? 0.4 : 1,
+          animation: isCompleted
+            ? (isFirstCompletionToday && sessionCompletions === 1
+              ? 'firstCompletionGlow 700ms ease forwards'
+              : 'completionGlow 700ms ease forwards')
+            : undefined,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -761,12 +801,20 @@ export default function ControlSurface({
     );
   };
 
-  // ── 5. MOMENTUM (OPTIONAL) ────────────────────────────────
-  // Tasks completed today, streaks. Lightweight, rewarding.
+  // ── 5. MOMENTUM (SESSION 14E: Enhanced) ───────────────────
+  // Tasks completed today, streaks, progress signal.
+  // Subtle, rewarding. Never aggressive.
   const renderMomentum = () => {
     const hasCompletions = completedTodayCount !== undefined && completedTodayCount > 0;
     const hasStreak = streakDays !== undefined && streakDays > 1;
     if (!hasCompletions && !hasStreak) return null;
+
+    // Session 14E: Momentum-aware styling
+    const progressColor = momentumLevel === 'fire'
+      ? COLORS.amber
+      : momentumLevel === 'active'
+        ? COLORS.green
+        : 'rgba(72,200,120,0.7)';
 
     return (
       <div style={{ marginBottom: 14 }}>
@@ -779,16 +827,34 @@ export default function ControlSurface({
             display: 'flex',
             alignItems: 'center',
             gap: 14,
+            borderColor: momentumLevel !== 'rest'
+              ? `rgba(72,200,120,0.08)`
+              : undefined,
           }}
         >
           {hasCompletions && (
-            <span style={{ fontSize: 12, color: COLORS.green, fontWeight: 500 }}>
+            <span style={{
+              fontSize: 12,
+              color: progressColor,
+              fontWeight: 500,
+              transition: `color ${TIMING.SLOW}ms ${EASING.gentle}`,
+            }}>
               {completedTodayCount} done today
             </span>
           )}
           {hasStreak && (
             <span style={{ fontSize: 12, color: COLORS.amber, fontWeight: 500 }}>
               {streakDays}d streak
+            </span>
+          )}
+          {momentumLevel === 'fire' && (
+            <span style={{
+              fontSize: 10,
+              color: COLORS.amberDim,
+              fontWeight: 400,
+              fontStyle: 'italic',
+            }}>
+              on a roll
             </span>
           )}
         </div>
@@ -822,44 +888,49 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── SESSION 14D: SMART EMPTY STATE ──────────────────────
-  // No "all clear" dead screens. Smart prompts that feel useful.
-  const renderEmptyState = () => (
-    <div
-      style={{
-        textAlign: 'center',
-        padding: '28px 24px 20px',
-      }}
-    >
+  // ── SESSION 14E: EMOTIONAL EMPTY STATE ─────────────────────
+  // Calm, positive, grounded. Never dead or guilt-inducing.
+  const renderEmptyState = () => {
+    const mainMessage = isLowDataState
+      ? 'What\u2019s on your mind?'
+      : EMPTY_MESSAGES.get(EMPTY_MESSAGES.allClear);
+    const subMessage = isLowDataState
+      ? 'Add something you\u2019re working on'
+      : 'Take a breath. You\u2019ve got this.';
+
+    return (
       <div
         style={{
-          fontFamily: FONTS.serif,
-          fontSize: 17,
-          fontWeight: 300,
-          color: 'rgba(252,246,234,0.44)',
-          lineHeight: 1.5,
+          textAlign: 'center',
+          padding: '28px 24px 20px',
         }}
       >
-        {isLowDataState
-          ? 'What\u2019s on your mind?'
-          : 'What are you working on today?'}
+        <div
+          style={{
+            fontFamily: FONTS.serif,
+            fontSize: 17,
+            fontWeight: 300,
+            color: 'rgba(252,246,234,0.50)',
+            lineHeight: 1.5,
+          }}
+        >
+          {mainMessage}
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 300,
+            color: 'rgba(240,235,224,0.22)',
+            lineHeight: 1.5,
+            maxWidth: 260,
+            margin: '8px auto 0',
+          }}
+        >
+          {subMessage}
+        </div>
       </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 300,
-          color: 'rgba(240,235,224,0.22)',
-          lineHeight: 1.5,
-          maxWidth: 260,
-          margin: '8px auto 0',
-        }}
-      >
-        {isLowDataState
-          ? 'Add something you\u2019re working on'
-          : 'Tell me what\u2019s coming up'}
-      </div>
-    </div>
-  );
+    );
+  };
 
   // ── RENDER ──────────────────────────────────────────────
   // Dynamic ordering: filled sections first, empty sections collapse.

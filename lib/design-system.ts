@@ -387,4 +387,60 @@ export const LOADING = {
   } as const,
 } as const;
 
-// SESSION 2 + 14C COMPLETE
+// ── SESSION 14E: EMOTIONAL LAYER ─────────────────────────────
+// Reward, momentum, and subtle reinforcement tokens.
+
+/** Completion reward: warm glow that fades after task done */
+export const COMPLETION_REWARD = {
+  /** Warm amber glow behind completed row */
+  glow: `0 0 12px rgba(232,160,48,0.15), 0 0 4px rgba(72,200,120,0.10)`,
+  /** Background warmth flash */
+  bgFlash: 'rgba(232,160,48,0.06)',
+  /** Duration of reward state before removal */
+  holdMs: 400,
+  /** Fade out after hold */
+  fadeMs: 300,
+} as const;
+
+/** Momentum energy — increases with activity */
+export const MOMENTUM = {
+  /** Threshold: completions in session to trigger "active" feel */
+  activeThreshold: 2,
+  /** Threshold for "on fire" feel */
+  fireThreshold: 4,
+  /** Base transition speed multiplier at rest */
+  baseSpeed: 1.0,
+  /** Speed multiplier when momentum is active */
+  activeSpeed: 1.12,
+  /** Speed multiplier when on fire */
+  fireSpeed: 1.2,
+} as const;
+
+/** Empty state messages — calm, positive, grounded */
+export const EMPTY_MESSAGES = {
+  allClear: [
+    "You're in a good place",
+    "Nothing urgent right now",
+    "All caught up",
+    "Clear ahead",
+  ],
+  returnPrompt: [
+    "Welcome back",
+    "Ready when you are",
+    "Picked up where you left off",
+  ],
+  /** Get a deterministic-feeling but varied message */
+  get: (list: readonly string[]) => {
+    const hour = new Date().getHours();
+    return list[hour % list.length];
+  },
+} as const;
+
+/** Return incentive — what changed since last visit */
+export const RETURN_LABELS = {
+  upToDate: "You're up to date",
+  thingsToCheck: (n: number) => n === 1 ? '1 thing to check' : `${n} things to check`,
+  progress: (n: number) => n === 1 ? '1 thing moved forward' : `${n} things moved forward`,
+} as const;
+
+// SESSION 2 + 14C + 14E COMPLETE

@@ -161,6 +161,47 @@ export function useWhatMattersTasks(userId: string | null, max = 5) {
   return { ...result, tasks };
 }
 
+/** Session 14E: Count tasks completed today for progress signal */
+export function useCompletedTodayCount(userId: string | null): { count: number; loading: boolean } {
+  const [count, setCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const fetchCount = useCallback(async () => {
+    if (!userId) {
+      setCount(0);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const supabase = createClient();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { count: total, error } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'done')
+        .gte('completed_at', todayStart.toISOString());
+
+      if (!error && total !== null) {
+        setCount(total);
+      }
+    } catch {
+      // Silent — non-critical
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchCount();
+  }, [fetchCount]);
+
+  return { count, loading };
+}
+
 // ── TASK MUTATIONS (minimal — mark done / skip) ────────────
 // These are the only write operations exposed from the read layer.
 // Intentionally minimal — no full task management yet.

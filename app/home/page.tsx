@@ -60,6 +60,7 @@ import {
   createEventFromIntent,
 } from '@/lib/universal-persistence';
 import { createUserTask } from '@/lib/task-persistence';
+import { useCompletedTodayCount } from '@/lib/task-queries';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -144,6 +145,9 @@ function HomePageInner() {
 
   // ── CONTROL SURFACE STATE ──────────────────────────────
   const [controlOpen, setControlOpen] = useState(false);
+
+  // Session 14E: Progress tracking
+  const { count: completedTodayCount } = useCompletedTodayCount(data?.user?.id ?? null);
 
   // ── SESSION 13A: FOCUS OVERLAY STATE ────────────────────
   const [focusOverlayOpen, setFocusOverlayOpen] = useState(false);
@@ -2042,6 +2046,7 @@ function HomePageInner() {
         urgentDeals={data?.urgentDeals ?? []}
         meetings={data?.meetings ?? []}
         userId={data?.user?.id ?? null}
+        completedTodayCount={completedTodayCount}
       />
 
       {/* ── SESSION 13A: FOCUS OVERLAY (sun → instant clarity) ── */}
