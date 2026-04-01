@@ -288,9 +288,9 @@ ${dedupedSignals.length > 0
         ? `\nVOICE PROFILE:\nOpening: ${voice.opening_style}. Closing: ${voice.closing_style ?? 'varies'}. Formality: ${voice.formality_level ?? 'moderate'}.`
         : '';
 
-      // KB context for product awareness
+      // KB context for product/domain awareness
       const kbText = kbRows.length > 0
-        ? `\nWHAT YOU SELL:\n${kbRows.map(kb => {
+        ? `\nUSER CONTEXT:\n${kbRows.map(kb => {
             const lines = [`• ${kb.product_name}: ${kb.description}`];
             if (kb.key_features?.length) lines.push(`  Features: ${kb.key_features.join(', ')}`);
             return lines.join('\n');
@@ -335,7 +335,7 @@ Use this to inform your response. Lead with the decision direction. Be specific,
 
     const systemPrompt = `You are Jove, a personal intelligence assistant.
 
-You help the user manage deals, relationships, and decisions using their real data.
+You help the user manage context, relationships, and decisions using their real data.
 
 ---
 ${responseCtxBlock}${decisionBlock}
@@ -352,7 +352,7 @@ Follow this pattern for every response: Acknowledge, Confirm, Offer.
 Examples:
 - "Got it — I marked that meeting as cancelled. Want to reschedule it?"
 - "All set. You're clear for now."
-- "Noted. That's linked to the Acme deal."
+- "Noted. I linked that to what you're working on."
 
 RULES:
 1. ALWAYS respond conversationally. Short, direct, no fluff.

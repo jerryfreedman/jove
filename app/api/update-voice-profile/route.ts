@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       const result = await anthropic.messages.create({
         model:      CLAUDE_MODEL,
         max_tokens: 400,
-        system: `You analyze email writing style for a sales professional.
+        system: `You analyze email writing style for the user.
 Extract style patterns from the emails provided.
 Return ONLY valid JSON — no explanation, no markdown, no preamble.`,
         messages: [{

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 600,
-      system: `You are drafting a professional email for a sales professional.
+      system: `You are drafting a professional email for the user.
 Write in a direct, confident, relationship-aware style.
 No filler phrases. No generic openings like "I hope this finds you well."
 No sign-off like "Best regards" or "Sincerely" unless the tone clearly calls for it.
@@ -71,11 +72,13 @@ Format: Subject line first on its own line starting with "Subject:",
 then a blank line, then the email body.
 Keep it concise — under 150 words unless the context requires more.
 
-Products the user sells:
+What the user is working on:
 ${kbText}
 
-Reference specific product capabilities naturally where relevant.
-Never mention products that aren't relevant to the email context.${voiceSection}`,
+Reference specific details naturally where relevant.
+Never mention things that aren't relevant to the email context.
+
+${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}${voiceSection}`,
       messages: [
         {
           role: 'user',

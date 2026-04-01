@@ -847,7 +847,7 @@ export default function SettingsSurface() {
                 fontSize: 11, fontWeight: 300,
                 color:    'rgba(252,246,234,0.3)', lineHeight: 1.5,
               }}>
-                Add what you sell so Jove can reference it in
+                Add what you're working on so Jove can reference it in
                 prep responses, emails, and chat answers.
               </p>
             </div>

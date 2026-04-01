@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const result = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 200,
-      system: `You summarize sales conversations concisely. Write 2-3 sentences capturing: what was discussed, any decisions made, and any next steps agreed on. Return only the summary — no labels.`,
+      system: `You summarize conversations concisely. Write 2-3 sentences capturing: what was discussed, any decisions made, and any next steps agreed on. Return only the summary — no labels.`,
       messages: [{
         role: 'user',
         content: `Summarize this conversation:\n\n${conversationText}`,

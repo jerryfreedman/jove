@@ -179,28 +179,28 @@ export async function POST(request: NextRequest) {
     const extractionMessage = await anthropic.messages.create({
       model:      CLAUDE_MODEL,
       max_tokens: 1200,
-      system: `You are an intelligence extraction engine for a sales professional's CRM.
-Your job is to read raw sales content and extract structured signals.
+      system: `You are an intelligence extraction engine for a personal context system.
+Your job is to read raw content and extract structured signals.
 Return ONLY valid JSON — no explanation, no markdown, no preamble, no code blocks.
 Be specific. Extract only what is clearly present in the content.
 Do not invent or assume information not present in the text.
 
 Signal type definitions:
-- champion_identified: someone inside the account is actively advocating for this deal internally, vouching for you, or pushing the deal forward on their side
-- timeline_mentioned: any specific date, deadline, quarter target, or urgency driver mentioned (e.g. "need this by Q3", "board meeting in June", "go-live date is Sept 1")
-- budget_mentioned: specific budget numbers, approval status, fiscal year constraints, or funding confirmation discussed (e.g. "we have $200k approved", "budget cycle ends in March")
-- competitor_mentioned: a competing vendor, product, or alternative solution is referenced by name or implication
-- objection_raised: prospect raises a concern, pushback, hesitation, or blocker about moving forward
-- positive_sentiment: prospect expresses enthusiasm, satisfaction, eagerness, or strong interest in moving forward
-- negative_sentiment: prospect expresses frustration, disappointment, disinterest, or dissatisfaction
+- champion_identified: someone is actively advocating or pushing things forward on the user's behalf
+- timeline_mentioned: any specific date, deadline, target, or urgency driver mentioned (e.g. "need this by Q3", "board meeting in June", "deadline is Sept 1")
+- budget_mentioned: specific budget numbers, approval status, fiscal constraints, or funding confirmation discussed (e.g. "we have $200k approved", "budget cycle ends in March")
+- competitor_mentioned: a competing option, alternative, or rival is referenced by name or implication
+- objection_raised: someone raises a concern, pushback, hesitation, or blocker about moving forward
+- positive_sentiment: someone expresses enthusiasm, satisfaction, eagerness, or strong interest in moving forward
+- negative_sentiment: someone expresses frustration, disappointment, disinterest, or dissatisfaction
 - next_step_agreed: a concrete next action is mutually agreed upon with a specific owner or timeframe
-- stakeholder_mentioned: a new person is introduced into the deal — someone who needs to be involved, informed, or who has influence over the outcome
+- stakeholder_mentioned: a new person is introduced — someone who needs to be involved, informed, or who has influence over the outcome
 - technical_requirement: a specific technical need, integration requirement, security concern, or infrastructure constraint is discussed
-- commercial_signal: pricing discussion, budget approval status, contract terms, procurement process, legal review, MSA negotiation, payment structure, or any commercial/financial topic including mentions of legal or procurement involvement
+- commercial_signal: pricing discussion, budget approval status, contract terms, procurement process, legal review, negotiation, payment structure, or any commercial/financial topic
 - relationship_context: personal details, rapport-building moments, or relationship dynamics worth remembering (e.g. "loves hiking", "just had a baby", "prefers async communication")
-- idea_captured: an idea, suggestion, or initiative raised by the sales rep (not the prospect) worth tracking — a creative approach, strategy thought, or internal action item the rep wants to remember
-- risk_identified: any threat to deal progress including competitor pressure, internal politics, org changes, loss of champion, budget cuts, or shifting priorities
-- opportunity_identified: upsell, cross-sell, expansion opportunity, or growth signal — prospect mentions adjacent needs, additional teams, or future phases that could expand deal scope
+- idea_captured: an idea, suggestion, or initiative raised by the user worth tracking — a creative approach, strategy thought, or action item worth remembering
+- risk_identified: any threat to progress including competitive pressure, internal politics, org changes, loss of support, budget cuts, or shifting priorities
+- opportunity_identified: expansion opportunity or growth signal — someone mentions adjacent needs, additional scope, or future phases
 
 Confidence scoring guide:
 - 0.9-1.0: explicitly and clearly stated in the content
@@ -208,11 +208,11 @@ Confidence scoring guide:
 - 0.5-0.69: reasonably inferred with some uncertainty
 - below 0.5: do not extract — too speculative
 
-Deal stage context: Use the deal stage (if provided) to interpret signals appropriately. An objection in Discovery is exploratory and expected. The same objection in Negotiation is a serious risk. A timeline mention in Prospect is aspirational; in Proposal it is actionable. Weight your confidence scores accordingly — signals that are routine for the current stage get standard confidence, while unexpected or stage-critical signals get elevated confidence.`,
+Stage context: Use the stage (if provided) to interpret signals appropriately. An objection early on is exploratory and expected. The same objection later is a serious risk. A timeline mention early is aspirational; later it is actionable. Weight your confidence scores accordingly — signals that are routine for the current stage get standard confidence, while unexpected or stage-critical signals get elevated confidence.`,
       messages: [
         {
           role:    'user',
-          content: `Extract all intelligence signals from the following sales content.
+          content: `Extract all intelligence signals from the following content.
 
 CONTENT TYPE: ${interaction.type}
 CONTENT: ${interaction.raw_content}${dealContext}
@@ -497,7 +497,7 @@ relationship_context, idea_captured, risk_identified, opportunity_identified`,
           const summaryMessage = await anthropic.messages.create({
             model:      CLAUDE_MODEL,
             max_tokens: 200,
-            system: `You are appending new context to a sales contact's relationship summary.
+            system: `You are appending new context to a contact's relationship summary.
 CRITICAL: You must PRESERVE all existing information and ADD the new context.
 Do NOT rewrite or replace the existing summary. Append a new sentence.
 If the existing summary is empty, write a fresh 1-2 sentence summary.

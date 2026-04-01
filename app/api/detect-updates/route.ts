@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     const result = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 300,
-      system: `You are a data extraction assistant for a sales CRM. Analyze sales rep messages and detect implied database updates. Return ONLY valid JSON — no explanation, no markdown, no preamble.`,
+      system: `You are a data extraction assistant for a personal intelligence system. Analyze user messages and detect implied updates. Return ONLY valid JSON — no explanation, no markdown, no preamble.`,
       messages: [{
         role: 'user',
         content: `Message: "${message}"

@@ -13,6 +13,7 @@ export default function SignInClient() {
   const [isSignUp, setIsSignUp]         = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError]     = useState('');
+  const [signUpSuccess, setSignUpSuccess] = useState(false);
 
   const handleGoogleSignIn = async () => {
     await supabase.auth.signInWithOAuth({
@@ -38,6 +39,9 @@ export default function SignInClient() {
       });
       if (error) {
         setEmailError(error.message);
+        setEmailLoading(false);
+      } else {
+        setSignUpSuccess(true);
         setEmailLoading(false);
       }
     } else {
@@ -117,7 +121,7 @@ export default function SignInClient() {
           Jove
         </p>
 
-        {/* Tagline */}
+        {/* Headline */}
         <h1
           style={{
             fontFamily: "'Cormorant Garamond', serif",
@@ -129,15 +133,15 @@ export default function SignInClient() {
             letterSpacing: '-0.3px',
             textShadow: '0 2px 24px rgba(0,0,0,0.18)',
             marginBottom: 10,
-            maxWidth: 280,
+            maxWidth: 320,
           }}
         >
-          Your intelligence,
+          An operating system
           <br />
-          compounding daily.
+          for your next move.
         </h1>
 
-        {/* Sub-tagline */}
+        {/* Subhead */}
         <p
           style={{
             fontSize: 14,
@@ -145,11 +149,11 @@ export default function SignInClient() {
             color: 'rgba(240,235,224,0.44)',
             textAlign: 'center',
             marginBottom: 48,
-            maxWidth: 240,
+            maxWidth: 280,
             lineHeight: 1.55,
           }}
         >
-          For sales professionals who take their craft seriously.
+          It keeps track of everything and tells you what actually matters next.
         </p>
 
         {/* Google sign in button */}
@@ -300,6 +304,26 @@ export default function SignInClient() {
             paddingLeft:  4,
           }}>
             {emailError}
+          </div>
+        )}
+
+        {/* Signup success message */}
+        {signUpSuccess && (
+          <div style={{
+            width:        '100%',
+            maxWidth:     320,
+            fontSize:     13,
+            fontWeight:   400,
+            color:        'rgba(200,230,200,0.85)',
+            fontFamily:   "'DM Sans', sans-serif",
+            marginBottom: 8,
+            textAlign:    'center',
+            padding:      '12px 16px',
+            borderRadius: 12,
+            background:   'rgba(200,230,200,0.08)',
+            border:       '0.5px solid rgba(200,230,200,0.15)',
+          }}>
+            Check your email to confirm your account.
           </div>
         )}
 

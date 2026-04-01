@@ -10,7 +10,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "Jove",
-  description: "Personal AI sales intelligence",
+  description: "A system that keeps track of what's going on and tells you what matters next.",
   other: {
     "apple-mobile-web-app-capable": "yes",
     "apple-mobile-web-app-status-bar-style": "black-translucent",

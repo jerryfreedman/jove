@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
+import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
 
 export const maxDuration = 30;
 
@@ -223,12 +224,12 @@ ${interactionsText}
 RECENT SIGNALS:
 ${signalsText}
 
-WHAT YOU SELL:
+USER CONTEXT:
 ${kbText}
 
-Use the product context above to make your prep brief specific.
-Reference relevant features or use cases where they apply to
-this deal — don't mention products that aren't relevant.
+Use the context above to make your prep brief specific.
+Reference relevant details or use cases where they apply —
+don't mention things that aren't relevant.
 
 Generate exactly this structure:
 
@@ -263,7 +264,7 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: 150,
-        system: `You are preparing a senior sales professional for their next meeting. Based on the deal context, generate a 1-2 sentence summary of the situation and what to focus on. You MUST reference at least one of: the deal name, account name, a specific signal, or a specific interaction. Be specific to this deal. No markdown. No structure. Just plain text. If the context is insufficient to say something specific, return exactly: null`,
+        system: `You are preparing the user for their next meeting. Based on the context, generate a 1-2 sentence summary of the situation and what to focus on. You MUST reference at least one of: the item name, account name, a specific signal, or a specific interaction. Be specific. No markdown. No structure. Just plain text. If the context is insufficient to say something specific, return exactly: null\n\n${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}`,
         messages: [{ role: 'user', content: userPrompt }],
       });
       const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
@@ -278,7 +279,7 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
     const stream = await anthropic.messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 800,
-      system: `You are preparing a senior sales professional for a meeting or deal conversation. Generate a concise, specific meeting brief using ONLY the information provided. Do not invent details. Do not use generic sales advice. Every point must be specific to this deal and these people. Be direct. No filler.`,
+      system: `You are preparing the user for a meeting or conversation. Generate a concise, specific meeting brief using ONLY the information provided. Do not invent details. Do not use generic advice. Every point must be specific to this situation and these people. Be direct. No filler.\n\n${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}`,
       messages: [{ role: 'user', content: userPrompt }],
     });
 

@@ -23,18 +23,18 @@ export async function POST(request: NextRequest) {
     const message = await anthropic.messages.create({
       model:      CLAUDE_MODEL,
       max_tokens: 120,
-      system: `You are a chief of staff for a sales professional.
+      system: `You are a chief of staff for the user.
 Write ONE specific, actionable sentence about the single most important
 thing they should do right now based on the context provided.
-Be specific — name the deal and the action.
+Be specific — name the item and the action.
 No preamble. No labels. Just the sentence.
 Maximum 25 words.
-The user sells: ${kbText}
-Reference their actual products when naming specific actions.`,
+What the user is working on: ${kbText}
+Reference their actual context when naming specific actions.`,
       messages: [
         {
           role:    'user',
-          content: `Sales context: ${context}\n\nWhat is the single most important action to take right now?`,
+          content: `Current context: ${context}\n\nWhat is the single most important action to take right now?`,
         },
       ],
     });

@@ -1,7 +1,7 @@
 {
   "name": "Jove",
   "short_name": "Jove",
-  "description": "Personal AI sales intelligence",
+  "description": "A system that keeps track of what's going on and tells you what matters next.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
