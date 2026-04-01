@@ -17,11 +17,11 @@ import {
 import { persistChatMessage, generateThreadId, registerChatThread } from '@/lib/chat-persistence';
 import {
   getGreeting,
-  getSceneForHour,
   formatTime,
   COLORS,
 } from '@/lib/design-system';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
+import { getFractionalHour, getInterpolatedScene } from '@/lib/scene-interpolation';
 import {
   evaluateAssistantTrigger,
   markTriggerSeen,
@@ -864,8 +864,14 @@ export default function HomePage() {
     }
   }, [chatMessages]);
 
-  const h     = new Date().getHours();
-  const scene = getSceneForHour(h);
+  // ── CONTINUOUS SCENE (synced with SceneBackground's 30s tick) ──
+  const [sceneFh, setSceneFh] = useState(getFractionalHour);
+  useEffect(() => {
+    const id = setInterval(() => setSceneFh(getFractionalHour()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const h     = Math.floor(sceneFh);
+  const scene = getInterpolatedScene(sceneFh);
 
   // ── FIRST VISIT OVERLAY FADE ─────────────────────────────
   useEffect(() => {

@@ -1,8 +1,13 @@
 'use client';
 
-import { useMemo, useEffect, useRef } from 'react';
-import { getSceneForHour } from '@/lib/design-system';
+import { useState, useEffect, useRef } from 'react';
 import { SCENE_HORIZON_PERCENT } from '@/lib/constants';
+import {
+  getFractionalHour,
+  getScenePair,
+  blendScenes,
+} from '@/lib/scene-interpolation';
+import type { SceneConfig } from '@/lib/design-system';
 
 // Fixed star positions — generated once, never changes
 const STARS = Array.from({ length: 26 }, (_, i) => ({
@@ -25,76 +30,147 @@ export type CelestialPosition = {
   size: number;
 };
 
+// ── CELESTIAL PARAMS ─────────────────────────────────────
+// Maps scene boundary hours to their celestial rendering params.
+// These define the sun/moon appearance at each scene "keyframe".
+// The interpolation engine blends between them.
+
+type CelestialKeyframe = {
+  mode: 'moon' | 'clipped' | 'inSky' | 'hidden';
+  size: number;
+  gradient: string;
+  shadow: string;
+};
+
+const CELESTIAL_KEYFRAMES: Record<number, CelestialKeyframe> = {
+  // Deep night (hour 0 / 22) — moon
+  0: { mode: 'moon', size: 26, gradient: '', shadow: '' },
+  22: { mode: 'moon', size: 26, gradient: '', shadow: '' },
+  // Pre-dawn
+  5: {
+    mode: 'clipped', size: 44,
+    gradient: 'radial-gradient(circle,#fffee8 0%,#fee878 20%,#f8b030 42%,#ee7010 58%,rgba(220,100,20,0.18) 75%,transparent 100%)',
+    shadow: '',
+  },
+  // Sunrise
+  6: {
+    mode: 'clipped', size: 52,
+    gradient: 'radial-gradient(circle,#fffee8 0%,#fee870 22%,#f8b030 44%,#ee8010 60%,rgba(230,120,20,0.16) 76%,transparent 100%)',
+    shadow: '',
+  },
+  // Morning
+  8: {
+    mode: 'inSky', size: 32,
+    gradient: 'radial-gradient(circle,#fffde8 0%,#fcd048 50%,#f0a020 100%)',
+    shadow: '0 0 20px 8px rgba(250,200,70,0.2)',
+  },
+  // Midday
+  11: {
+    mode: 'inSky', size: 28,
+    gradient: 'radial-gradient(circle,#fffde8 0%,#fcd048 50%,#f0a020 100%)',
+    shadow: '0 0 18px 6px rgba(250,205,70,0.18)',
+  },
+  // Golden hour
+  16: {
+    mode: 'clipped', size: 60,
+    gradient: 'radial-gradient(circle,#fffee8 0%,#fee860 20%,#f8ac28 40%,#ee7808 55%,rgba(230,110,10,0.18) 72%,transparent 100%)',
+    shadow: '',
+  },
+  // Dusk
+  19: {
+    mode: 'clipped', size: 40,
+    gradient: 'radial-gradient(circle,#fff4d0 0%,#f8c060 24%,#f09020 44%,#cc6010 58%,rgba(190,80,15,0.16) 74%,transparent 100%)',
+    shadow: '',
+  },
+};
+
+/** Get celestial keyframe for a given boundary hour */
+function getCelestialKeyframe(hour: number): CelestialKeyframe {
+  return CELESTIAL_KEYFRAMES[hour] ?? { mode: 'hidden', size: 0, gradient: '', shadow: '' };
+}
+
+/** Lerp between two numbers */
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+// ── COMPUTE BLENDED SCENE + CELESTIAL ────────────────────
+
+function computeSceneState(fh: number) {
+  const { from, to, t, fromHour, toHour } = getScenePair(fh);
+  const scene = blendScenes(from, to, t);
+
+  // Celestial interpolation
+  const fromCel = getCelestialKeyframe(fromHour);
+  const toCel = getCelestialKeyframe(toHour);
+
+  // Determine blended celestial size
+  const celSize = lerp(fromCel.size, toCel.size, t);
+
+  // Determine mode — snap at midpoint
+  const celMode = t < 0.5 ? fromCel.mode : toCel.mode;
+
+  // Use the gradient from whichever mode is active
+  const celGradient = t < 0.5 ? fromCel.gradient : toCel.gradient;
+  const celShadow = t < 0.5 ? fromCel.shadow : toCel.shadow;
+
+  // Blended sun.top for in-sky positioning
+  const sunTop = scene.sun.top;
+  const sunOpacity = scene.sun.opacity;
+
+  return {
+    scene,
+    celMode,
+    celSize,
+    celGradient,
+    celShadow,
+    sunTop,
+    sunOpacity,
+  };
+}
+
+// ── COMPONENT ────────────────────────────────────────────
+
 interface SceneBackgroundProps {
   onCelestialPosition?: (pos: CelestialPosition) => void;
 }
 
 export default function SceneBackground({ onCelestialPosition }: SceneBackgroundProps) {
-  const h  = new Date().getHours();
-  const sc = useMemo(() => getSceneForHour(h), [h]);
+  // ── Real-time state: update every 30 seconds ──────────
+  const [fh, setFh] = useState(getFractionalHour);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setFh(getFractionalHour());
+    }, 30_000); // 30-second interval for smooth celestial motion
+    return () => clearInterval(id);
+  }, []);
+
+  // ── Compute blended scene ─────────────────────────────
+  const {
+    scene: sc,
+    celMode,
+    celSize,
+    celGradient,
+    celShadow,
+    sunTop,
+    sunOpacity,
+  } = computeSceneState(fh);
 
   const skyGradient   = `linear-gradient(to bottom, ${sc.sky.join(',')})`;
   const waterGradient = `linear-gradient(to bottom, ${sc.water.join(',')})`;
 
-  // ── Sun rendering logic ──────────────────────────────────
-  const isClipped = sc.sun.top >= 60 && sc.sun.opacity > 0;
-  const isInSky   = sc.sun.top < 60 && sc.sun.opacity > 0;
-
-  // Clipped sun params by period
-  let clipSunSize = 0;
-  let clipHalf = 0;
-  let clipGradient = '';
-
-  if (isClipped) {
-    if (h >= 5 && h < 6) {
-      // Pre-dawn
-      clipSunSize = 44; clipHalf = 22;
-      clipGradient = 'radial-gradient(circle,#fffee8 0%,#fee878 20%,#f8b030 42%,#ee7010 58%,rgba(220,100,20,0.18) 75%,transparent 100%)';
-    } else if (h >= 6 && h < 8) {
-      // Sunrise
-      clipSunSize = 52; clipHalf = 26;
-      clipGradient = 'radial-gradient(circle,#fffee8 0%,#fee870 22%,#f8b030 44%,#ee8010 60%,rgba(230,120,20,0.16) 76%,transparent 100%)';
-    } else if (h >= 16 && h < 19) {
-      // Golden hour
-      clipSunSize = 60; clipHalf = 30;
-      clipGradient = 'radial-gradient(circle,#fffee8 0%,#fee860 20%,#f8ac28 40%,#ee7808 55%,rgba(230,110,10,0.18) 72%,transparent 100%)';
-    } else if (h >= 19 && h < 22) {
-      // Dusk
-      clipSunSize = 40; clipHalf = 20;
-      clipGradient = 'radial-gradient(circle,#fff4d0 0%,#f8c060 24%,#f09020 44%,#cc6010 58%,rgba(190,80,15,0.16) 74%,transparent 100%)';
-    }
-  }
-
-  // In-sky sun params
-  let skySunSize = 0;
-  let skySunShadow = '';
-  if (isInSky) {
-    if (h >= 8 && h < 11) {
-      skySunSize = 32;
-      skySunShadow = '0 0 20px 8px rgba(250,200,70,0.2)';
-    } else if (h >= 11 && h < 16) {
-      skySunSize = 28;
-      skySunShadow = '0 0 18px 6px rgba(250,205,70,0.18)';
-    }
-  }
-
-  // ── Compute actual rendered celestial center ────────────────
-  // Moon: rendered at left:68% top:12% as top-left anchor, size 26px.
-  //   Actual visual center = (68% + 13px, 12% + 13px).
-  //   We report this as percentage offsets; the 13px correction is handled
-  //   by the consumer since CSS calc() can mix units.
-  //
-  // Clipped sun: rendered inside a container of height SCENE_HORIZON_PERCENT%,
-  //   positioned at bottom:-clipHalf, left:calc(50%-clipHalf).
-  //   Its visual center is at the horizon line (SCENE_HORIZON_PERCENT%).
-  //   Horizontal center: 50%.
-  //
-  // In-sky sun: rendered at left:50%, top:scene.sun.top% with translate(-50%,-50%).
-  //   Visual center = (50%, scene.sun.top%).
+  // ── Celestial rendering booleans ──────────────────────
+  const isMoon    = celMode === 'moon';
+  const isClipped = celMode === 'clipped' && sunOpacity > 0;
+  const isInSky   = celMode === 'inSky' && sunOpacity > 0;
+  const clipHalf  = Math.round(celSize / 2);
+  const clipSunSize = Math.round(celSize);
+  const skySunSize  = Math.round(celSize);
 
   const MOON_SIZE = 26;
 
-  // Use a ref to avoid re-calling callback with same values
+  // ── Report celestial position ─────────────────────────
   const lastReportedRef = useRef<string>('');
 
   useEffect(() => {
@@ -102,11 +178,7 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
 
     let pos: CelestialPosition;
 
-    if (sc.moon) {
-      // Moon scene — report the visual center of the moon
-      // The moon div is positioned at left:68% top:12% as top-left corner
-      // Visual center needs +13px offset. We use a calc()-friendly format
-      // so the consumer can use these directly in CSS.
+    if (isMoon) {
       pos = {
         x: `calc(68% + ${MOON_SIZE / 2}px)`,
         y: `calc(12% + ${MOON_SIZE / 2}px)`,
@@ -114,7 +186,6 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
         size: MOON_SIZE,
       };
     } else if (isClipped && clipSunSize > 0) {
-      // Clipped sun — center is at the horizon, horizontally centered
       pos = {
         x: '50%',
         y: `${SCENE_HORIZON_PERCENT}%`,
@@ -122,17 +193,13 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
         size: clipSunSize,
       };
     } else if (isInSky && skySunSize > 0) {
-      // In-sky sun — breath animation overrides translate(-50%,-50%) with scale(),
-      // so the div's top-left anchors at (50%, sun.top%). The actual visual center
-      // is offset right and down by half the sun's pixel size.
       pos = {
         x: `calc(50% + ${skySunSize / 2}px)`,
-        y: `calc(${sc.sun.top}% + ${skySunSize / 2}px)`,
+        y: `calc(${sunTop}% + ${skySunSize / 2}px)`,
         isMoon: false,
         size: skySunSize,
       };
     } else {
-      // Fallback (sun below horizon, no moon) — not visible but report a sane default
       pos = {
         x: '50%',
         y: `${SCENE_HORIZON_PERCENT}%`,
@@ -141,13 +208,12 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
       };
     }
 
-    // Only fire callback if position actually changed
     const key = `${pos.x}|${pos.y}|${pos.isMoon}|${pos.size}`;
     if (key !== lastReportedRef.current) {
       lastReportedRef.current = key;
       onCelestialPosition(pos);
     }
-  }, [sc, isClipped, isInSky, clipSunSize, skySunSize, onCelestialPosition]);
+  }, [isMoon, isClipped, isInSky, clipSunSize, skySunSize, sunTop, onCelestialPosition]);
 
   return (
     <div className="fixed inset-0 overflow-hidden" aria-hidden="true">
@@ -183,7 +249,7 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
       )}
 
       {/* Moon — deep night only */}
-      {sc.moon && (
+      {isMoon && (
         <div
           className="absolute"
           style={{
@@ -222,7 +288,7 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
             width: clipSunSize,
             height: clipSunSize,
             borderRadius: '50%',
-            background: clipGradient,
+            background: celGradient,
             animation: 'breath 9s ease-in-out infinite',
           }} />
         </div>
@@ -234,7 +300,7 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
           className="absolute"
           style={{
             left: '50%',
-            top: `${sc.sun.top}%`,
+            top: `${sunTop}%`,
             transform: 'translate(-50%, -50%)',
             zIndex: 3,
             animation: 'breath 9s ease-in-out infinite',
@@ -245,8 +311,8 @@ export default function SceneBackground({ onCelestialPosition }: SceneBackground
             width: skySunSize,
             height: skySunSize,
             borderRadius: '50%',
-            background: 'radial-gradient(circle,#fffde8 0%,#fcd048 50%,#f0a020 100%)',
-            boxShadow: skySunShadow,
+            background: celGradient || 'radial-gradient(circle,#fffde8 0%,#fcd048 50%,#f0a020 100%)',
+            boxShadow: celShadow,
           }} />
         </div>
       )}
