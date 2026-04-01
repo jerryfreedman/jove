@@ -36,6 +36,13 @@ import { getDayPhase } from '@/lib/daily-loop';
 import { toAction } from '@/lib/intelligence/action';
 import { dedupeSurfaceItems } from '@/lib/intelligence/dedupe';
 import { isWeakAction } from '@/lib/intelligence/action-quality';
+import {
+  initMomentum,
+  getMomentumStatusLine,
+  onMomentumChange,
+  type DailyMomentum,
+  type ReinforcementMessage,
+} from '@/lib/intelligence/momentum';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -221,12 +228,33 @@ export default function ControlSurface({
   const [sessionCompletions, setSessionCompletions] = useState(0);
   const [isFirstCompletionToday, setIsFirstCompletionToday] = useState(true);
 
-  // ── Session 14E: Momentum computation ──
+  // ── Session 14E: Momentum computation (legacy) ──
   const momentumLevel = useMemo(() => {
     if (sessionCompletions >= MOMENTUM.fireThreshold) return 'fire';
     if (sessionCompletions >= MOMENTUM.activeThreshold) return 'active';
     return 'rest';
   }, [sessionCompletions]);
+
+  // ── Session 16A: Real momentum system ──
+  const [momentumStatusLine, setMomentumStatusLine] = useState<string | null>(null);
+  const [reinforcementText, setReinforcementText] = useState<string | null>(null);
+
+  useEffect(() => {
+    initMomentum();
+    setMomentumStatusLine(getMomentumStatusLine());
+
+    const unsub = onMomentumChange(
+      (_daily: DailyMomentum, reinforcement: ReinforcementMessage | null) => {
+        setMomentumStatusLine(getMomentumStatusLine());
+        if (reinforcement?.shouldShow) {
+          setReinforcementText(reinforcement.text);
+          // Auto-dismiss after 3 seconds
+          setTimeout(() => setReinforcementText(null), 3000);
+        }
+      },
+    );
+    return unsub;
+  }, []);
 
   const { unifiedTasks, usingFallback } = useMemo(() => {
     if (!dbTasksLoading && dbTasks.length > 0) {
@@ -826,63 +854,69 @@ export default function ControlSurface({
     );
   };
 
-  // ── 5. MOMENTUM (SESSION 14E: Enhanced) ───────────────────
-  // Tasks completed today, streaks, progress signal.
-  // Subtle, rewarding. Never aggressive.
+  // ── 5. MOMENTUM (SESSION 16A: Real progress reflection) ────
+  // Subtle status line reflecting real forward movement.
+  // No points. No streaks. No badges. Just: how things feel.
   const renderMomentum = () => {
-    const hasCompletions = completedTodayCount !== undefined && completedTodayCount > 0;
-    const hasStreak = streakDays !== undefined && streakDays > 1;
-    if (!hasCompletions && !hasStreak) return null;
-
-    // Session 14E: Momentum-aware styling
-    const progressColor = momentumLevel === 'fire'
-      ? COLORS.amber
-      : momentumLevel === 'active'
-        ? COLORS.green
-        : 'rgba(72,200,120,0.7)';
+    // Session 16A: Only show when there's something real to reflect
+    if (!momentumStatusLine) return null;
 
     return (
       <div style={{ marginBottom: 14 }}>
-        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.24)' }}>
-          {labels.momentum}
-        </div>
         <div
           style={{
-            ...ROW_STYLE,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            borderColor: momentumLevel !== 'rest'
-              ? `rgba(72,200,120,0.08)`
-              : undefined,
+            textAlign: 'center',
+            padding: '12px 16px 8px',
           }}
         >
-          {hasCompletions && (
-            <span style={{
-              fontSize: 12,
-              color: progressColor,
-              fontWeight: 500,
-              transition: `color ${TIMING.SLOW}ms ${EASING.gentle}`,
-            }}>
-              {completedTodayCount} done today
-            </span>
-          )}
-          {hasStreak && (
-            <span style={{ fontSize: 12, color: COLORS.amber, fontWeight: 500 }}>
-              {streakDays}d streak
-            </span>
-          )}
-          {momentumLevel === 'fire' && (
-            <span style={{
-              fontSize: 10,
-              color: COLORS.amberDim,
-              fontWeight: 400,
-              fontStyle: 'italic',
-            }}>
-              on a roll
-            </span>
-          )}
+          <span
+            style={{
+              fontFamily: FONTS.serif,
+              fontSize: 14,
+              fontWeight: 300,
+              color: 'rgba(252,246,234,0.36)',
+              letterSpacing: '0.2px',
+              lineHeight: 1.5,
+            }}
+          >
+            {momentumStatusLine}
+          </span>
         </div>
+      </div>
+    );
+  };
+
+  // ── Session 16A: Micro reinforcement feedback ──
+  // Quick, subtle text acknowledgment on meaningful completion.
+  const renderReinforcement = () => {
+    if (!reinforcementText) return null;
+
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 'calc(84dvh + 12px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 80,
+          padding: '6px 14px',
+          borderRadius: 10,
+          background: 'rgba(15,19,28,0.85)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '0.5px solid rgba(72,200,120,0.12)',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: 'rgba(72,200,120,0.75)',
+            fontFamily: FONTS.sans,
+          }}
+        >
+          {reinforcementText}
+        </span>
       </div>
     );
   };
@@ -1072,6 +1106,9 @@ export default function ControlSurface({
           )}
         </div>
       </div>
+
+      {/* Session 16A: Micro reinforcement toast */}
+      {renderReinforcement()}
 
       {/* Reschedule sheet + action toast */}
       <RescheduleSheet

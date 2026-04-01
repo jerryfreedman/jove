@@ -8,6 +8,7 @@
 // "You've got a few things to handle" when there's real work.
 
 import { onReflection, type ReflectionEvent } from '@/lib/chat/reflection';
+import { getMomentumTone } from '@/lib/intelligence/momentum';
 
 // ── SUN EVALUATION ──────────────────────────────────────────
 
@@ -33,6 +34,10 @@ export interface SunEvalInput {
 /**
  * Evaluate sun state based on current reality.
  * Never returns "settled" when there are actionable items.
+ *
+ * Session 16A: Momentum-aware tone adaptation.
+ * When task-level signals are clear/neutral, momentum state
+ * can influence the headline to reflect real progress.
  */
 export function evaluateSunState(input: SunEvalInput): SunState {
   const { pendingTaskCount, urgentTaskCount, upcomingPrepCount, hasBlockers, completedTodayCount } = input;
@@ -61,6 +66,17 @@ export function evaluateSunState(input: SunEvalInput): SunState {
   }
 
   if (pendingTaskCount > 0) {
+    // Session 16A: Let momentum tone influence active state headlines
+    const tone = getMomentumTone();
+    if (tone.headline && pendingTaskCount <= 3) {
+      // Momentum is progressing — reflect that even with pending items
+      return {
+        level: 'active',
+        headline: tone.headline,
+        isSettled: false,
+      };
+    }
+
     // Vary language based on count
     if (pendingTaskCount === 1) {
       return {
@@ -84,17 +100,20 @@ export function evaluateSunState(input: SunEvalInput): SunState {
   }
 
   // ── CLEAR: Nothing pending ────────────────────────────────
+  // Session 16A: Use momentum tone when available
+  const tone = getMomentumTone();
+
   if (completedTodayCount > 0) {
     return {
       level: 'clear',
-      headline: 'You\'re clear for now.',
+      headline: tone.headline ?? 'You\'re clear for now.',
       isSettled: true,
     };
   }
 
   return {
     level: 'clear',
-    headline: 'You\'re set for the day.',
+    headline: tone.headline ?? 'You\'re set for the day.',
     isSettled: true,
   };
 }
@@ -110,6 +129,7 @@ export function onSunRelevantChange(callback: () => void): () => void {
     'event:created',
     'blocker:detected',
     'interaction:created',
+    'momentum:changed',
     'data:changed',
   ];
 

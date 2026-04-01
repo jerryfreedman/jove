@@ -25,6 +25,7 @@ export type ReflectionEvent =
   | 'item:created'      // New item added
   | 'person:created'    // New person added
   | 'blocker:detected'  // Blocker signal found
+  | 'momentum:changed'  // Session 16A: Real momentum state changed
   | 'data:changed';     // Generic data change
 
 /**
