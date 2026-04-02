@@ -66,6 +66,10 @@ import {
   createEventFromIntent,
 } from '@/lib/universal-persistence';
 import { createUserTask } from '@/lib/task-persistence';
+// Session 2: Intent resolution + execution layer
+import { resolveIntent } from '@/lib/intent/resolveIntent';
+import { executeIntent } from '@/lib/intent/executeIntent';
+import { generateFeedback } from '@/lib/intent/generateFeedback';
 import { useCompletedTodayCount, useWhatMattersTasks } from '@/lib/task-queries';
 import { useDailyLoop, markSessionOpen } from '@/lib/daily-loop';
 // Session 15B: Chat ingestion — capture-worthy detection
@@ -1545,52 +1549,89 @@ function HomePageInner() {
     try {
       const userId = data.user.id;
 
-      // ── Route through universal system ──────────────────
-      const routed = routeUniversalIntent(text);
+      // ── SESSION 2: Intent Resolution Layer ────────────────
+      // Step 1: Classify the input using context metadata.
+      const intent = resolveIntent({
+        text,
+        contextType: payload.contextType,
+        contextId: payload.contextId ?? undefined,
+        contextConfidence: payload.contextConfidence,
+      });
 
-      if (routed) {
-        // Resolve person first if detected
-        let personId: string | null = null;
-        if (routed.person) {
-          const personResult = await findOrCreatePerson(supabase, userId, routed.person);
-          if (personResult) personId = personResult.id;
-        }
-
-        // Create entities based on intent
-        let itemId: string | null = null;
-
-        if (routed.item) {
-          const itemResult = await createItemFromIntent(supabase, userId, {
-            name: routed.item.name,
-          });
-          if (itemResult) itemId = itemResult.id;
-        }
-
-        if (routed.intent === 'create_event' && routed.event) {
-          await createEventFromIntent(supabase, userId, {
-            title: routed.event.title,
-            scheduledAt: routed.event.scheduledAt,
-            eventType: routed.event.eventType,
-            personId,
-          });
-        }
-
-        if (routed.task) {
-          await createTaskFromIntent(supabase, userId, {
-            title: routed.task.title,
-            dueAt: routed.task.dueAt,
-            itemId: routed.links.taskToItem ? itemId : null,
-            personId: routed.links.taskToPerson ? personId : null,
-          });
-        }
-
-        // Item-only intent (no task) — already created above
-      } else {
-        // ── Fallback: store as a user task (accept anything) ────
-        await createUserTask(supabase, userId, {
-          title: text.charAt(0).toUpperCase() + text.slice(1),
+      // Step 2: Execute intent if high confidence (controlled mutation).
+      let intentMutated = false;
+      if (intent.confidence === 'high' && payload.contextId) {
+        const execution = await executeIntent(supabase, {
+          intent,
+          contextType: payload.contextType,
+          contextId: payload.contextId,
+          userId,
+          text,
         });
+        intentMutated = execution.mutated;
+
+        // Generate truthful feedback (logged for now, can surface to UI later)
+        const feedback = generateFeedback(intent, execution);
+        if (feedback) {
+          console.debug('[intent-feedback]', feedback);
+        }
       }
+
+      // ── Step 3: Ingestion pipeline (memory/log) ───────────
+      // CRITICAL: If executeIntent already mutated state,
+      // the ingestion pipeline MUST NOT create duplicate entities.
+      // Mutation = state change. Ingestion = memory/log. These must not conflict.
+
+      if (!intentMutated) {
+        // No mutation occurred → route through existing universal system
+        const routed = routeUniversalIntent(text);
+
+        if (routed) {
+          // Resolve person first if detected
+          let personId: string | null = null;
+          if (routed.person) {
+            const personResult = await findOrCreatePerson(supabase, userId, routed.person);
+            if (personResult) personId = personResult.id;
+          }
+
+          // Create entities based on intent
+          let itemId: string | null = null;
+
+          if (routed.item) {
+            const itemResult = await createItemFromIntent(supabase, userId, {
+              name: routed.item.name,
+            });
+            if (itemResult) itemId = itemResult.id;
+          }
+
+          if (routed.intent === 'create_event' && routed.event) {
+            await createEventFromIntent(supabase, userId, {
+              title: routed.event.title,
+              scheduledAt: routed.event.scheduledAt,
+              eventType: routed.event.eventType,
+              personId,
+            });
+          }
+
+          if (routed.task) {
+            await createTaskFromIntent(supabase, userId, {
+              title: routed.task.title,
+              dueAt: routed.task.dueAt,
+              itemId: routed.links.taskToItem ? itemId : null,
+              personId: routed.links.taskToPerson ? personId : null,
+            });
+          }
+
+          // Item-only intent (no task) — already created above
+        } else {
+          // ── Fallback: store as a user task (accept anything) ────
+          await createUserTask(supabase, userId, {
+            title: text.charAt(0).toUpperCase() + text.slice(1),
+          });
+        }
+      }
+      // If intentMutated === true, we skip entity creation entirely.
+      // The interaction/memory is still saved via the intent execution layer.
 
       // ── Environmental acknowledgment + bird soar ──────────
       requestAnimationFrame(() => {
