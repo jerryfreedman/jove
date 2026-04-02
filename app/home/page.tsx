@@ -74,6 +74,8 @@ import { generateFeedback } from '@/lib/intent/generateFeedback';
 import { planConsequences, logConsequencePlan } from '@/lib/intent/planConsequences';
 import type { ContextEntityState } from '@/lib/intent/planConsequences';
 import { useCompletedTodayCount, useWhatMattersTasks } from '@/lib/task-queries';
+import { useActiveItems } from '@/lib/hooks/useItems';
+import { usePeople } from '@/lib/hooks/usePeople';
 import { useDailyLoop, markSessionOpen } from '@/lib/daily-loop';
 // Session 15B: Chat ingestion — capture-worthy detection
 import { ingestChatMessage } from '@/lib/chat/ingest';
@@ -179,6 +181,10 @@ function HomePageInner() {
   // Session 14E: Progress tracking
   const { count: completedTodayCount } = useCompletedTodayCount(data?.user?.id ?? null);
 
+  // ── SESSION 9: ITEMS + PEOPLE READ HOOKS ──────────────────
+  const { items: activeItems } = useActiveItems(data?.user?.id ?? null);
+  const { people } = usePeople(data?.user?.id ?? null);
+
   // ── SESSION 14F: DAILY LOOP — pending task count for loop awareness ──
   const { tasks: loopTasks } = useWhatMattersTasks(data?.user?.id ?? null, 10);
   const pendingTaskCount = loopTasks.length;
@@ -186,11 +192,12 @@ function HomePageInner() {
     + loopTasks.filter(t => t.dueAt && new Date(t.dueAt).getTime() < Date.now()).length;
   const dailyLoop = useDailyLoop(pendingTaskCount, urgentItemCount);
 
-  // ── SESSION 5: TRUTH ENGINE + PRIORITIZATION ──────────────
+  // ── SESSION 5 + 9: TRUTH ENGINE + PRIORITIZATION ──────────
+  // Session 9: Real items and people now fed into truth engine.
   const { prioritization, sunTruth } = usePrioritization({
     tasks: loopTasks,
-    items: [],     // Items not yet loaded on home — populated when available
-    people: [],    // People not yet loaded on home — populated when available
+    items: activeItems,
+    people,
     meetings: data?.meetings ?? [],
   });
 
@@ -1479,6 +1486,9 @@ function HomePageInner() {
       onReflection('interaction:created', debouncedRefresh),
       onReflection('task:created', debouncedRefresh),
       onReflection('task:updated', debouncedRefresh),
+      // Session 9: Items + People refresh
+      onReflection('item:created', debouncedRefresh),
+      onReflection('person:created', debouncedRefresh),
     ];
     return () => unsubs.forEach(u => u());
   }, [debouncedRefresh]);
@@ -2272,6 +2282,8 @@ function HomePageInner() {
           urgentDeals={data?.urgentDeals ?? []}
           meetings={data?.meetings ?? []}
           userId={data?.user?.id ?? null}
+          items={activeItems}
+          people={people}
           completedTodayCount={completedTodayCount}
           closureMessage={dailyLoop.showClosure ? dailyLoop.closureMessage : null}
           onClosureDismiss={dailyLoop.dismissClosure}

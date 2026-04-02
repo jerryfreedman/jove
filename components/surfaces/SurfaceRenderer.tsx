@@ -8,6 +8,8 @@ import DealChatSurface from './content/DealChatSurface';
 import DealPrepSurface from './content/DealPrepSurface';
 import MeetingsSurface from './content/MeetingsSurface';
 import IdeasSurface from './content/IdeasSurface';
+import ItemsSurface from './content/ItemsSurface';
+import PeopleSurface from './content/PeopleSurface';
 import SettingsSurface from './content/SettingsSurface';
 import BriefingSurface from './content/BriefingSurface';
 
@@ -19,6 +21,8 @@ const SURFACE_TITLES: Record<string, string> = {
   'deal-prep':  'Prep',
   meetings:     'Meetings',
   ideas:        'Ideas',
+  items:        'Items',
+  people:       'People',
   settings:     'Settings',
   briefing:     'Briefing',
 };
@@ -60,6 +64,12 @@ export default function SurfaceRenderer() {
       )}
       {activeSurface.id === 'ideas' && (
         <IdeasSurface />
+      )}
+      {activeSurface.id === 'items' && (
+        <ItemsSurface />
+      )}
+      {activeSurface.id === 'people' && (
+        <PeopleSurface />
       )}
       {activeSurface.id === 'settings' && (
         <SettingsSurface />

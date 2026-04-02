@@ -53,10 +53,12 @@ export function usePrioritization(
     const truthState = buildTruthState(truthInput);
 
     // ── 2. Rank next actions ──
+    // Session 9: Pass people for stale-relationship candidates
     const prioritizationInput: PrioritizationInput = {
       truthState,
       currentHour,
       momentumState,
+      people: input.people,
     };
     const prioritization = rankNextActions(prioritizationInput);
 

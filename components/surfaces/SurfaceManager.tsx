@@ -10,6 +10,8 @@ export type SurfaceId =
   | 'deal-prep'   // deal meeting prep
   | 'meetings'    // meetings list
   | 'ideas'       // ideas list
+  | 'items'       // Session 9: items list
+  | 'people'      // Session 9: people list
   | 'settings'    // settings
   | 'briefing';   // daily briefing
 

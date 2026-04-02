@@ -9,7 +9,7 @@
 
 import type { TruthState } from './buildTruthState';
 import type { DisplayTask } from '@/lib/task-queries';
-import type { ItemRow, MeetingRow } from '@/lib/types';
+import type { ItemRow, PersonRow, MeetingRow } from '@/lib/types';
 import type { MomentumState } from '@/lib/intelligence/momentum';
 
 // ── RANKED ACTION TYPE ──────────────────────────────────────
@@ -47,6 +47,8 @@ export interface PrioritizationInput {
   truthState: TruthState;
   currentHour: number;
   momentumState: MomentumState;
+  /** Session 9: People data for stale-relationship candidates. */
+  people?: PersonRow[];
 }
 
 // ── SCORING CONSTANTS ───────────────────────────────────────
@@ -246,6 +248,48 @@ function candidatesFromStaleItems(items: ItemRow[]): RankedAction[] {
   });
 }
 
+// ── SESSION 9: PEOPLE-BASED CANDIDATES ─────────────────────
+// Stale important relationships → concrete follow-up actions.
+// Only surfaces people with stale interactions (14+ days).
+
+function candidatesFromStalePeople(
+  people: PersonRow[],
+  waitingStates: TruthState['waitingStates'],
+): RankedAction[] {
+  // Only consider people flagged as stale in truth state
+  const stalePeopleIds = new Set(
+    waitingStates
+      .filter(w => w.type === 'person')
+      .map(w => w.id),
+  );
+
+  return people
+    .filter(p => stalePeopleIds.has(p.id))
+    .slice(0, 3) // Cap at 3 to avoid noise
+    .map(p => {
+      const days = p.last_interaction_at
+        ? Math.floor((Date.now() - new Date(p.last_interaction_at).getTime()) / (1000 * 60 * 60 * 24))
+        : 30; // If never interacted, treat as very stale
+
+      let score = SCORE.FOLLOWUP_BASE;
+      if (days > 21) score += 10;
+      if (p.relationship) score += 5; // Has relationship context = slightly more important
+
+      const reason = `${days}d since last contact`;
+
+      return {
+        id: `person-${p.id}`,
+        type: 'followup' as RankedActionType,
+        title: `Follow up with ${p.name}`,
+        subtitle: p.relationship ?? reason,
+        contextType: 'person' as const,
+        contextId: p.id,
+        priorityScore: score,
+        reason,
+      };
+    });
+}
+
 // ── DUPLICATE / CONFLICT SUPPRESSION ────────────────────────
 
 function suppressDuplicates(candidates: RankedAction[]): RankedAction[] {
@@ -376,6 +420,10 @@ export function rankNextActions(input: PrioritizationInput): PrioritizationResul
     ...candidatesFromBlockedItems(truthState.blockedItems),
     ...candidatesFromPrepNeeds(truthState.upcomingEventsNeedingPrep),
     ...candidatesFromStaleItems(truthState.activeItemsNeedingProgress),
+    // Session 9: People-based follow-up candidates
+    ...(input.people
+      ? candidatesFromStalePeople(input.people, truthState.waitingStates)
+      : []),
   ];
 
   reasoning.push(`${candidates.length} candidates`);

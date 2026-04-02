@@ -19,7 +19,7 @@ import {
   isNeedsAttention,
   type SurfaceEvalResult,
 } from '@/lib/module-priority';
-import type { DealRow, MeetingRow, UserDomainProfile, ContactRow } from '@/lib/types';
+import type { DealRow, MeetingRow, UserDomainProfile, ContactRow, ItemRow, PersonRow } from '@/lib/types';
 import {
   DEFAULT_DOMAIN_PROFILE,
   getControlSurfaceLabels,
@@ -59,6 +59,10 @@ interface ControlSurfaceProps {
   domainProfile?: UserDomainProfile;
   /** Session 11C: User ID for persistent task reads. */
   userId?: string | null;
+  /** Session 9: Real items from Items table. */
+  items?: ItemRow[];
+  /** Session 9: Real people from People table. */
+  people?: PersonRow[];
   /** Session 14D: Recent contacts for People section. */
   contacts?: ContactRow[];
   /** Session 14D: Tasks completed today for momentum. */
@@ -219,6 +223,8 @@ export default function ControlSurface({
   meetings,
   domainProfile,
   userId,
+  items: itemsProp,
+  people: peopleProp,
   contacts,
   completedTodayCount,
   streakDays,
@@ -533,8 +539,33 @@ export default function ControlSurface({
 
     // ── 3. ACTIVE ITEMS ─────────────────────────────────────
     // User's ongoing work/life. Lightweight. Max 5 visible.
-    // No pipeline UI. No heavy stats. Simple status.
+    // Session 9: Now includes real Items alongside deals.
     const activeItems: SurfaceItem[] = [];
+
+    // Session 9: Active items from Items table (non-done, non-dropped)
+    const activeItemRows = (itemsProp ?? [])
+      .filter(i => i.status !== 'done' && i.status !== 'dropped')
+      .slice(0, 3);
+
+    for (const item of activeItemRows) {
+      const days = getDaysSince(item.last_activity_at);
+      const status = item.status === 'waiting' ? 'waiting'
+        : item.status === 'paused' ? 'blocked'
+        : days > 7 ? 'blocked'
+        : 'active';
+      activeItems.push({
+        id: `item-${item.id}`,
+        title: item.name,
+        subtitle: status === 'waiting' ? 'waiting'
+          : status === 'blocked' ? (item.status === 'paused' ? 'paused' : `${days}d stale`)
+          : item.category ?? undefined,
+        time: days === 0 ? 'today' : `${days}d`,
+        emphasis: item.is_starred,
+        onClick: () => openSurface('items' as import('@/components/surfaces/SurfaceManager').SurfaceId),
+        _zone: 'active',
+        _sortKey: item.is_starred ? -1 : days,
+      });
+    }
 
     const remainingDeals = allDeals
       .filter(d => {
@@ -542,7 +573,7 @@ export default function ControlSurface({
         return d.stage !== 'Closed Won' && d.stage !== 'Closed Lost';
       })
       .sort((a, b) => new Date(b.last_activity_at).getTime() - new Date(a.last_activity_at).getTime())
-      .slice(0, 5);
+      .slice(0, Math.max(0, 5 - activeItems.length));
 
     for (const deal of remainingDeals) {
       const days = getDaysSince(deal.last_activity_at);
@@ -560,12 +591,29 @@ export default function ControlSurface({
       });
     }
 
-    // ── 4. PEOPLE (LIGHT CONTEXT) ───────────────────────────
-    // Recent interactions, people needing follow-up.
-    // Lightweight, contextual. No CRM tables.
+    // ── 4. PEOPLE (SESSION 9: REAL PEOPLE TABLE) ────────────
+    // Uses People table data when available, falls back to contacts.
     const peopleItems: SurfaceItem[] = [];
 
-    if (contacts && contacts.length > 0) {
+    if (peopleProp && peopleProp.length > 0) {
+      // Session 9: Real People table data
+      const recentPeople = peopleProp.slice(0, 3);
+
+      for (const person of recentPeople) {
+        const days = person.last_interaction_at ? getDaysSince(person.last_interaction_at) : null;
+        peopleItems.push({
+          id: `person-${person.id}`,
+          title: person.name,
+          subtitle: person.relationship ?? undefined,
+          time: days !== null ? (days === 0 ? 'today' : `${days}d ago`) : undefined,
+          emphasis: false,
+          onClick: () => openSurface('people' as import('@/components/surfaces/SurfaceManager').SurfaceId),
+          _zone: 'people',
+          _sortKey: days ?? 999,
+        });
+      }
+    } else if (contacts && contacts.length > 0) {
+      // Fallback to contacts (legacy behavior)
       const recentContacts = contacts
         .filter(c => c.last_interaction_at)
         .sort((a, b) => {
@@ -610,6 +658,7 @@ export default function ControlSurface({
     allDeals, urgentDeals, meetings, meetingStoreData, contacts,
     unifiedTasks, usingFallback, legacySystemTasks,
     handleTaskAction, openSurface,
+    itemsProp, peopleProp,
   ]);
 
   // ── ALL HOOKS ABOVE THIS LINE ───────────────────────────
