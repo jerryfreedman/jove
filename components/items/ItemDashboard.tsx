@@ -97,7 +97,15 @@ interface ItemDashboardProps {
 export default function ItemDashboard({ item }: ItemDashboardProps) {
   const router = useRouter();
   // Session 14: Real deterministic intelligence
-  const { summary, nextAction, state } = useItemIntelligence(item);
+  const intel = useItemIntelligence(item);
+
+  // Session 18: Use deal's explicit next_action when intelligence engine
+  // returns a generic fallback and the deal has a specific action set.
+  const nextAction = (item.dealMeta?.nextAction && intel.nextAction === 'Define next step')
+    ? item.dealMeta.nextAction
+    : intel.nextAction;
+  const summary = intel.summary;
+  const state = intel.state;
 
   // State-aware accent for next action
   const actionAccent = state === 'urgent' ? COLORS.red : COLORS.amber;
@@ -154,6 +162,20 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
           }}>
             {statusLabel(item.status)}
           </span>
+
+          {/* Session 18: Deal stage badge when sourced from deals table */}
+          {item.dealMeta && (
+            <span style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: COLORS.teal,
+              background: `${COLORS.teal}18`,
+              padding: '2px 8px',
+              borderRadius: 4,
+            }}>
+              {item.dealMeta.stage}
+            </span>
+          )}
 
           {/* Last updated */}
           <span style={{

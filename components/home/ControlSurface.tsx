@@ -392,7 +392,9 @@ export default function ControlSurface({
         }
         break;
       case 'open_deal':
-        openSurface('deal-detail', { dealId: action.dealId });
+        // Session 18: Route to unified item dashboard
+        handleClose();
+        setTimeout(() => router.push(`/item/${action.dealId}`), CLOSE_DELAY);
         break;
       case 'open_briefing':
         break;
@@ -486,7 +488,7 @@ export default function ControlSurface({
           subtitle: `${days}d without activity`,
           time: `${days}d ago`,
           emphasis: days > 14,
-          onClick: () => openSurface('deal-detail', { dealId: deal.id }),
+          onClick: () => { handleClose(); setTimeout(() => router.push(`/item/${deal.id}`), CLOSE_DELAY); },
           _zone: 'attention',
           _sortKey: 1,
         });
@@ -623,7 +625,7 @@ export default function ControlSurface({
         subtitle: status === 'waiting' ? 'waiting' : status === 'blocked' ? `${days}d stale` : undefined,
         time: days === 0 ? 'today' : `${days}d`,
         emphasis: false,
-        onClick: () => openSurface('deal-detail', { dealId: deal.id }),
+        onClick: () => { handleClose(); setTimeout(() => router.push(`/item/${deal.id}`), CLOSE_DELAY); },
         _zone: 'active',
         _sortKey: days,
       });
@@ -789,9 +791,10 @@ export default function ControlSurface({
       return;
     }
 
-    // Deals → use existing onClick (opens deal-detail surface)
-    if (ctxType === 'deal') {
-      item.onClick?.();
+    // Deals → route to item dashboard (same as items, Session 18)
+    if (ctxType === 'deal' && rawId) {
+      handleClose();
+      setTimeout(() => router.push(`/item/${rawId}`), CLOSE_DELAY);
       return;
     }
 
@@ -1103,9 +1106,10 @@ export default function ControlSurface({
       return;
     }
 
-    // Deal → open deal-detail surface
+    // Deal → item dashboard (Session 18: unified destination)
     if (ctxType === 'deal' && action.contextId) {
-      openSurface('deal-detail', { dealId: action.contextId });
+      handleClose();
+      setTimeout(() => router.push(`/item/${action.contextId}`), CLOSE_DELAY);
       return;
     }
 
