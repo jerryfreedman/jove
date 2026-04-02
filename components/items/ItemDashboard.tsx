@@ -1,6 +1,6 @@
-// ── SESSION 13: ITEM DASHBOARD ──────────────────────────────
+// ── SESSION 13+14: ITEM DASHBOARD ───────────────────────────
 // Full detail view for a single item with context.
-// Shows: header, AI summary (temp mock), next action (temp mock),
+// Shows: header, AI summary, next action (intelligence engine),
 // tasks, people, and activity feed.
 // Follows existing glass UI patterns.
 
@@ -10,6 +10,7 @@ import { useMemo } from 'react';
 import { COLORS, FONTS } from '@/lib/design-system';
 import { normalizeItemStatus } from '@/lib/types';
 import type { ItemWithContext } from '@/lib/hooks/useItemWithContext';
+import { useItemIntelligence } from '@/lib/hooks/useItemIntelligence';
 
 // ── STATUS COLOR MAP ───────────────────────────────────────
 
@@ -93,9 +94,11 @@ interface ItemDashboardProps {
 }
 
 export default function ItemDashboard({ item }: ItemDashboardProps) {
-  // Temp mocks — will be replaced with real AI in session 14
-  const summary = 'In progress. Recent activity detected. Needs follow-up.';
-  const nextAction = 'Follow up on latest update';
+  // Session 14: Real deterministic intelligence
+  const { summary, nextAction, state } = useItemIntelligence(item);
+
+  // State-aware accent for next action
+  const actionAccent = state === 'urgent' ? COLORS.red : COLORS.amber;
 
   const visibleTasks = useMemo(
     () => item.tasks
@@ -160,7 +163,7 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
         </div>
       </div>
 
-      {/* ── AI SUMMARY (TEMP MOCK) ──────────────────────────── */}
+      {/* ── AI SUMMARY (SESSION 14: INTELLIGENCE ENGINE) ───── */}
       <div style={{
         background: 'rgba(255,255,255,0.04)',
         border: `1px solid ${COLORS.cardBorder}`,
@@ -187,25 +190,26 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
         </div>
       </div>
 
-      {/* ── NEXT ACTION (TEMP MOCK) ─────────────────────────── */}
+      {/* ── NEXT ACTION (SESSION 14: INTELLIGENCE ENGINE) ──── */}
       <div style={{
-        background: `${COLORS.amber}10`,
-        border: `1px solid ${COLORS.amber}20`,
+        background: `${actionAccent}10`,
+        border: `1px solid ${actionAccent}22`,
         borderRadius: 10,
-        padding: '12px 16px',
+        padding: '16px 18px',
         marginTop: 8,
       }}>
         <div style={{
           fontSize: 11,
           fontWeight: 500,
-          color: COLORS.amber,
+          color: actionAccent,
           letterSpacing: '0.04em',
-          marginBottom: 4,
+          marginBottom: 6,
         }}>
           NEXT ACTION
         </div>
         <div style={{
-          fontSize: 14,
+          fontSize: 16,
+          fontWeight: 500,
           color: COLORS.textPrimary,
           lineHeight: 1.4,
         }}>
