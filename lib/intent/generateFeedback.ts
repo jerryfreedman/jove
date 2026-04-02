@@ -1,20 +1,28 @@
-// ── SESSION 2 + SESSION 3: TRUTHFUL REINFORCEMENT FEEDBACK ──
+// ── SESSION 2 + SESSION 3 + SESSION 4: TRUTHFUL REINFORCEMENT FEEDBACK ──
 // Generates feedback that ONLY reflects what actually happened.
 //
 // HARD RULE: Never say "Got it" if nothing meaningful happened.
 //
 // Session 3 upgrade: Context-aware feedback.
-// Uses contextType to produce more specific, natural responses.
+// Session 4 upgrade: Consequence-aware feedback.
+//   Feedback now reflects ACTUAL consequence outcome:
+//   - complete + progress → "Done — that moves this forward."
+//   - reschedule → "Moved to Thursday. Prep stays open."
+//   - weak input → "No problem — this still needs a real update."
+//   - context only → "Got it — context captured."
+//   - blocker → "Noted — that's now something to address."
 //
 // Feedback tiers:
 //   HIGH VALUE (mutation occurred)  → confident confirmation
 //   STRUCTURAL CHANGE               → specific change description
+//   CONSEQUENCE AWARE               → reflects secondary effects
 //   LOW VALUE (no mutation)          → honest, invites revisit
 //   UNKNOWN (no signal)              → minimal / neutral
 
 import type { ResolvedIntent } from './resolveIntent';
 import type { ExecutionResult } from './executeIntent';
 import type { CaptureContextType } from '@/lib/universal-capture-types';
+import type { ConsequencePlan } from './planConsequences';
 
 // ── FEEDBACK POOLS ──────────────────────────────────────────
 // Multiple options per tier to avoid feeling robotic.
@@ -49,6 +57,15 @@ const COMPLETE_FEEDBACK_GENERIC = [
   'Checked off.',
 ];
 
+// ── SESSION 4: COMPLETE + PROGRESS FEEDBACK ─────────────────
+
+const COMPLETE_WITH_PROGRESS_TASK = [
+  'Done — that moves this forward.',
+  'Task completed, progress logged.',
+  'Nice — done and tracked.',
+  'Handled — momentum updated.',
+];
+
 // ── SESSION 3: CONTEXT-AWARE RESCHEDULE FEEDBACK ───────────
 
 const RESCHEDULE_FEEDBACK_EVENT_PREFIX = [
@@ -68,6 +85,14 @@ const RESCHEDULE_FEEDBACK_PREFIX = [
   'Rescheduled to',
   'Updated to',
   'Pushed to',
+];
+
+// ── SESSION 4: RESCHEDULE + PREP OPEN FEEDBACK ──────────────
+
+const RESCHEDULE_PREP_OPEN_SUFFIX = [
+  ' Prep stays open.',
+  ' Related tasks still active.',
+  ' Open work preserved.',
 ];
 
 // ── SESSION 3: CONTEXT-AWARE UPDATE FEEDBACK ───────────────
@@ -91,6 +116,15 @@ const UPDATE_FEEDBACK_GENERIC = [
   'Noted.',
 ];
 
+// ── SESSION 4: BLOCKER FEEDBACK ─────────────────────────────
+
+const BLOCKER_FEEDBACK = [
+  "Noted — that's now something to address.",
+  'Flagged — this needs attention.',
+  'Got it — blocker tracked.',
+  "Noted — that's on the radar now.",
+];
+
 // ── SESSION 3: CONTEXT-AWARE NOTE FEEDBACK ─────────────────
 
 const NOTE_FEEDBACK_PERSON = [
@@ -109,6 +143,23 @@ const NOTE_FEEDBACK_GENERIC = [
   'Captured.',
   'Noted.',
   'Logged.',
+];
+
+// ── SESSION 4: CONTEXT-ONLY FEEDBACK ────────────────────────
+
+const CONTEXT_ONLY_FEEDBACK = [
+  'Got it — context captured.',
+  'Noted — no state change needed.',
+  'Captured for reference.',
+];
+
+// ── SESSION 4: WEAK / NO-PROGRESS FEEDBACK ──────────────────
+
+const WEAK_INPUT_FEEDBACK = [
+  'No problem — this still needs a real update.',
+  "Got it — we'll come back to this.",
+  'Noted — still open.',
+  'OK — nothing changed yet.',
 ];
 
 const LOW_VALUE_FEEDBACK = [
@@ -134,6 +185,10 @@ export function generateFeedback(
   if (execution.mutated) {
     // Complete — context-aware
     if (intent.type === 'complete') {
+      // Session 4: Check if progress was also tracked
+      if (execution.secondaryActionsExecuted && execution.secondaryActionsExecuted > 1) {
+        if (contextType === 'task') return pick(COMPLETE_WITH_PROGRESS_TASK);
+      }
       if (contextType === 'task') return pick(COMPLETE_FEEDBACK_TASK);
       if (contextType === 'item') return pick(COMPLETE_FEEDBACK_ITEM);
       return pick(COMPLETE_FEEDBACK_GENERIC);
@@ -150,11 +205,22 @@ export function generateFeedback(
         prefix = pick(RESCHEDULE_FEEDBACK_PREFIX);
       }
       const dateStr = formatFeedbackDate(intent.entities.date);
-      return `${prefix} ${dateStr}.`;
+      let feedback = `${prefix} ${dateStr}.`;
+
+      // Session 4: Append prep-open suffix if secondary actions preserved related tasks
+      if (execution.secondaryActionsExecuted && execution.secondaryActionsExecuted > 1) {
+        feedback = feedback.slice(0, -1) + '.' + pick(RESCHEDULE_PREP_OPEN_SUFFIX);
+      }
+
+      return feedback;
     }
 
-    // Update — context-aware
+    // Update — check for blocker
     if (intent.type === 'update') {
+      // Session 4: Blocker-specific feedback
+      if (execution.stateSummary?.includes('Blocker') || execution.stateSummary?.includes('Risk')) {
+        return pick(BLOCKER_FEEDBACK);
+      }
       if (contextType === 'task') return pick(UPDATE_FEEDBACK_TASK);
       if (contextType === 'item') return pick(UPDATE_FEEDBACK_ITEM);
       return pick(UPDATE_FEEDBACK_GENERIC);
@@ -162,6 +228,18 @@ export function generateFeedback(
 
     // Generic high value
     return pick(HIGH_VALUE_FEEDBACK);
+  }
+
+  // ── Session 4: Keep-open with weak input → specific feedback ──
+  if (execution.stateSummary?.includes('No progress')) {
+    return pick(WEAK_INPUT_FEEDBACK);
+  }
+
+  // ── Session 4: Context-only capture ────────────────────────
+  if (execution.stateSummary?.includes('Context captured') || execution.stateSummary?.includes('context captured')) {
+    if (contextType === 'person') return pick(NOTE_FEEDBACK_PERSON);
+    if (contextType === 'event' || contextType === 'meeting') return pick(NOTE_FEEDBACK_EVENT);
+    return pick(CONTEXT_ONLY_FEEDBACK);
   }
 
   // ── Note (no mutation, but valid input) — context-aware ───

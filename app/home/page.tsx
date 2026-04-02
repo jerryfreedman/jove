@@ -68,8 +68,10 @@ import {
 import { createUserTask } from '@/lib/task-persistence';
 // Session 2: Intent resolution + execution layer
 import { resolveIntent } from '@/lib/intent/resolveIntent';
-import { executeIntent } from '@/lib/intent/executeIntent';
+import { executeIntent, executeConsequencePlan } from '@/lib/intent/executeIntent';
 import { generateFeedback } from '@/lib/intent/generateFeedback';
+import { planConsequences, logConsequencePlan } from '@/lib/intent/planConsequences';
+import type { ContextEntityState } from '@/lib/intent/planConsequences';
 import { useCompletedTodayCount, useWhatMattersTasks } from '@/lib/task-queries';
 import { useDailyLoop, markSessionOpen } from '@/lib/daily-loop';
 // Session 15B: Chat ingestion — capture-worthy detection
@@ -1549,7 +1551,7 @@ function HomePageInner() {
     try {
       const userId = data.user.id;
 
-      // ── SESSION 2: Intent Resolution Layer ────────────────
+      // ── SESSION 2 + SESSION 4: Intent Resolution + Consequence Planning ──
       // Step 1: Classify the input using context metadata.
       const intent = resolveIntent({
         text,
@@ -1558,19 +1560,84 @@ function HomePageInner() {
         contextConfidence: payload.contextConfidence,
       });
 
-      // Step 2: Execute intent if high confidence (controlled mutation).
-      let intentMutated = false;
-      if (intent.confidence === 'high' && payload.contextId) {
-        const execution = await executeIntent(supabase, {
-          intent,
+      // Step 2: Plan consequences (Session 4).
+      // Build entity state from available context for richer consequence planning.
+      let entityState: ContextEntityState | undefined;
+      if (payload.contextId) {
+        entityState = {
           contextType: payload.contextType,
           contextId: payload.contextId,
-          userId,
-          text,
-        });
+        };
+
+        // Enrich with related entity info if context is a task
+        if (payload.contextType === 'task') {
+          const { data: taskData } = await supabase
+            .from('tasks')
+            .select('item_id, meeting_id, status')
+            .eq('id', payload.contextId)
+            .eq('user_id', userId)
+            .maybeSingle();
+          if (taskData) {
+            entityState.linkedItemId = taskData.item_id ?? undefined;
+            entityState.taskStatus = taskData.status ?? undefined;
+          }
+        }
+
+        // Enrich with related tasks if context is an event/meeting
+        if (payload.contextType === 'event' || payload.contextType === 'meeting') {
+          const { data: relatedTasks } = await supabase
+            .from('tasks')
+            .select('id')
+            .eq('meeting_id', payload.contextId)
+            .eq('user_id', userId)
+            .in('status', ['pending', 'in_progress']);
+          if (relatedTasks?.length) {
+            entityState.relatedTaskIds = relatedTasks.map(t => t.id);
+          }
+        }
+      }
+
+      const plan = planConsequences(
+        intent,
+        text,
+        payload.contextType,
+        payload.contextId,
+        entityState,
+      );
+
+      // Session 4: Log consequence plan for debugging
+      logConsequencePlan(plan);
+
+      // Step 3: Execute consequence plan (replaces direct executeIntent for high confidence).
+      let intentMutated = false;
+      if (intent.confidence === 'high' && payload.contextId) {
+        const execution = await executeConsequencePlan(supabase, plan, userId, intent);
         intentMutated = execution.mutated;
 
-        // Generate truthful feedback (logged for now, can surface to UI later)
+        // Generate truthful, consequence-aware feedback
+        const feedback = generateFeedback(intent, execution, payload.contextType);
+        if (feedback) {
+          console.debug('[intent-feedback]', feedback);
+        }
+
+        // Session 4: Log state summary
+        if (execution.stateSummary) {
+          console.debug('[state-summary]', execution.stateSummary);
+        }
+
+        // Session 4: Log followup suggestions (internal only, not auto-created)
+        if (execution.followupSuggestions?.length) {
+          console.debug('[followup-suggestions]', execution.followupSuggestions);
+        }
+      } else {
+        // Low/medium confidence: still generate feedback from the plan
+        const execution = {
+          mutated: false,
+          mode: 'interaction_only' as const,
+          summary: plan.summary,
+          stateSummary: plan.summary,
+          secondaryActionsExecuted: 0,
+        };
         const feedback = generateFeedback(intent, execution, payload.contextType);
         if (feedback) {
           console.debug('[intent-feedback]', feedback);

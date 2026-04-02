@@ -1,4 +1,4 @@
-// ── SESSION 2 + SESSION 3: EXECUTION ENGINE (CONTROLLED MUTATION) ──
+// ── SESSION 2 + SESSION 3 + SESSION 4: EXECUTION ENGINE (CONTROLLED MUTATION) ──
 // Mutates system state ONLY on high confidence.
 // Conservative: no mutation is always safer than wrong mutation.
 //
@@ -7,6 +7,7 @@
 //   MEDIUM/LOW      → no mutation (interaction only)
 //
 // Session 3: Enhanced logging with context + entity signals.
+// Session 4: Consequence-plan-driven execution with secondary actions.
 // CORE SAFETY RULE UNCHANGED — only mutate on HIGH confidence.
 //
 // Does NOT touch database schema, Supabase structure, or UI.
@@ -15,6 +16,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { emitReflection } from '@/lib/chat/reflection';
 import { invalidateUserCache } from '@/lib/context-cache';
 import type { ResolvedIntent } from './resolveIntent';
+import type { ConsequencePlan, ConsequenceAction } from './planConsequences';
 
 // ── EXECUTION RESULT ────────────────────────────────────────
 
@@ -27,6 +29,12 @@ export interface ExecutionResult {
   mode: ExecutionMode;
   /** Human-readable summary of what happened (for logging) */
   summary: string;
+  /** Session 4: Compact state summary for downstream use */
+  stateSummary?: string;
+  /** Session 4: Number of secondary actions executed */
+  secondaryActionsExecuted?: number;
+  /** Session 4: Follow-up suggestions generated (not auto-created) */
+  followupSuggestions?: Array<{ suggestedTitle: string; reason: string }>;
 }
 
 // ── EXECUTION INPUT ─────────────────────────────────────────
@@ -226,7 +234,176 @@ export async function executeIntent(
   };
 }
 
-// ── SESSION 3: ENHANCED DEBUG LOGGING (INTERNAL ONLY — NOT UI) ──
+// ── SESSION 4: CONSEQUENCE-PLAN-DRIVEN EXECUTION ───────────
+// Executes a full ConsequencePlan: primary action first, then safe secondaries.
+// Returns an enriched ExecutionResult with state summary and followup suggestions.
+
+export async function executeConsequencePlan(
+  supabase: SupabaseClient,
+  plan: ConsequencePlan,
+  userId: string,
+  intent: ResolvedIntent,
+): Promise<ExecutionResult> {
+  let mutated = false;
+  let secondaryExecuted = 0;
+  const followupSuggestions: Array<{ suggestedTitle: string; reason: string }> = [];
+
+  // ── STEP 1: Execute primary action ─────────────────────
+  const primaryResult = await executeConsequenceAction(supabase, plan.primaryAction, userId);
+  if (primaryResult) mutated = true;
+
+  // ── STEP 2: Execute safe secondary actions ─────────────
+  for (const action of plan.secondaryActions) {
+    // Followup suggestions are NOT executed — they're collected
+    if (action.type === 'suggest_followup') {
+      followupSuggestions.push({
+        suggestedTitle: action.payload.suggestedTitle,
+        reason: action.payload.reason,
+      });
+      secondaryExecuted++;
+      continue;
+    }
+
+    // keep_open is a no-op in execution (it's an intent signal, not a mutation)
+    if (action.type === 'keep_open') {
+      secondaryExecuted++;
+      continue;
+    }
+
+    // save_interaction is handled by the caller (page.tsx)
+    // to avoid duplicate interaction saves
+    if (action.type === 'save_interaction') {
+      secondaryExecuted++;
+      continue;
+    }
+
+    // Execute mutation-type secondary actions
+    const secondaryResult = await executeConsequenceAction(supabase, action, userId);
+    if (secondaryResult) mutated = true;
+    secondaryExecuted++;
+  }
+
+  // ── STEP 3: Side effects (if any mutation occurred) ────
+  if (mutated) {
+    emitReflection('task:created'); // Generic refresh trigger
+    invalidateUserCache(userId);
+  }
+
+  logIntentExecution(intent, mutated, mutated ? 'mutation+interaction' : 'interaction_only');
+
+  return {
+    mutated,
+    mode: mutated ? 'mutation+interaction' : 'interaction_only',
+    summary: plan.summary,
+    stateSummary: plan.summary,
+    secondaryActionsExecuted: secondaryExecuted,
+    followupSuggestions: followupSuggestions.length > 0 ? followupSuggestions : undefined,
+  };
+}
+
+// ── SINGLE ACTION EXECUTOR ─────────────────────────────────
+// Executes one ConsequenceAction against the database.
+// Returns true if a mutation occurred, false otherwise.
+
+async function executeConsequenceAction(
+  supabase: SupabaseClient,
+  action: ConsequenceAction,
+  userId: string,
+): Promise<boolean> {
+  switch (action.type) {
+    case 'complete_task': {
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          status: 'done',
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', action.taskId)
+        .eq('user_id', userId)
+        .in('status', ['pending', 'in_progress']);
+
+      if (error) {
+        console.error('[consequence-exec] complete_task error:', error);
+        return false;
+      }
+      return true;
+    }
+
+    case 'update_task': {
+      const { error } = await supabase
+        .from('tasks')
+        .update(action.patch)
+        .eq('id', action.taskId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[consequence-exec] update_task error:', error);
+        return false;
+      }
+      return true;
+    }
+
+    case 'update_event': {
+      const { error } = await supabase
+        .from('meetings')
+        .update(action.patch)
+        .eq('id', action.eventId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[consequence-exec] update_event error:', error);
+        return false;
+      }
+      return true;
+    }
+
+    case 'update_item': {
+      const { error } = await supabase
+        .from('items')
+        .update(action.patch)
+        .eq('id', action.itemId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[consequence-exec] update_item error:', error);
+        return false;
+      }
+      return true;
+    }
+
+    case 'update_person': {
+      const { error } = await supabase
+        .from('people')
+        .update(action.patch)
+        .eq('id', action.personId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[consequence-exec] update_person error:', error);
+        return false;
+      }
+      return true;
+    }
+
+    case 'save_interaction':
+      // Handled by the caller (page.tsx), not here.
+      // This avoids coupling the execution engine to interaction save logic.
+      return false;
+
+    case 'keep_open':
+      // No-op: task remains in current state.
+      return false;
+
+    case 'suggest_followup':
+      // Not a mutation — collected by the plan executor.
+      return false;
+
+    default:
+      return false;
+  }
+}
+
+// ── SESSION 3 + 4: ENHANCED DEBUG LOGGING (INTERNAL ONLY — NOT UI) ──
 
 function logIntentExecution(
   intent: ResolvedIntent,
