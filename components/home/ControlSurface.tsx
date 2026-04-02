@@ -608,6 +608,18 @@ export default function ControlSurface({
     transition: TRANSITIONS.row,
   } as const;
 
+  // ── Session 18 Patch: Derive capture context from item ID ──
+  const deriveItemContext = (item: SurfaceItem) => {
+    const ctxType = item.id.startsWith('meeting-') ? 'event' as const
+      : item.id.startsWith('deal-') || item.id.startsWith('attn-') ? 'item' as const
+      : item.id.startsWith('person-') ? 'person' as const
+      : item.id.startsWith('task-') || item.id.startsWith('legacy-') ? 'task' as const
+      : 'none' as const;
+    const rawId = item.id.replace(/^(meeting|deal|attn|person|task|legacy)-/, '');
+    const confidence = ctxType !== 'none' ? 'medium' as const : 'low' as const;
+    return { ctxType, rawId, confidence };
+  };
+
   const renderRow = (item: SurfaceItem) => {
     const isPending = item.taskActions ? taskActionPending === item.taskActions.taskId : false;
     const isCompleted = item.taskActions ? completedIds.has(item.taskActions.taskId) : false;
@@ -615,17 +627,38 @@ export default function ControlSurface({
     const meetingId = isMeeting ? item.id.replace('meeting-', '') : null;
     const isExpanded = meetingId ? expandedMeetingId === meetingId : false;
 
+    // Session 18 Patch: Primary tap = open capture (action mode).
+    // Navigation moves to secondary chevron affordance.
+    const handleRowTap = () => {
+      if (!onOpenCapture) {
+        // Fallback: if no capture handler, use original navigation
+        item.onClick?.();
+        return;
+      }
+      const { ctxType, rawId, confidence } = deriveItemContext(item);
+      handleClose();
+      setTimeout(() => {
+        onOpenCapture({
+          title: item.title,
+          subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' \u00b7 ' : ''}${item.time ?? ''}` : undefined,
+          contextType: ctxType,
+          contextId: rawId,
+          contextConfidence: confidence,
+        });
+      }, CLOSE_DELAY + 40);
+    };
+
     return (
       <div
         key={item.id}
         className="jove-tap"
-        onClick={item.onClick}
+        onClick={handleRowTap}
         style={{
           ...ROW_STYLE,
           borderColor: isCompleted
             ? 'rgba(72,200,120,0.15)'
             : isExpanded ? 'rgba(240,235,224,0.06)' : undefined,
-          cursor: item.onClick ? 'pointer' : 'default',
+          cursor: 'pointer',
           opacity: isPending && !isCompleted ? 0.4 : 1,
           animation: isCompleted
             ? (isFirstCompletionToday && sessionCompletions === 1
@@ -665,51 +698,6 @@ export default function ControlSurface({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            {/* Session 18: Capture button — opens UniversalCapture with this item's context */}
-            {onOpenCapture && (
-              <button
-                className="jove-tap"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Derive context type from item ID prefix
-                  const ctxType = item.id.startsWith('meeting-') ? 'meeting' as const
-                    : item.id.startsWith('deal-') || item.id.startsWith('attn-') ? 'deal' as const
-                    : item.id.startsWith('person-') ? 'person' as const
-                    : item.id.startsWith('task-') || item.id.startsWith('legacy-') ? 'task' as const
-                    : 'none' as const;
-                  // Extract raw ID (strip prefix)
-                  const rawId = item.id.replace(/^(meeting|deal|attn|person|task|legacy)-/, '');
-                  // Confidence: items with explicit IDs get medium, generic ones get low
-                  const confidence = ctxType !== 'none' ? 'medium' as const : 'low' as const;
-                  handleClose();
-                  // Slight delay so ControlSurface closes before capture opens
-                  setTimeout(() => {
-                    onOpenCapture({
-                      title: `Log notes for ${item.title}`,
-                      subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' · ' : ''}${item.time ?? ''}` : undefined,
-                      contextType: ctxType,
-                      contextId: rawId,
-                      contextConfidence: confidence,
-                    });
-                  }, CLOSE_DELAY + 40);
-                }}
-                style={{
-                  padding: '3px 7px',
-                  borderRadius: 6,
-                  border: '0.5px solid rgba(232,160,48,0.15)',
-                  background: 'rgba(232,160,48,0.06)',
-                  color: 'rgba(232,160,48,0.55)',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontFamily: FONTS.sans,
-                  lineHeight: '1.3',
-                }}
-              >
-                +
-              </button>
-            )}
-
             {item.time && (
               <span
                 style={{
@@ -763,6 +751,41 @@ export default function ControlSurface({
                   ✕
                 </button>
               </>
+            )}
+
+            {/* Session 18 Patch: Secondary nav affordance — chevron to detail view */}
+            {item.onClick && (
+              <button
+                className="jove-tap"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // For meetings, toggle inline expand instead of navigating
+                  if (isMeeting && meetingId) {
+                    setExpandedMeetingId(prev => prev === meetingId ? null : meetingId);
+                    return;
+                  }
+                  item.onClick!();
+                }}
+                aria-label="Open detail"
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'rgba(240,235,224,0.22)',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  padding: 0,
+                  transition: TRANSITIONS.button,
+                }}
+              >
+                ›
+              </button>
             )}
           </div>
         </div>
