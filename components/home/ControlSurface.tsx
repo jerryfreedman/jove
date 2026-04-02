@@ -1649,6 +1649,51 @@ export default function ControlSurface({
     );
   };
 
+  // ── SESSION 19: SYSTEM NAVIGATION ROW ───────────────────
+  // Gateway to full Tasks, People, Items views.
+  // Must feel like navigation, not content. Sits below all decision content.
+  const NAV_ITEMS = [
+    { label: 'Tasks', route: '/tasks' },
+    { label: 'People', route: '/people' },
+    { label: 'Items', route: '/items' },
+  ] as const;
+
+  const renderSystemNav = () => (
+    <div style={{
+      display: 'flex',
+      gap: 6,
+      padding: '6px 0 4px',
+      marginBottom: 4,
+    }}>
+      {NAV_ITEMS.map((nav) => (
+        <button
+          key={nav.route}
+          className="jove-tap"
+          onClick={() => {
+            handleClose();
+            setTimeout(() => router.push(nav.route), CLOSE_DELAY);
+          }}
+          style={{
+            flex: 1,
+            padding: '10px 0',
+            borderRadius: 10,
+            border: '0.5px solid rgba(240,235,224,0.06)',
+            background: 'rgba(240,235,224,0.025)',
+            color: 'rgba(240,235,224,0.50)',
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: 'pointer',
+            fontFamily: FONTS.sans,
+            letterSpacing: '0.3px',
+            transition: TRANSITIONS.button,
+          }}
+        >
+          {nav.label}
+        </button>
+      ))}
+    </div>
+  );
+
   // ── MINIMAL SETTINGS ACCESS ─────────────────────────────
   const renderSettingsAccess = () => (
     <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', paddingTop: 4 }}>
@@ -1846,11 +1891,15 @@ export default function ControlSurface({
                   </div>
                 </div>
               )}
+              {/* Session 19: System navigation — gateway to full views */}
+              {renderSystemNav()}
               {renderSettingsAccess()}
             </>
           ) : (
             <>
               {renderEmptyState()}
+              {/* Session 19: System navigation — always visible, even when clear */}
+              {renderSystemNav()}
               {renderSettingsAccess()}
             </>
           )}
