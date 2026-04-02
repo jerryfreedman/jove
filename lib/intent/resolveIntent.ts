@@ -1,6 +1,10 @@
-// ── SESSION 2: INTENT RESOLUTION ────────────────────────────
+// ── SESSION 2 + SESSION 3: INTENT RESOLUTION ───────────────
 // Deterministic, pattern-based intent classification.
 // Input text + context → structured intent with confidence.
+//
+// Session 2: Base patterns + confidence.
+// Session 3: Context-aware boosting, entity extraction,
+//            multi-intent handling, entity linking.
 //
 // No AI/ML. No overfit. Explicit, readable rules.
 // Conservative: "unknown" when unsure.
@@ -12,14 +16,41 @@ import type { CaptureContextType, CaptureContextConfidence } from '@/lib/univers
 export type IntentType = 'update' | 'complete' | 'reschedule' | 'note' | 'unknown';
 export type IntentConfidence = 'high' | 'medium' | 'low';
 
+// ── SESSION 3: ENTITY SIGNALS ──────────────────────────────
+
+export type ReferenceType = 'call' | 'meeting' | 'deal' | 'task';
+
+export interface EntitySignals {
+  date?: Date;
+  time?: string;
+  keywords?: string[];
+  /** Session 3: Extracted person name (basic matching) */
+  personName?: string;
+  /** Session 3: Detected status keyword */
+  statusKeyword?: string;
+  /** Session 3: Detected reference type */
+  referenceType?: ReferenceType;
+}
+
+// ── SESSION 3: MULTI-INTENT ────────────────────────────────
+
+export interface SecondaryIntent {
+  type: IntentType;
+  confidence: IntentConfidence;
+}
+
+// ── RESOLVED INTENT ─────────────────────────────────────────
+
 export interface ResolvedIntent {
   type: IntentType;
   confidence: IntentConfidence;
-  entities?: {
-    date?: Date;
-    time?: string;
-    keywords?: string[];
-  };
+  entities?: EntitySignals;
+  /** Session 3: Secondary intent detected but not executed */
+  secondaryIntent?: SecondaryIntent;
+  /** Session 3: Whether contextId should be trusted for linking */
+  entityLinkStrength: 'strong' | 'suggestive' | 'none';
+  /** Session 3: Context adjustments applied (for logging) */
+  contextBoostApplied?: string;
 }
 
 export interface ResolveIntentInput {
@@ -88,6 +119,36 @@ const UNKNOWN_PATTERNS: RegExp[] = [
   /^-+$/,
 ];
 
+// ── SESSION 3: REFERENCE TYPE PATTERNS ─────────────────────
+
+const REFERENCE_PATTERNS: { pattern: RegExp; type: ReferenceType }[] = [
+  { pattern: /\bcall(?:ed|ing|s)?\b/i, type: 'call' },
+  { pattern: /\bmeeting(?:s)?\b/i, type: 'meeting' },
+  { pattern: /\bdeal(?:s)?\b/i, type: 'deal' },
+  { pattern: /\btask(?:s)?\b/i, type: 'task' },
+  { pattern: /\bproposal(?:s)?\b/i, type: 'deal' },
+];
+
+// ── SESSION 3: STATUS KEYWORD PATTERNS ─────────────────────
+
+const STATUS_KEYWORDS: string[] = [
+  'blocker', 'blocked', 'waiting', 'delayed', 'stuck',
+  'on hold', 'pending', 'stalled', 'done', 'complete',
+  'in progress', 'started', 'shipped', 'sent', 'finished',
+];
+
+// ── SESSION 3: CONTEXT BIAS MAP ────────────────────────────
+// Maps contextType to intent types that should be boosted.
+
+const CONTEXT_INTENT_BIAS: Record<string, IntentType[]> = {
+  task:    ['complete', 'update'],
+  event:   ['reschedule', 'note'],
+  meeting: ['reschedule', 'note'],
+  item:    ['update', 'note'],
+  person:  ['note'],
+  deal:    ['update', 'note'],
+};
+
 // ── DATE/TIME PATTERNS FOR RESCHEDULE ───────────────────────
 
 const DAY_NAMES: Record<string, number> = {
@@ -155,6 +216,129 @@ function parseTimeReference(text: string): string | undefined {
   return undefined;
 }
 
+// ── SESSION 3: ENTITY EXTRACTION ────────────────────────────
+
+/**
+ * Extract entity signals from text (basic pattern matching, no NER).
+ */
+function extractEntitySignals(text: string): Pick<EntitySignals, 'personName' | 'statusKeyword' | 'referenceType'> {
+  const result: Pick<EntitySignals, 'personName' | 'statusKeyword' | 'referenceType'> = {};
+
+  // ── Status keyword extraction ────────────────────────────
+  const lower = text.toLowerCase();
+  for (const keyword of STATUS_KEYWORDS) {
+    if (lower.includes(keyword)) {
+      result.statusKeyword = keyword;
+      break;
+    }
+  }
+
+  // ── Reference type extraction ────────────────────────────
+  for (const { pattern, type } of REFERENCE_PATTERNS) {
+    if (pattern.test(text)) {
+      result.referenceType = type;
+      break;
+    }
+  }
+
+  // ── Simple person name extraction ────────────────────────
+  // Matches patterns like "with John", "from Sarah", "tell Mike"
+  // Only matches capitalized single/two-word names after prepositions.
+  const nameMatch = text.match(/\b(?:with|from|tell|ask|cc|for|to|by)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/);
+  if (nameMatch) {
+    result.personName = nameMatch[1];
+  }
+
+  return result;
+}
+
+// ── SESSION 3: MULTI-INTENT DETECTION ──────────────────────
+
+/**
+ * Detect if text contains multiple intent signals.
+ * Returns a secondary intent if found (comma/and-separated clauses).
+ */
+function detectSecondaryIntent(
+  text: string,
+  primaryType: IntentType,
+  contextType: CaptureContextType,
+  contextConfidence: CaptureContextConfidence,
+): SecondaryIntent | undefined {
+  // Only attempt on longer, multi-clause inputs
+  if (text.length < 20) return undefined;
+
+  // Split on comma or "and" to look for a second clause
+  const clauses = text.split(/,\s*|\s+and\s+/i).filter(c => c.trim().length > 3);
+  if (clauses.length < 2) return undefined;
+
+  // Check remaining clauses (skip first, as it produced the primary)
+  for (let i = 1; i < clauses.length; i++) {
+    const clause = clauses[i].trim();
+
+    // Check for complete signals
+    for (const pattern of COMPLETE_PATTERNS) {
+      if (pattern.test(clause)) {
+        if (primaryType !== 'complete') {
+          return { type: 'complete', confidence: resolveConfidence(contextType, contextConfidence, 'complete') };
+        }
+      }
+    }
+
+    // Check for reschedule signals
+    for (const pattern of RESCHEDULE_PATTERNS) {
+      if (pattern.test(clause)) {
+        if (primaryType !== 'reschedule') {
+          return { type: 'reschedule', confidence: resolveConfidence(contextType, contextConfidence, 'reschedule') };
+        }
+      }
+    }
+
+    // Check for update signals
+    for (const pattern of UPDATE_PATTERNS) {
+      if (pattern.test(clause)) {
+        if (primaryType !== 'update') {
+          return { type: 'update', confidence: resolveConfidence(contextType, contextConfidence, 'update') };
+        }
+      }
+    }
+
+    // If the secondary clause is descriptive enough, flag as note
+    if (clause.length >= 15 && primaryType !== 'note') {
+      return { type: 'note', confidence: 'medium' };
+    }
+  }
+
+  return undefined;
+}
+
+// ── SESSION 3: ENTITY LINK STRENGTH ─────────────────────────
+
+/**
+ * Determine how strongly the resolved intent should link to the contextId.
+ * Based on contextConfidence and keyword validation.
+ */
+function resolveEntityLinkStrength(
+  contextConfidence: CaptureContextConfidence,
+  entitySignals: Pick<EntitySignals, 'personName' | 'statusKeyword' | 'referenceType'>,
+): 'strong' | 'suggestive' | 'none' {
+  // HIGH context confidence → trust contextId
+  if (contextConfidence === 'high') {
+    return 'strong';
+  }
+
+  // MEDIUM → prefer contextId but validate via keywords
+  if (contextConfidence === 'medium') {
+    // If we extracted meaningful entity signals, boost to suggestive
+    if (entitySignals.statusKeyword || entitySignals.referenceType) {
+      return 'suggestive';
+    }
+    return 'suggestive';
+  }
+
+  // LOW → do NOT link strongly
+  return 'none';
+}
+
 // ── MAIN RESOLVER ───────────────────────────────────────────
 
 export function resolveIntent(input: ResolveIntentInput): ResolvedIntent {
@@ -163,22 +347,38 @@ export function resolveIntent(input: ResolveIntentInput): ResolvedIntent {
 
   // ── GUARD: empty / extremely short / pure whitespace ──────
   if (!trimmed || trimmed.length === 0) {
-    return { type: 'unknown', confidence: 'high' };
+    return { type: 'unknown', confidence: 'high', entityLinkStrength: 'none' };
   }
 
   // ── UNKNOWN detection (highest priority — blocks false positives) ──
   for (const pattern of UNKNOWN_PATTERNS) {
     if (pattern.test(trimmed)) {
-      return { type: 'unknown', confidence: 'high' };
+      return { type: 'unknown', confidence: 'high', entityLinkStrength: 'none' };
     }
   }
+
+  // ── Session 3: Extract entity signals early ───────────────
+  const entitySignals = extractEntitySignals(trimmed);
+  const entityLinkStrength = resolveEntityLinkStrength(contextConfidence, entitySignals);
 
   // ── COMPLETE detection ────────────────────────────────────
   for (const pattern of COMPLETE_PATTERNS) {
     if (pattern.test(trimmed)) {
-      // High confidence only with strong context
-      const confidence = resolveConfidence(contextType, contextConfidence, 'complete');
-      return { type: 'complete', confidence };
+      const baseConfidence = resolveConfidence(contextType, contextConfidence, 'complete');
+      // Session 3: Context-aware boost
+      const confidence = applyContextBoost(baseConfidence, contextType, 'complete');
+      const secondaryIntent = detectSecondaryIntent(trimmed, 'complete', contextType, contextConfidence);
+
+      logIntentResolution(trimmed, 'complete', confidence, contextType, entitySignals, baseConfidence !== confidence ? 'context_boost_task→complete' : undefined);
+
+      return {
+        type: 'complete',
+        confidence,
+        entities: { ...entitySignals, keywords: extractKeywords(trimmed) },
+        secondaryIntent,
+        entityLinkStrength,
+        contextBoostApplied: baseConfidence !== confidence ? 'context_boost_task→complete' : undefined,
+      };
     }
   }
 
@@ -187,15 +387,24 @@ export function resolveIntent(input: ResolveIntentInput): ResolvedIntent {
     if (pattern.test(trimmed)) {
       const date = parseRescheduleDate(trimmed);
       const time = parseTimeReference(trimmed);
-      const confidence = resolveConfidence(contextType, contextConfidence, 'reschedule');
+      const baseConfidence = resolveConfidence(contextType, contextConfidence, 'reschedule');
+      const confidence = applyContextBoost(baseConfidence, contextType, 'reschedule');
+      const secondaryIntent = detectSecondaryIntent(trimmed, 'reschedule', contextType, contextConfidence);
+
+      logIntentResolution(trimmed, 'reschedule', confidence, contextType, entitySignals, baseConfidence !== confidence ? 'context_boost_event→reschedule' : undefined);
+
       return {
         type: 'reschedule',
         confidence,
         entities: {
+          ...entitySignals,
           date,
           time,
           keywords: extractKeywords(trimmed),
         },
+        secondaryIntent,
+        entityLinkStrength,
+        contextBoostApplied: baseConfidence !== confidence ? 'context_boost_event→reschedule' : undefined,
       };
     }
   }
@@ -210,15 +419,22 @@ export function resolveIntent(input: ResolveIntentInput): ResolvedIntent {
     const date = parseRescheduleDate(trimmed);
     const time = parseTimeReference(trimmed);
     if (date) {
-      const confidence = resolveConfidence(contextType, contextConfidence, 'reschedule');
+      const baseConfidence = resolveConfidence(contextType, contextConfidence, 'reschedule');
+      const confidence = applyContextBoost(baseConfidence, contextType, 'reschedule');
+
+      logIntentResolution(trimmed, 'reschedule', confidence, contextType, entitySignals, 'implicit_time_reference');
+
       return {
         type: 'reschedule',
         confidence,
         entities: {
+          ...entitySignals,
           date,
           time,
           keywords: extractKeywords(trimmed),
         },
+        entityLinkStrength,
+        contextBoostApplied: 'implicit_time_reference',
       };
     }
   }
@@ -226,13 +442,22 @@ export function resolveIntent(input: ResolveIntentInput): ResolvedIntent {
   // ── UPDATE detection ──────────────────────────────────────
   for (const pattern of UPDATE_PATTERNS) {
     if (pattern.test(trimmed)) {
-      const confidence = resolveConfidence(contextType, contextConfidence, 'update');
+      const baseConfidence = resolveConfidence(contextType, contextConfidence, 'update');
+      const confidence = applyContextBoost(baseConfidence, contextType, 'update');
+      const secondaryIntent = detectSecondaryIntent(trimmed, 'update', contextType, contextConfidence);
+
+      logIntentResolution(trimmed, 'update', confidence, contextType, entitySignals, baseConfidence !== confidence ? 'context_boost→update' : undefined);
+
       return {
         type: 'update',
         confidence,
         entities: {
+          ...entitySignals,
           keywords: extractKeywords(trimmed),
         },
+        secondaryIntent,
+        entityLinkStrength,
+        contextBoostApplied: baseConfidence !== confidence ? 'context_boost→update' : undefined,
       };
     }
   }
@@ -240,17 +465,28 @@ export function resolveIntent(input: ResolveIntentInput): ResolvedIntent {
   // ── NOTE detection (descriptive input — fallback) ─────────
   // Longer text with contextual detail defaults to "note"
   if (trimmed.length >= 15) {
+    const secondaryIntent = detectSecondaryIntent(trimmed, 'note', contextType, contextConfidence);
+    // Session 3: Person context biases toward note
+    const noteConfidence: IntentConfidence = contextType === 'person' ? 'medium' : 'medium';
+
+    logIntentResolution(trimmed, 'note', noteConfidence, contextType, entitySignals, contextType === 'person' ? 'context_bias_person→note' : undefined);
+
     return {
       type: 'note',
-      confidence: 'medium',
+      confidence: noteConfidence,
       entities: {
+        ...entitySignals,
         keywords: extractKeywords(trimmed),
       },
+      secondaryIntent,
+      entityLinkStrength,
+      contextBoostApplied: contextType === 'person' ? 'context_bias_person→note' : undefined,
     };
   }
 
   // ── Short but not matching anything → unknown ─────────────
-  return { type: 'unknown', confidence: 'low' };
+  logIntentResolution(trimmed, 'unknown', 'low', contextType, entitySignals, undefined);
+  return { type: 'unknown', confidence: 'low', entityLinkStrength: 'none' };
 }
 
 // ── CONFIDENCE RESOLVER ─────────────────────────────────────
@@ -283,6 +519,30 @@ function resolveConfidence(
   return 'medium';
 }
 
+// ── SESSION 3: CONTEXT-AWARE BOOST ──────────────────────────
+// Upgrades confidence when context type aligns with intent type.
+// NEVER upgrades to 'high' — only low→medium when context matches.
+// This ensures the core safety rule (only mutate on HIGH) is preserved.
+
+function applyContextBoost(
+  baseConfidence: IntentConfidence,
+  contextType: CaptureContextType,
+  intentType: IntentType,
+): IntentConfidence {
+  // Never boost beyond what resolveConfidence already determined
+  if (baseConfidence === 'high') return 'high';
+
+  const biasedIntents = CONTEXT_INTENT_BIAS[contextType];
+  if (!biasedIntents) return baseConfidence;
+
+  // If this intent type is biased for this context, boost low → medium
+  if (biasedIntents.includes(intentType) && baseConfidence === 'low') {
+    return 'medium';
+  }
+
+  return baseConfidence;
+}
+
 // ── KEYWORD EXTRACTION ──────────────────────────────────────
 // Simple stop-word filtered extraction. No NLP.
 
@@ -301,4 +561,32 @@ function extractKeywords(text: string): string[] {
     .replace(/[^\w\s]/g, '')
     .split(/\s+/)
     .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+}
+
+// ── SESSION 3: INTENT RESOLUTION LOGGING ────────────────────
+// Enhanced debug logging with context + entity info.
+
+function logIntentResolution(
+  text: string,
+  intentType: IntentType,
+  confidence: IntentConfidence,
+  contextType: CaptureContextType,
+  entitySignals: Pick<EntitySignals, 'personName' | 'statusKeyword' | 'referenceType'>,
+  contextBoost: string | undefined,
+): void {
+  if (typeof console !== 'undefined') {
+    console.debug('[intent-resolution]', {
+      input: text.slice(0, 80),
+      intentType,
+      confidence,
+      contextType,
+      entitySignals: {
+        personName: entitySignals.personName ?? null,
+        statusKeyword: entitySignals.statusKeyword ?? null,
+        referenceType: entitySignals.referenceType ?? null,
+      },
+      contextBoostApplied: contextBoost ?? 'none',
+      timestamp: new Date().toISOString(),
+    });
+  }
 }

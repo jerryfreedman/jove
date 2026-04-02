@@ -1,10 +1,13 @@
-// ── SESSION 2: EXECUTION ENGINE (CONTROLLED MUTATION) ───────
+// ── SESSION 2 + SESSION 3: EXECUTION ENGINE (CONTROLLED MUTATION) ──
 // Mutates system state ONLY on high confidence.
 // Conservative: no mutation is always safer than wrong mutation.
 //
 // Rules:
 //   HIGH confidence → mutate
 //   MEDIUM/LOW      → no mutation (interaction only)
+//
+// Session 3: Enhanced logging with context + entity signals.
+// CORE SAFETY RULE UNCHANGED — only mutate on HIGH confidence.
 //
 // Does NOT touch database schema, Supabase structure, or UI.
 
@@ -223,7 +226,7 @@ export async function executeIntent(
   };
 }
 
-// ── DEBUG LOGGING (INTERNAL ONLY — NOT UI) ──────────────────
+// ── SESSION 3: ENHANCED DEBUG LOGGING (INTERNAL ONLY — NOT UI) ──
 
 function logIntentExecution(
   intent: ResolvedIntent,
@@ -236,6 +239,17 @@ function logIntentExecution(
       confidence: intent.confidence,
       mutationApplied,
       mode,
+      // Session 3: Log entity signals + context info
+      entitySignals: {
+        personName: intent.entities?.personName ?? null,
+        statusKeyword: intent.entities?.statusKeyword ?? null,
+        referenceType: intent.entities?.referenceType ?? null,
+      },
+      entityLinkStrength: intent.entityLinkStrength,
+      contextBoostApplied: intent.contextBoostApplied ?? 'none',
+      secondaryIntent: intent.secondaryIntent
+        ? { type: intent.secondaryIntent.type, confidence: intent.secondaryIntent.confidence }
+        : null,
       timestamp: new Date().toISOString(),
     });
   }

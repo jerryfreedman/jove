@@ -1571,7 +1571,7 @@ function HomePageInner() {
         intentMutated = execution.mutated;
 
         // Generate truthful feedback (logged for now, can surface to UI later)
-        const feedback = generateFeedback(intent, execution);
+        const feedback = generateFeedback(intent, execution, payload.contextType);
         if (feedback) {
           console.debug('[intent-feedback]', feedback);
         }

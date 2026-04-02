@@ -1,7 +1,10 @@
-// ── SESSION 2: TRUTHFUL REINFORCEMENT FEEDBACK ──────────────
+// ── SESSION 2 + SESSION 3: TRUTHFUL REINFORCEMENT FEEDBACK ──
 // Generates feedback that ONLY reflects what actually happened.
 //
 // HARD RULE: Never say "Got it" if nothing meaningful happened.
+//
+// Session 3 upgrade: Context-aware feedback.
+// Uses contextType to produce more specific, natural responses.
 //
 // Feedback tiers:
 //   HIGH VALUE (mutation occurred)  → confident confirmation
@@ -11,6 +14,7 @@
 
 import type { ResolvedIntent } from './resolveIntent';
 import type { ExecutionResult } from './executeIntent';
+import type { CaptureContextType } from '@/lib/universal-capture-types';
 
 // ── FEEDBACK POOLS ──────────────────────────────────────────
 // Multiple options per tier to avoid feeling robotic.
@@ -23,11 +27,40 @@ const HIGH_VALUE_FEEDBACK = [
   'All set.',
 ];
 
-const COMPLETE_FEEDBACK = [
+// ── SESSION 3: CONTEXT-AWARE COMPLETE FEEDBACK ─────────────
+
+const COMPLETE_FEEDBACK_TASK = [
+  "Nice — that task's done.",
+  'Task handled.',
+  'Checked off — one less thing.',
+  "Done — that's off your plate.",
+];
+
+const COMPLETE_FEEDBACK_ITEM = [
+  'Item wrapped up.',
+  "That's handled.",
+  'Nice — closed out.',
+];
+
+const COMPLETE_FEEDBACK_GENERIC = [
   'Done — marked complete.',
   "That's handled.",
   'Nice — one less thing.',
   'Checked off.',
+];
+
+// ── SESSION 3: CONTEXT-AWARE RESCHEDULE FEEDBACK ───────────
+
+const RESCHEDULE_FEEDBACK_EVENT_PREFIX = [
+  'Moved — you\'re set for',
+  'Rescheduled to',
+  'Updated — now on',
+];
+
+const RESCHEDULE_FEEDBACK_TASK_PREFIX = [
+  'Pushed to',
+  'Moved to',
+  'Rescheduled to',
 ];
 
 const RESCHEDULE_FEEDBACK_PREFIX = [
@@ -37,21 +70,49 @@ const RESCHEDULE_FEEDBACK_PREFIX = [
   'Pushed to',
 ];
 
-const UPDATE_FEEDBACK = [
+// ── SESSION 3: CONTEXT-AWARE UPDATE FEEDBACK ───────────────
+
+const UPDATE_FEEDBACK_TASK = [
+  'Got it — task updated.',
+  'Noted, status flagged.',
+  'Tracked on that task.',
+];
+
+const UPDATE_FEEDBACK_ITEM = [
+  'That helps move things forward.',
+  'Noted on that item.',
+  'Got it, tracked.',
+];
+
+const UPDATE_FEEDBACK_GENERIC = [
   'Noted — status updated.',
   'Got it, flagged.',
   'Tracked.',
   'Noted.',
 ];
 
-const NOTE_FEEDBACK = [
+// ── SESSION 3: CONTEXT-AWARE NOTE FEEDBACK ─────────────────
+
+const NOTE_FEEDBACK_PERSON = [
+  'Captured — added to their context.',
+  'Noted on them.',
+  'Logged for reference.',
+];
+
+const NOTE_FEEDBACK_EVENT = [
+  'Noted for that event.',
+  'Captured — attached to the event.',
+  'Logged.',
+];
+
+const NOTE_FEEDBACK_GENERIC = [
   'Captured.',
   'Noted.',
   'Logged.',
 ];
 
 const LOW_VALUE_FEEDBACK = [
-  'Still need more here.',
+  'Still need a bit more here.',
   "Let's come back to this.",
   'Noted — but still open.',
   'Sitting with this for now.',
@@ -67,33 +128,47 @@ const UNKNOWN_FEEDBACK = [
 export function generateFeedback(
   intent: ResolvedIntent,
   execution: ExecutionResult,
+  contextType?: CaptureContextType,
 ): string {
   // ── Mutation occurred → high value feedback ───────────────
   if (execution.mutated) {
-    // Complete
+    // Complete — context-aware
     if (intent.type === 'complete') {
-      return pick(COMPLETE_FEEDBACK);
+      if (contextType === 'task') return pick(COMPLETE_FEEDBACK_TASK);
+      if (contextType === 'item') return pick(COMPLETE_FEEDBACK_ITEM);
+      return pick(COMPLETE_FEEDBACK_GENERIC);
     }
 
-    // Reschedule — include target date
+    // Reschedule — include target date, context-aware prefix
     if (intent.type === 'reschedule' && intent.entities?.date) {
-      const prefix = pick(RESCHEDULE_FEEDBACK_PREFIX);
+      let prefix: string;
+      if (contextType === 'event' || contextType === 'meeting') {
+        prefix = pick(RESCHEDULE_FEEDBACK_EVENT_PREFIX);
+      } else if (contextType === 'task') {
+        prefix = pick(RESCHEDULE_FEEDBACK_TASK_PREFIX);
+      } else {
+        prefix = pick(RESCHEDULE_FEEDBACK_PREFIX);
+      }
       const dateStr = formatFeedbackDate(intent.entities.date);
       return `${prefix} ${dateStr}.`;
     }
 
-    // Update
+    // Update — context-aware
     if (intent.type === 'update') {
-      return pick(UPDATE_FEEDBACK);
+      if (contextType === 'task') return pick(UPDATE_FEEDBACK_TASK);
+      if (contextType === 'item') return pick(UPDATE_FEEDBACK_ITEM);
+      return pick(UPDATE_FEEDBACK_GENERIC);
     }
 
     // Generic high value
     return pick(HIGH_VALUE_FEEDBACK);
   }
 
-  // ── Note (no mutation, but valid input) ───────────────────
+  // ── Note (no mutation, but valid input) — context-aware ───
   if (intent.type === 'note') {
-    return pick(NOTE_FEEDBACK);
+    if (contextType === 'person') return pick(NOTE_FEEDBACK_PERSON);
+    if (contextType === 'event' || contextType === 'meeting') return pick(NOTE_FEEDBACK_EVENT);
+    return pick(NOTE_FEEDBACK_GENERIC);
   }
 
   // ── Unknown (no signal) → minimal ─────────────────────────
@@ -107,7 +182,7 @@ export function generateFeedback(
   }
 
   // Fallback
-  return pick(NOTE_FEEDBACK);
+  return pick(NOTE_FEEDBACK_GENERIC);
 }
 
 // ── HELPERS ─────────────────────────────────────────────────
