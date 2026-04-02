@@ -74,6 +74,8 @@ const TASK_CUES: RegExp[] = [
   /\b(need to|should|gotta|gonna|going to|have to)\s+\w+/i,
   /^(?:add|create|set)\s+(?:a\s+)?(?:task|reminder|todo)\b/i,
   /^todo\s*[:\-]/i,
+  /\b(need to finish|trying to finish|reminder to)\b/i,
+  /\b(personal task|follow up with)\b/i,
 ];
 
 // ── 2. EVENT CUES ──────────────────────────────────────────
@@ -135,6 +137,9 @@ const CONTEXT_CUES: RegExp[] = [
   /\b(new deal|new opportunity|new prospect|inbound from)\b/i,
   /\b(they said|the client|the customer|the team)\b/i,
   /\b(confirmed|locked in|agreed on|committed to|signed off)\b/i,
+  /\b(project update|status update|progress on)\b/i,
+  /\b(new project|new goal|new listing|new engagement)\b/i,
+  /\b(the professor|the teacher|my advisor|the instructor)\b/i,
 ];
 
 // ── 7. CASUAL CUES ────────────────────────────────────────

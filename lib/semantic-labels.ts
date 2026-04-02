@@ -120,6 +120,9 @@ export function getControlSurfaceLabels(profile: UserDomainProfile = DEFAULT_DOM
 // Returns a string block to inject into the LLM system prompt.
 
 export function getDomainPromptBlock(profile: UserDomainProfile = DEFAULT_DOMAIN_PROFILE): string {
+  const salesGate = profile.domain !== 'sales'
+    ? `\nDo not use sales-specific terminology (e.g. "deal", "pipeline", "prospect", "lead", "CRM", "close") unless the user explicitly uses it first.`
+    : '';
   return `
 The user operates in the domain: ${profile.domain}.
 Use the following language when referring to the user's data:
@@ -127,7 +130,7 @@ Use the following language when referring to the user's data:
 - People: ${profile.contactLabel} (singular: ${getEntityLabelSingular('contact', profile)})
 - Organizations: ${profile.accountLabel} (singular: ${getEntityLabelSingular('account', profile)})
 Always prefer these terms over internal system names like "deals", "contacts", or "accounts".
-Do not overuse domain labels — keep language natural.`.trim();
+Do not overuse domain labels — keep language natural.${salesGate}`.trim();
 }
 
 // ── SESSION 10: RESOLVE PROFILE FROM RAW VALUE ─────────────

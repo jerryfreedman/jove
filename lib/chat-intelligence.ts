@@ -453,7 +453,7 @@ export function classifyMessage(
       confidence: hasDeal ? 'high' : 'low',
       matchedDealId: hasDeal ? dealResolution.bestMatch!.dealId : null,
       matchedDealName: hasDeal ? dealResolution.bestMatch!.dealName : null,
-      clarificationQuestion: hasDeal ? null : 'Which deal is this email about?',
+      clarificationQuestion: hasDeal ? null : 'Which item is this email about?',
       ambiguityReason: dealResolution.ambiguityReason,
     });
   }
@@ -511,7 +511,7 @@ export function classifyMessage(
         matchedDealName: dealResolution.bestMatch?.dealName ?? null,
         matchedMeetingId: meetingResolution.bestMatch?.meetingId ?? null,
         matchedMeetingTitle: meetingResolution.bestMatch?.meetingTitle ?? null,
-        clarificationQuestion: 'Which deal is this about?',
+        clarificationQuestion: 'Which item is this about?',
         ambiguityReason: ambiguityReasons.join('; ') || null,
       });
     }
@@ -543,7 +543,7 @@ export function classifyMessage(
       confidence: 'low',
       matchedDealId: null,
       matchedDealName: null,
-      clarificationQuestion: 'Which deal is this about?',
+      clarificationQuestion: 'Which item is this about?',
       ambiguityReason: dealResolution.ambiguityReason,
     });
   }

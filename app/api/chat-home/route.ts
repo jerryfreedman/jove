@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
         ) : 0;
 
         contextBlock = `
-FOCUSED DEAL:
+CURRENT ITEM:
 Deal: ${deal?.name ?? 'Unknown'} | Account: ${account?.name ?? 'Unknown'}
 Stage: ${deal?.stage ?? 'Unknown'} | Value: ${deal?.value ? `$${Number(deal.value).toLocaleString()}` : 'Not set'}
 Days since activity: ${days}
@@ -289,7 +289,7 @@ ${dealSignals.length > 0
       } else {
         // General portfolio summary
         contextBlock = `
-ACTIVE DEALS:
+ACTIVE ITEMS:
 ${deals.length > 0
   ? deals.map((d) => {
       const days = Math.floor(
@@ -299,7 +299,7 @@ ${deals.length > 0
       const acct = Array.isArray(accounts) ? (accounts[0] as { name: string } | undefined)?.name ?? '' : (accounts as { name: string } | null)?.name ?? '';
       return `  ${d.name}${acct ? ` (${acct})` : ''} — ${d.stage}, ${days}d since activity, intel: ${d.intel_score}, momentum: ${d.momentum_score}`;
     }).join('\n')
-  : '  No active deals'}
+  : '  No active items'}
 ${dedupedSignals.length > 0
   ? `\nRECENT SIGNALS:\n${dedupedSignals.slice(0, 8).map((s: { signal_type: string; content: string }) =>
       `  - ${s.signal_type}: ${s.content}`
@@ -364,7 +364,7 @@ You help the user manage context, relationships, and decisions using their real 
 
 ---
 ${responseCtxBlock}${decisionBlock}
-You have access to structured memory: deals, contacts, interactions, and recent activity.
+You have access to structured memory: items, people, interactions, and recent activity.
 
 ---
 
@@ -384,7 +384,7 @@ RULES:
 2. NEVER respond with system outputs like "Saved.", "Captured.", or "Logged."
 3. Capture and system actions happen silently unless useful to mention naturally.
 4. When a meeting mutation happens (cancelled, moved, completed), acknowledge it naturally and briefly.
-5. Use real context when it improves the answer — reference deals, contacts, or recent events by name.
+5. Use real context when it improves the answer — reference items, people, or recent events by name.
 6. If no useful context exists, respond naturally. Don't pad.
 7. If the user asks what happened, explain truthfully. Do not invent or guess.
 8. Do NOT hallucinate. If data is not available, do not fabricate it.

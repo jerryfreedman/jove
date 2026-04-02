@@ -92,8 +92,8 @@ interface InterpretationRule {
 const INTERPRETATION_RULES: InterpretationRule[] = [
   { pattern: /\b(warehouse|visit|in[- ]person|on[- ]?site|office)\b/i, interpret: 'Opportunity to deepen relationship through in-person engagement' },
   { pattern: /\b(meet|meeting|call|sync|catch up|check[- ]in)\b/i, interpret: 'Relationship touchpoint — align on next steps' },
-  { pattern: /\b(contract|proposal|sow|agreement|terms|pricing)\b/i, interpret: 'Commercial momentum — move toward commitment' },
-  { pattern: /\b(demo|pilot|poc|trial|proof of concept)\b/i, interpret: 'Technical validation opportunity' },
+  { pattern: /\b(contract|proposal|sow|agreement|terms|pricing)\b/i, interpret: 'Formal agreement momentum — move toward commitment' },
+  { pattern: /\b(demo|pilot|poc|trial|proof of concept)\b/i, interpret: 'Validation opportunity — confirm fit' },
   { pattern: /\b(follow[- ]?up|circle back|reconnect|touch base)\b/i, interpret: 'Re-engagement needed to maintain momentum' },
   { pattern: /\b(introduce|intro|connect|referral|referred)\b/i, interpret: 'Expand network through warm connection' },
   { pattern: /\b(timeline|deadline|by .+|due|urgent|asap)\b/i, interpret: 'Time-sensitive — lock commitment now' },
@@ -102,9 +102,12 @@ const INTERPRETATION_RULES: InterpretationRule[] = [
   { pattern: /\b(budget|funding|approved|spend|cost)\b/i, interpret: 'Financial alignment — confirm budget and path' },
   { pattern: /\b(hire|hiring|team|headcount|role)\b/i, interpret: 'Team building — define role and timeline' },
   { pattern: /\b(launch|ship|release|go[- ]?live|deploy)\b/i, interpret: 'Delivery milestone — confirm readiness' },
-  { pattern: /\b(cancel|churn|leaving|switching|unhappy|frustrated)\b/i, interpret: 'Retention risk — address concerns immediately' },
+  { pattern: /\b(cancel|churn|leaving|switching|unhappy|frustrated)\b/i, interpret: 'Risk of loss — address concerns immediately' },
   { pattern: /\b(mom|dad|family|parent|brother|sister|friend)\b/i, interpret: 'Personal commitment — schedule and protect time' },
   { pattern: /\b(gym|workout|exercise|run|health|doctor|dentist)\b/i, interpret: 'Health priority — block time' },
+  { pattern: /\b(thesis|dissertation|paper|essay|assignment|homework)\b/i, interpret: 'Academic work — focus and make progress' },
+  { pattern: /\b(class|lecture|course|exam|test|quiz)\b/i, interpret: 'Academic milestone — prepare and execute' },
+  { pattern: /\b(project|initiative|workstream|sprint)\b/i, interpret: 'Active work — drive toward completion' },
 ];
 
 function interpretInput(input: string): string {
@@ -148,6 +151,9 @@ const DECISION_RULES: DecisionRule[] = [
   { pattern: /\b(email|send|message|write)\b/i, decide: 'Draft and send' },
   { pattern: /\b(buy|purchase|order|get)\b/i, decide: 'Place order' },
   { pattern: /\b(review|read|check|look at)\b/i, decide: 'Review and respond' },
+  { pattern: /\b(thesis|dissertation|paper|essay)\b/i, decide: 'Make progress on writing' },
+  { pattern: /\b(class|lecture|course|exam|test)\b/i, decide: 'Prepare for class' },
+  { pattern: /\b(project|initiative|workstream)\b/i, decide: 'Move project forward' },
 ];
 
 function extractDecision(input: string): string {
@@ -210,6 +216,18 @@ const ACTION_RULES: ActionRule[] = [
   {
     pattern: /\b(launch|ship|release|deploy)\b/i,
     actions: ['Confirm launch checklist', 'Notify stakeholders', 'Set go-live date'],
+  },
+  {
+    pattern: /\b(thesis|dissertation|paper|essay)\b/i,
+    actions: ['Set writing goal for today', 'Review latest draft', 'Identify next section'],
+  },
+  {
+    pattern: /\b(class|lecture|course|exam|test)\b/i,
+    actions: ['Review materials', 'Prepare notes', 'Set study schedule'],
+  },
+  {
+    pattern: /\b(project|initiative|workstream)\b/i,
+    actions: ['Identify next milestone', 'Update status', 'Clear blockers'],
   },
 ];
 

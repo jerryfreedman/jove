@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
 
       if (deal) {
         const accountName = (deal.accounts as unknown as { name: string } | null)?.name ?? 'Unknown account';
-        dealContext = `\nDEAL CONTEXT: ${deal.name} — Stage: ${deal.stage} — Account: ${accountName}`;
+        dealContext = `\nITEM CONTEXT: ${deal.name} — Stage: ${deal.stage} — Account: ${accountName}`;
       }
     }
 

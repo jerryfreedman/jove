@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
           }).join('\n\n')
         : 'Not specified';
 
-      userPrompt = `DEAL: ${deal.name}
+      userPrompt = `ITEM: ${deal.name}
 ACCOUNT: ${account?.name ?? 'Unknown'}
 STAGE: ${deal.stage}
 VALUE: ${deal.value ? `$${Number(deal.value).toLocaleString()}` : 'Not set'}
@@ -259,22 +259,22 @@ don't mention things that aren't relevant.
 Generate exactly this structure:
 
 **SITUATION**
-[2-3 sentences — where this deal genuinely stands based only on the data]
+[2-3 sentences — where this item genuinely stands based only on the data]
 
 **WHO'S IN THE ROOM**
 [One line per contact: name — role — what likely matters to them]
 If no contacts: 'No contacts logged — add them in the deal drawer.'
 
 **3 SMART QUESTIONS**
-1. [Specific to this deal stage and people — not generic]
-2. [Specific to this deal stage and people — not generic]
-3. [Specific to this deal stage and people — not generic]
+1. [Specific to this situation and people — not generic]
+2. [Specific to this situation and people — not generic]
+3. [Specific to this situation and people — not generic]
 
 **ONE RISK TO WATCH**
-[Single sentence — specific to this deal]
+[Single sentence — specific to this situation]
 
 **PROPOSED NEXT STEP**
-[Single sentence — what to walk out having agreed on]`;
+[Single sentence — what to walk away having agreed on]`;
 
       // Cache the assembled context
       setCached(cacheKey, userPrompt);

@@ -83,6 +83,9 @@ const ITEM_PATTERNS: RegExp[] = [
   /^(?:i'?m\s+)?(?:planning|preparing for)\s+(.+)/i,
   /^(?:need to organize|organizing)\s+(.+)/i,
   /^(?:new project)\s*[:\-]?\s*(.+)/i,
+  /^(?:new goal)\s*[:\-]?\s*(.+)/i,
+  /^(?:new listing)\s*[:\-]?\s*(.+)/i,
+  /^(?:trying to finish|need to finish)\s+(.+)/i,
 ];
 
 // Items should describe something bigger than a single task
@@ -91,6 +94,8 @@ const ITEM_AMPLIFIER_WORDS = [
   'prep', 'preparation', 'planning', 'initiative', 'migration',
   'redesign', 'overhaul', 'transition', 'setup', 'build',
   'course', 'exam', 'semester', 'training', 'certification',
+  'goal', 'thesis', 'assignment', 'listing', 'event planning',
+  'workstream', 'engagement', 'case', 'application', 'portfolio',
 ];
 
 export interface ItemIntent {

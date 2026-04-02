@@ -924,7 +924,7 @@ function HomePageInner() {
               savedInteractionId: savedId,
             };
             addAndPersistAssistantMessage(
-              classification.clarificationQuestion ?? 'Which deal is this about?',
+              classification.clarificationQuestion ?? 'Which item is this about?',
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
@@ -979,7 +979,7 @@ function HomePageInner() {
               savedInteractionId: savedId,
             };
             addAndPersistAssistantMessage(
-              classification.clarificationQuestion ?? 'Which deal is this about?',
+              classification.clarificationQuestion ?? 'Which item is this about?',
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
@@ -1022,7 +1022,7 @@ function HomePageInner() {
               savedInteractionId: savedId,
             };
             addAndPersistAssistantMessage(
-              classification.clarificationQuestion ?? 'Which deal is this about?',
+              classification.clarificationQuestion ?? 'Which item is this about?',
               { uiMode: 'deal_picker', pendingMessageId: userMsgId },
             );
           } else {
