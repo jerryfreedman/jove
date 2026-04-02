@@ -18,7 +18,10 @@ import type {
   AccountRow,
   ContactRow,
 } from '@/lib/types';
-import { DEFAULT_DOMAIN_PROFILE, getEntityLabel } from '@/lib/semantic-labels';
+import { DEFAULT_DOMAIN_PROFILE, getEntityLabel, resolveUserDomainProfile, getDomainAwareTerms } from '@/lib/semantic-labels';
+import { dealStageToUniversalStatus } from '@/lib/types';
+import { UNIVERSAL_STATUS_STYLES } from '@/lib/design-system';
+import type { UserDomainProfile } from '@/lib/types';
 
 // ── TYPES ──────────────────────────────────────────────────
 interface DealWithAccountName extends DealRow {
@@ -61,6 +64,9 @@ export default function DealsSurface() {
   const [showAddDeal, setShowAddDeal] = useState(false);
   const [userId, setUserId]         = useState<string | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  // Session 12: Domain-aware display
+  const [domainProfile, setDomainProfile] = useState<UserDomainProfile | null>(null);
+  const domainTerms = domainProfile ? getDomainAwareTerms(domainProfile) : getDomainAwareTerms(DEFAULT_DOMAIN_PROFILE);
   const [valueDisplay, setValueDisplay] =
     useState<'mrr' | 'arr'>(() => {
       if (typeof window === 'undefined') return 'arr';
@@ -74,6 +80,10 @@ export default function DealsSurface() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { window.location.href = '/'; return; }
       setUserId(user.id);
+
+      // Session 12: Fetch domain profile for display
+      const { data: userData } = await supabase.from('users').select('domain_key').eq('id', user.id).single();
+      if (userData) setDomainProfile(resolveUserDomainProfile(userData.domain_key));
 
       const [dealsRes, accountsRes, contactsRes] = await Promise.all([
         supabase
@@ -259,7 +269,7 @@ export default function DealsSurface() {
           color:      'rgba(252,246,234,0.96)',
           margin:     0,
         }}>
-          {getEntityLabel('primary', DEFAULT_DOMAIN_PROFILE)}
+          {getEntityLabel('primary', domainProfile ?? DEFAULT_DOMAIN_PROFILE)}
         </h1>
         <button
           onClick={() => navigateTo('ideas')}
@@ -327,7 +337,7 @@ export default function DealsSurface() {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search deals, accounts, contacts..."
+            placeholder={domainTerms.isSales ? "Search deals, accounts, contacts..." : "Search items, organizations, people..."}
             style={{
               width:        '100%',
               background:   'rgba(252,246,234,0.06)',
@@ -481,7 +491,7 @@ export default function DealsSurface() {
             color:        'rgba(252,246,234,0.32)',
             marginTop:    4,
           }}>
-            Pipeline {valueDisplay.toUpperCase()}
+            {domainTerms.isSales ? 'Pipeline' : 'Total'} {valueDisplay.toUpperCase()}
           </div>
         </div>
 
@@ -528,7 +538,7 @@ export default function DealsSurface() {
             fontWeight: 500,
             color:      COLORS.amber,
           }}>
-            {filterMode === 'attention' ? 'Needs attention' : 'Active deals'}
+            {filterMode === 'attention' ? 'Needs attention' : domainTerms.activeEntities}
           </span>
           <button
             onClick={() => setFilterMode(null)}
@@ -631,7 +641,7 @@ export default function DealsSurface() {
                   fontWeight: 300,
                   color:      'rgba(252,246,234,0.3)',
                 }}>
-                  &ldquo;{searchQuery}&rdquo; — try a contact name, account, or deal.
+                  &ldquo;{searchQuery}&rdquo; — try a name, organization, or {domainTerms.isSales ? 'deal' : 'item'}.
                 </p>
               </>
             ) : (
@@ -643,14 +653,14 @@ export default function DealsSurface() {
                   color:      'rgba(252,246,234,0.44)',
                   marginBottom:8,
                 }}>
-                  Your pipeline is empty.
+                  {domainTerms.isSales ? 'Your pipeline is empty.' : 'Nothing here yet.'}
                 </p>
                 <p style={{
                   fontSize:   14,
                   fontWeight: 300,
                   color:      'rgba(252,246,234,0.3)',
                 }}>
-                  Add your first deal with the + button.
+                  {domainTerms.isSales ? 'Add your first deal with the + button.' : 'Add your first item with the + button.'}
                 </p>
               </>
             )}
@@ -694,8 +704,16 @@ export default function DealsSurface() {
             {accountDeals.map(deal => {
               const days      = getDaysSince(deal.last_activity_at);
               const daysColor = getDaysColor(days, true);
-              const stage     = STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'];
               const attention = isNeedsAttention(deal);
+
+              // Session 12: Domain-aware stage display
+              const showSalesStage = domainTerms.showDealStages;
+              const stageStyle = showSalesStage
+                ? (STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'])
+                : UNIVERSAL_STATUS_STYLES[dealStageToUniversalStatus(deal.stage)];
+              const stageLabel = showSalesStage
+                ? deal.stage
+                : UNIVERSAL_STATUS_STYLES[dealStageToUniversalStatus(deal.stage)].label;
 
               return (
                 <div
@@ -761,14 +779,14 @@ export default function DealsSurface() {
                       fontWeight:   600,
                       letterSpacing:'0.8px',
                       textTransform:'uppercase',
-                      color:        stage.color,
-                      background:   stage.bg,
-                      border:       `0.5px solid ${stage.border}`,
+                      color:        stageStyle.color,
+                      background:   stageStyle.bg,
+                      border:       `0.5px solid ${stageStyle.border}`,
                       borderRadius: 20,
                       padding:      '3px 9px',
                       whiteSpace:   'nowrap',
                     }}>
-                      {deal.stage}
+                      {stageLabel}
                     </div>
                     <div style={{
                       fontSize:   10,
@@ -938,6 +956,7 @@ export default function DealsSurface() {
         <AddDealSheet
           userId={userId}
           accounts={accounts}
+          domainProfile={domainProfile}
           onClose={() => setShowAddDeal(false)}
           onSaved={() => {
             setShowAddDeal(false);
@@ -954,15 +973,19 @@ export default function DealsSurface() {
 function AddDealSheet({
   userId,
   accounts,
+  domainProfile: profileProp,
   onClose,
   onSaved,
 }: {
   userId:   string;
   accounts: AccountRow[];
+  domainProfile: UserDomainProfile | null;
   onClose:  () => void;
   onSaved:  () => void;
 }) {
   const supabase = createClient();
+  const domainTerms = getDomainAwareTerms(profileProp ?? DEFAULT_DOMAIN_PROFILE);
+  const domainProfile = profileProp;
 
   const [dealName, setDealName]     = useState('');
   const [accountId, setAccountId]   = useState<string>('');
@@ -1070,15 +1093,15 @@ function AddDealSheet({
           color:        '#1A1410',
           marginBottom: 20,
         }}>
-          New Deal
+          {domainTerms.isSales ? 'New Deal' : `New ${getEntityLabel('primary', domainProfile ?? DEFAULT_DOMAIN_PROFILE).replace(/s$/, '')}`}
         </h2>
 
-        {/* Deal name */}
+        {/* Entity name */}
         <input
           type="text"
           value={dealName}
           onChange={e => setDealName(e.target.value)}
-          placeholder="Deal name"
+          placeholder={domainTerms.isSales ? 'Deal name' : 'Name'}
           style={{
             width:        '100%',
             background:   '#FFFFFF',

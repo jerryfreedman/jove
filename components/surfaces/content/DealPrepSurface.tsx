@@ -84,7 +84,7 @@ export default function DealPrepSurface({ dealId: propDealId }: { dealId?: strin
         .eq('id', dealId)
         .eq('user_id', user.id)
         .single();
-      setDealName(deal?.name ?? 'Deal');
+      setDealName(deal?.name ?? 'Prep');
 
       // Check cache
       const today = new Date().toISOString().split('T')[0];

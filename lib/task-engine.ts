@@ -81,7 +81,7 @@ export function generateMeetingTasks(meetings: Meeting[]): SystemTask[] {
         id: `prep_${meeting.id}`,
         type: 'meeting_prep',
         title: toAction(`Prep for ${meeting.title}`),
-        subtitle: meeting.dealId ? 'Review deal context' : 'Review briefing',
+        subtitle: meeting.dealId ? 'Review context' : 'Review briefing',
         contextId: meeting.id,
         priority,
         timeRelevance: formatTimeUntil(msUntil),

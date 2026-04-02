@@ -139,3 +139,29 @@ Do not overuse domain labels — keep language natural.${salesGate}`.trim();
 export function resolveUserDomainProfile(rawDomainKey: unknown): UserDomainProfile {
   return buildDomainProfile(resolveDomainKey(rawDomainKey));
 }
+
+// ── SESSION 12: DOMAIN-AWARE LANGUAGE HELPERS ───────────────
+// Returns domain-appropriate labels for common UI terms.
+// Non-sales users never see "deal", "pipeline", "prospect", etc.
+
+export function getDomainAwareTerms(profile: UserDomainProfile = DEFAULT_DOMAIN_PROFILE) {
+  const isSales = profile.domain === 'sales';
+  const primary = getEntityLabel('primary', profile).toLowerCase();
+  const primarySingular = getEntityLabelSingular('primary', profile);
+  const contact = getEntityLabel('contact', profile).toLowerCase();
+
+  return {
+    /** "Active deals" vs "Active items" etc. */
+    activeEntities: `Active ${primary}`,
+    /** "Deal activity" vs "Item activity" */
+    entityActivity: `${primarySingular.charAt(0).toUpperCase() + primarySingular.slice(1)} activity`,
+    /** "Deal context" vs "Item context" */
+    entityContext: `${primarySingular.charAt(0).toUpperCase() + primarySingular.slice(1)} context`,
+    /** Whether to show deal stages (true) or universal statuses (false) */
+    showDealStages: isSales,
+    /** Whether sales-specific terms are allowed */
+    isSales,
+    /** "Contacts" or "People" etc. */
+    contacts: contact,
+  };
+}

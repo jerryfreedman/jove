@@ -6,48 +6,9 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { createClient } from '@/lib/supabase';
-import { COLORS, FONTS, TIMING, EASING } from '@/lib/design-system';
+import { COLORS, FONTS, TIMING, EASING, UNIVERSAL_STATUS_STYLES } from '@/lib/design-system';
 import type { ItemRow, ItemStatus } from '@/lib/types';
-
-// ── STATUS CONFIG ──────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<ItemStatus, {
-  label: string;
-  color: string;
-  bg: string;
-  border: string;
-}> = {
-  active: {
-    label:  'Active',
-    color:  COLORS.green,
-    bg:     'rgba(72,200,120,0.1)',
-    border: 'rgba(72,200,120,0.25)',
-  },
-  paused: {
-    label:  'Paused',
-    color:  COLORS.amber,
-    bg:     'rgba(232,160,48,0.1)',
-    border: 'rgba(232,160,48,0.25)',
-  },
-  waiting: {
-    label:  'Waiting',
-    color:  COLORS.teal,
-    bg:     'rgba(56,184,200,0.1)',
-    border: 'rgba(56,184,200,0.25)',
-  },
-  done: {
-    label:  'Done',
-    color:  'rgba(240,235,224,0.28)',
-    bg:     'rgba(240,235,224,0.04)',
-    border: 'rgba(240,235,224,0.1)',
-  },
-  dropped: {
-    label:  'Dropped',
-    color:  'rgba(240,235,224,0.20)',
-    bg:     'rgba(240,235,224,0.03)',
-    border: 'rgba(240,235,224,0.08)',
-  },
-};
+import { normalizeItemStatus } from '@/lib/types';
 
 // ── HELPERS ─────────────────────────────────────────────────────
 
@@ -107,11 +68,12 @@ export default function ItemsSurface() {
     fetchData();
   }, [fetchData]);
 
+  // Session 12: Filter using normalised universal statuses
   const filtered = filter === 'all'
     ? items
-    : items.filter(i => i.status === filter);
+    : items.filter(i => normalizeItemStatus(i.status) === filter);
 
-  const filters = ['active', 'waiting', 'paused', 'done', 'all'] as const;
+  const filters = ['active', 'in_progress', 'waiting', 'blocked', 'completed', 'all'] as const;
 
   return (
     <div style={{ padding: '4px 0', minHeight: 200 }}>
@@ -122,27 +84,32 @@ export default function ItemsSurface() {
         padding: '0 16px 12px',
         flexWrap: 'wrap',
       }}>
-        {filters.map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            style={{
-              padding: '5px 12px',
-              borderRadius: 8,
-              border: `0.5px solid ${filter === f ? 'rgba(240,235,224,0.15)' : 'rgba(240,235,224,0.06)'}`,
-              background: filter === f ? 'rgba(240,235,224,0.08)' : 'transparent',
-              color: filter === f ? COLORS.textPrimary : COLORS.textMid,
-              fontSize: 11,
-              fontWeight: 500,
-              cursor: 'pointer',
-              fontFamily: FONTS.sans,
-              textTransform: 'capitalize',
-              transition: `all ${TIMING.FAST}ms ${EASING.standard}`,
-            }}
-          >
-            {f}
-          </button>
-        ))}
+        {filters.map(f => {
+          // Session 12: Readable filter labels
+          const filterLabel = f === 'in_progress' ? 'In Progress'
+            : f === 'all' ? 'All'
+            : f.charAt(0).toUpperCase() + f.slice(1);
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 8,
+                border: `0.5px solid ${filter === f ? 'rgba(240,235,224,0.15)' : 'rgba(240,235,224,0.06)'}`,
+                background: filter === f ? 'rgba(240,235,224,0.08)' : 'transparent',
+                color: filter === f ? COLORS.textPrimary : COLORS.textMid,
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: FONTS.sans,
+                transition: `all ${TIMING.FAST}ms ${EASING.standard}`,
+              }}
+            >
+              {filterLabel}
+            </button>
+          );
+        })}
       </div>
 
       {/* Loading state */}
@@ -189,7 +156,8 @@ export default function ItemsSurface() {
       {!loading && filtered.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '0 16px' }}>
           {filtered.map((item, i) => {
-            const statusConfig = STATUS_CONFIG[item.status];
+            const normalized = normalizeItemStatus(item.status);
+            const statusConfig = UNIVERSAL_STATUS_STYLES[normalized];
             const days = getDaysSince(item.last_activity_at);
             const due = formatDueAt(item.due_at);
 

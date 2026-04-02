@@ -391,7 +391,46 @@ export type PersonRow = {
 
 // ── Item Types (Session 11D: Universal Primary Entity) ─────
 
-export type ItemStatus = 'active' | 'paused' | 'waiting' | 'done' | 'dropped';
+export type ItemStatus = 'active' | 'in_progress' | 'waiting' | 'blocked' | 'completed' | 'archived'
+  // Session 12: Legacy aliases preserved for DB compatibility
+  | 'paused' | 'done' | 'dropped';
+
+// ── SESSION 12: Universal Status Model ─────────────────────
+// Canonical statuses for Items across all domains.
+// 'paused', 'done', 'dropped' are legacy aliases — normalised at display time.
+export type UniversalItemStatus = 'active' | 'in_progress' | 'waiting' | 'blocked' | 'completed' | 'archived';
+
+/** Normalise any ItemStatus (including legacy) to its universal equivalent. */
+export function normalizeItemStatus(status: ItemStatus): UniversalItemStatus {
+  switch (status) {
+    case 'active':       return 'active';
+    case 'in_progress':  return 'in_progress';
+    case 'waiting':      return 'waiting';
+    case 'blocked':      return 'blocked';
+    case 'paused':       return 'blocked';      // legacy → blocked
+    case 'completed':    return 'completed';
+    case 'done':         return 'completed';     // legacy → completed
+    case 'archived':     return 'archived';
+    case 'dropped':      return 'archived';      // legacy → archived
+    default:             return 'active';
+  }
+}
+
+// ── SESSION 12: Deal Stage → Universal Status Mapping ──────
+// For non-sales domains, deal stages map to universal statuses
+// so the UI never shows sales-specific language.
+export function dealStageToUniversalStatus(stage: DealStage): UniversalItemStatus {
+  switch (stage) {
+    case 'Prospect':     return 'active';
+    case 'Discovery':    return 'in_progress';
+    case 'POC':          return 'in_progress';
+    case 'Proposal':     return 'in_progress';
+    case 'Negotiation':  return 'waiting';
+    case 'Closed Won':   return 'completed';
+    case 'Closed Lost':  return 'archived';
+    default:             return 'active';
+  }
+}
 
 export type ItemRow = {
   id: string;

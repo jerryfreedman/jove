@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { COLORS, TIMING, EASING, TRANSITIONS, LOADING } from '@/lib/design-system';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
-import type { IdeaRow, DealRow } from '@/lib/types';
+import type { IdeaRow, DealRow, UserDomainProfile } from '@/lib/types';
+import { resolveUserDomainProfile, getEntityLabelSingular } from '@/lib/semantic-labels';
 
 const STATUS_CONFIG = {
   raw: {
@@ -46,11 +47,21 @@ export default function IdeasSurface() {
   const [filter, setFilter]   = useState<string>('all');
   const [converting, setConverting] = useState<string | null>(null);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  // Session 12: Domain-aware language
+  const [domainProfile, setDomainProfile] = useState<UserDomainProfile | null>(null);
+  const entitySingular = domainProfile
+    ? getEntityLabelSingular('primary', domainProfile)
+    : 'item';
+  const entityCapitalized = entitySingular.charAt(0).toUpperCase() + entitySingular.slice(1);
 
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/'); return; }
     setUserId(user.id);
+
+    // Session 12: Fetch domain for labelling
+    const { data: userData } = await supabase.from('users').select('domain_key').eq('id', user.id).single();
+    if (userData) setDomainProfile(resolveUserDomainProfile(userData.domain_key));
 
     const [ideasRes, dealsRes] = await Promise.all([
       supabase
@@ -378,7 +389,7 @@ export default function IdeasSurface() {
                         transition:   TRANSITIONS.button,
                       }}
                     >
-                      {converting === idea.id ? 'Creating...' : 'Create Deal →'}
+                      {converting === idea.id ? 'Creating...' : `Create ${entityCapitalized} →`}
                     </button>
                     <button
                       className="jove-tap"

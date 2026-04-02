@@ -23,7 +23,9 @@ import type { DealRow, MeetingRow, UserDomainProfile, ContactRow, ItemRow, Perso
 import {
   DEFAULT_DOMAIN_PROFILE,
   getControlSurfaceLabels,
+  getDomainAwareTerms,
 } from '@/lib/semantic-labels';
+import { normalizeItemStatus, dealStageToUniversalStatus } from '@/lib/types';
 import { useSurface } from '@/components/surfaces/SurfaceManager';
 import { useMeetingStore } from '@/lib/meeting-store';
 import { useMeetingActions } from '@/lib/meeting-actions';
@@ -238,6 +240,10 @@ export default function ControlSurface({
   const [sheetVisible, setSheetVisible] = useState(false);
   const labels = useMemo(
     () => getControlSurfaceLabels(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
+    [domainProfile],
+  );
+  const domainTerms = useMemo(
+    () => getDomainAwareTerms(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
     [domainProfile],
   );
 
@@ -549,15 +555,17 @@ export default function ControlSurface({
 
     for (const item of activeItemRows) {
       const days = getDaysSince(item.last_activity_at);
-      const status = item.status === 'waiting' ? 'waiting'
-        : item.status === 'paused' ? 'blocked'
+      // Session 12: Use universal status model
+      const normalized = normalizeItemStatus(item.status);
+      const displayStatus = normalized === 'waiting' ? 'waiting'
+        : normalized === 'blocked' ? 'blocked'
         : days > 7 ? 'blocked'
         : 'active';
       activeItems.push({
         id: `item-${item.id}`,
         title: item.name,
-        subtitle: status === 'waiting' ? 'waiting'
-          : status === 'blocked' ? (item.status === 'paused' ? 'paused' : `${days}d stale`)
+        subtitle: displayStatus === 'waiting' ? 'waiting'
+          : displayStatus === 'blocked' ? `${days}d stale`
           : item.category ?? undefined,
         time: days === 0 ? 'today' : `${days}d`,
         emphasis: item.is_starred,
@@ -596,17 +604,25 @@ export default function ControlSurface({
     const peopleItems: SurfaceItem[] = [];
 
     if (peopleProp && peopleProp.length > 0) {
-      // Session 9: Real People table data
+      // Session 9/12: Real People table data — with natural follow-up language
       const recentPeople = peopleProp.slice(0, 3);
 
       for (const person of recentPeople) {
         const days = person.last_interaction_at ? getDaysSince(person.last_interaction_at) : null;
+        // Session 12: People with stale interaction get action-oriented titles
+        const isStale = days !== null && days > 14;
+        const title = isStale
+          ? `Reconnect with ${person.name}`
+          : person.name;
+        const subtitle = isStale
+          ? `${days}d since last interaction`
+          : person.relationship ?? undefined;
         peopleItems.push({
           id: `person-${person.id}`,
-          title: person.name,
-          subtitle: person.relationship ?? undefined,
+          title,
+          subtitle,
           time: days !== null ? (days === 0 ? 'today' : `${days}d ago`) : undefined,
-          emphasis: false,
+          emphasis: isStale,
           onClick: () => openSurface('people' as import('@/components/surfaces/SurfaceManager').SurfaceId),
           _zone: 'people',
           _sortKey: days ?? 999,
@@ -1185,7 +1201,7 @@ export default function ControlSurface({
         animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} 80ms both`,
       }}>
         <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.36)' }}>
-          ACTIVE
+          {domainTerms.activeEntities.toUpperCase()}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {activeAndNext.map((item, i) => renderRow(item, i, true))}

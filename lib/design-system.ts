@@ -269,6 +269,57 @@ export const STAGE_STYLES: Record<string, StageBadgeStyle> = {
   'Closed Lost': { bg: 'rgba(224,88,64,0.1)',   color: '#E05840',              border: 'rgba(224,88,64,0.22)'   },
 };
 
+// ── SESSION 12: UNIVERSAL STATUS STYLES ──────────────────────
+// Domain-neutral status display for Items.
+// Used wherever Items or mapped deal stages are shown to non-sales users.
+import type { UniversalItemStatus } from '@/lib/types';
+
+export type UniversalStatusStyle = {
+  label: string;
+  color: string;
+  bg: string;
+  border: string;
+};
+
+export const UNIVERSAL_STATUS_STYLES: Record<UniversalItemStatus, UniversalStatusStyle> = {
+  active: {
+    label:  'Active',
+    color:  COLORS.green,
+    bg:     'rgba(72,200,120,0.1)',
+    border: 'rgba(72,200,120,0.25)',
+  },
+  in_progress: {
+    label:  'In Progress',
+    color:  COLORS.teal,
+    bg:     'rgba(56,184,200,0.1)',
+    border: 'rgba(56,184,200,0.25)',
+  },
+  waiting: {
+    label:  'Waiting',
+    color:  COLORS.amber,
+    bg:     'rgba(232,160,48,0.1)',
+    border: 'rgba(232,160,48,0.25)',
+  },
+  blocked: {
+    label:  'Blocked',
+    color:  COLORS.red,
+    bg:     'rgba(224,88,64,0.1)',
+    border: 'rgba(224,88,64,0.22)',
+  },
+  completed: {
+    label:  'Completed',
+    color:  'rgba(240,235,224,0.28)',
+    bg:     'rgba(240,235,224,0.04)',
+    border: 'rgba(240,235,224,0.1)',
+  },
+  archived: {
+    label:  'Archived',
+    color:  'rgba(240,235,224,0.20)',
+    bg:     'rgba(240,235,224,0.03)',
+    border: 'rgba(240,235,224,0.08)',
+  },
+};
+
 // ── DAYS INDICATOR COLOR ─────────────────────────────────────
 // Used by deal rows to color the days-since-last-activity value.
 export function getDaysColor(days: number, light = false): string {

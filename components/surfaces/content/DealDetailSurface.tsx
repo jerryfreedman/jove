@@ -21,7 +21,11 @@ import type {
   ContactRow,
   InteractionRow,
   InteractionType,
+  UserDomainProfile,
 } from '@/lib/types';
+import { dealStageToUniversalStatus } from '@/lib/types';
+import { UNIVERSAL_STATUS_STYLES } from '@/lib/design-system';
+import { resolveUserDomainProfile, getDomainAwareTerms } from '@/lib/semantic-labels';
 import { triggerExtraction } from '@/lib/capture-utils';
 
 // ── HELPERS ────────────────────────────────────────────────
@@ -108,6 +112,10 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Session 12: Domain-aware display
+  const [domainProfile, setDomainProfile] = useState<UserDomainProfile | null>(null);
+  const domainTerms = domainProfile ? getDomainAwareTerms(domainProfile) : null;
+
   // Close deal state
   const [showCloseScreen, setShowCloseScreen] = useState(false);
   const [closeType, setCloseType]           = useState<'Closed Won' | 'Closed Lost' | null>(null);
@@ -118,6 +126,10 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/'); return; }
     setUserId(user.id);
+
+    // Session 12: Fetch domain profile
+    const { data: userData } = await supabase.from('users').select('domain_key').eq('id', user.id).single();
+    if (userData) setDomainProfile(resolveUserDomainProfile(userData.domain_key));
 
     if (!dealId) {
       setNotFound(true);
@@ -532,7 +544,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
           fontWeight: 300,
           color:      'rgba(252,246,234,0.44)',
         }}>
-          {dealId ? 'Deal not found.' : 'No deal selected'}
+          {dealId ? 'Item not found.' : 'No item selected'}
         </div>
       </div>
     );
@@ -540,7 +552,14 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
 
   const days      = getDaysSince(deal.last_activity_at);
   const daysColor = getDaysColor(days, false);
-  const stage     = STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'];
+  // Session 12: Domain-aware stage display
+  const showSalesStage = domainTerms?.showDealStages ?? true;
+  const stage     = showSalesStage
+    ? (STAGE_STYLES[deal.stage] ?? STAGE_STYLES['Prospect'])
+    : UNIVERSAL_STATUS_STYLES[dealStageToUniversalStatus(deal.stage)];
+  const stageLabel = showSalesStage
+    ? deal.stage
+    : UNIVERSAL_STATUS_STYLES[dealStageToUniversalStatus(deal.stage)].label;
   const intelColor = getIntelColor(deal.intel_score ?? 0);
 
   return (
@@ -704,7 +723,7 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                 cursor:       'pointer',
               }}
             >
-              {deal.stage}
+              {stageLabel}
             </div>
             {editingStage && (
               <>
@@ -725,32 +744,62 @@ export default function DealDetailSurface({ dealId }: { dealId?: string }) {
                 boxShadow:    '0 8px 24px rgba(0,0,0,0.2)',
                 minWidth:     140,
               }}>
-                {(['Prospect','Discovery','POC','Proposal','Negotiation','Closed Won','Closed Lost'] as DealStage[]).map(s => {
-                  const sStyle = STAGE_STYLES[s] ?? STAGE_STYLES['Prospect'];
-                  return (
-                    <button
-                      key={s}
-                      onClick={() => handleSaveStage(s)}
-                      className="jove-tap"
-                      style={{
-                        display:       'block',
-                        width:         '100%',
-                        padding:       '8px 14px',
-                        background:    deal.stage === s ? sStyle.bg : 'transparent',
-                        border:        'none',
-                        cursor:        'pointer',
-                        fontSize:      11,
-                        fontWeight:    deal.stage === s ? 600 : 400,
-                        color:         sStyle.color,
-                        textAlign:     'left',
-                        fontFamily:    "'DM Sans', sans-serif",
-                        letterSpacing: '0.3px',
-                      }}
-                    >
-                      {s}
-                    </button>
-                  );
-                })}
+                {showSalesStage
+                  ? (['Prospect','Discovery','POC','Proposal','Negotiation','Closed Won','Closed Lost'] as DealStage[]).map(s => {
+                      const sStyle = STAGE_STYLES[s] ?? STAGE_STYLES['Prospect'];
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => handleSaveStage(s)}
+                          className="jove-tap"
+                          style={{
+                            display:       'block',
+                            width:         '100%',
+                            padding:       '8px 14px',
+                            background:    deal.stage === s ? sStyle.bg : 'transparent',
+                            border:        'none',
+                            cursor:        'pointer',
+                            fontSize:      11,
+                            fontWeight:    deal.stage === s ? 600 : 400,
+                            color:         sStyle.color,
+                            textAlign:     'left',
+                            fontFamily:    "'DM Sans', sans-serif",
+                            letterSpacing: '0.3px',
+                          }}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })
+                  /* Session 12: Non-sales domains see universal statuses mapped to deal stages */
+                  : (['Prospect','Discovery','Proposal','Negotiation','Closed Won','Closed Lost'] as DealStage[]).map(s => {
+                      const uStatus = dealStageToUniversalStatus(s);
+                      const uStyle = UNIVERSAL_STATUS_STYLES[uStatus];
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => handleSaveStage(s)}
+                          className="jove-tap"
+                          style={{
+                            display:       'block',
+                            width:         '100%',
+                            padding:       '8px 14px',
+                            background:    deal.stage === s ? uStyle.bg : 'transparent',
+                            border:        'none',
+                            cursor:        'pointer',
+                            fontSize:      11,
+                            fontWeight:    deal.stage === s ? 600 : 400,
+                            color:         uStyle.color,
+                            textAlign:     'left',
+                            fontFamily:    "'DM Sans', sans-serif",
+                            letterSpacing: '0.3px',
+                          }}
+                        >
+                          {uStyle.label}
+                        </button>
+                      );
+                    })
+                }
               </div>
               </>
             )}

@@ -9,6 +9,7 @@
 // All downstream consumers read from TruthState.
 
 import type { TaskRow, ItemRow, PersonRow, MeetingRow } from '@/lib/types';
+import { normalizeItemStatus } from '@/lib/types';
 import type { DisplayTask } from '@/lib/task-queries';
 
 // ── TRUTH STATE OUTPUT ──────────────────────────────────────
@@ -101,15 +102,17 @@ export function buildTruthState(input: TruthInput): TruthState {
   });
 
   // ── BLOCKED ITEMS ────────────────────────────────────────
-  // Items in 'waiting' or 'paused' state
-  const blockedItems = items.filter(
-    i => i.status === 'waiting' || i.status === 'paused',
-  );
+  // Session 12: Use normalized statuses for universal model alignment
+  const blockedItems = items.filter(i => {
+    const normalized = normalizeItemStatus(i.status);
+    return normalized === 'waiting' || normalized === 'blocked';
+  });
 
   // ── ACTIVE ITEMS NEEDING PROGRESS ────────────────────────
-  // Active items with no recent activity (stale)
+  // Active or in-progress items with no recent activity (stale)
   const activeItemsNeedingProgress = items.filter(i => {
-    if (i.status !== 'active') return false;
+    const normalized = normalizeItemStatus(i.status);
+    if (normalized !== 'active' && normalized !== 'in_progress') return false;
     return daysSince(i.last_activity_at) >= STALE_ITEM_DAYS;
   });
 
@@ -135,7 +138,7 @@ export function buildTruthState(input: TruthInput): TruthState {
 
   // Items in waiting state
   for (const i of blockedItems) {
-    if (i.status === 'waiting') {
+    if (normalizeItemStatus(i.status) === 'waiting') {
       waitingStates.push({ type: 'item', id: i.id });
     }
   }

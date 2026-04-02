@@ -8,8 +8,9 @@ import {
   STREAK_WEEKDAYS_ONLY,
   STREAK_MILESTONE_DAYS,
 } from '@/lib/constants';
-import type { DealRow, InteractionType } from '@/lib/types';
+import type { DealRow, InteractionType, UserDomainProfile } from '@/lib/types';
 import { triggerExtraction } from '@/lib/capture-utils';
+import { resolveUserDomainProfile, getEntityLabelSingular } from '@/lib/semantic-labels';
 
 // ── TYPES ──────────────────────────────────────────────────
 type CaptureMode =
@@ -95,6 +96,17 @@ export default function CaptureSheet({
   meetingId,
 }: CaptureSheetProps) {
   const supabase = createClient();
+
+  // Session 12: Domain-aware language
+  const [domainProfile, setDomainProfile] = useState<UserDomainProfile | null>(null);
+  useEffect(() => {
+    supabase.from('users').select('domain_key').eq('id', userId).single()
+      .then(({ data }) => { if (data) setDomainProfile(resolveUserDomainProfile(data.domain_key)); });
+  }, [userId, supabase]);
+  const entitySingular = domainProfile
+    ? getEntityLabelSingular('primary', domainProfile)
+    : 'item';
+  const entityCapitalized = entitySingular.charAt(0).toUpperCase() + entitySingular.slice(1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [mode, setMode] = useState<CaptureMode>(initialMode ?? 'tiles');
@@ -1297,10 +1309,10 @@ export default function CaptureSheet({
                 <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{'\u2795'}</span>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: COLORS.textPrimary }}>
-                    Create New Deal
+                    Create New {entityCapitalized}
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 300, color: COLORS.textMid, marginTop: 2 }}>
-                    Start a new deal from this capture
+                    Start a new {entitySingular} from this capture
                   </div>
                 </div>
               </button>
@@ -1450,13 +1462,13 @@ export default function CaptureSheet({
                 &#8249;
               </button>
               <span style={{ fontSize: 16, fontWeight: 400, color: COLORS.textPrimary }}>
-                Create New Deal
+                Create New {entityCapitalized}
               </span>
             </div>
 
             <input
               type="text"
-              placeholder="Deal name *"
+              placeholder={`${entityCapitalized} name *`}
               value={newDealName}
               onChange={(e) => setNewDealName(e.target.value)}
               style={{
@@ -1553,7 +1565,7 @@ export default function CaptureSheet({
                     : 'none',
               }}
             >
-              {creatingDeal ? 'Creating...' : 'Create Deal & Save'}
+              {creatingDeal ? 'Creating...' : `Create ${entityCapitalized} & Save`}
             </button>
           </div>
         )}
