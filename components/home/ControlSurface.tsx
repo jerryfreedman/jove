@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   COLORS,
   getDaysColor,
@@ -237,6 +238,7 @@ export default function ControlSurface({
   sunTruth,
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
+  const router = useRouter();
   const [sheetVisible, setSheetVisible] = useState(false);
   const labels = useMemo(
     () => getControlSurfaceLabels(domainProfile ?? DEFAULT_DOMAIN_PROFILE),
@@ -569,7 +571,7 @@ export default function ControlSurface({
           : item.category ?? undefined,
         time: days === 0 ? 'today' : `${days}d`,
         emphasis: item.is_starred,
-        onClick: () => openSurface('items' as import('@/components/surfaces/SurfaceManager').SurfaceId),
+        onClick: () => router.push(`/item/${item.id}`),
         _zone: 'active',
         _sortKey: item.is_starred ? -1 : days,
       });
