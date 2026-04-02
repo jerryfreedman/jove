@@ -43,6 +43,8 @@ import {
   type DailyMomentum,
   type ReinforcementMessage,
 } from '@/lib/intelligence/momentum';
+import type { RankedAction, PrioritizationResult } from '@/lib/prioritization/rankNextActions';
+import type { SunTruthState } from '@/lib/prioritization/sunTruth';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -74,6 +76,10 @@ interface ControlSurfaceProps {
     contextId?: string;
     contextConfidence: 'high' | 'medium' | 'low';
   }) => void;
+  /** Session 5: Prioritization result from truth engine. */
+  prioritization?: PrioritizationResult | null;
+  /** Session 5: Sun truth state. */
+  sunTruth?: SunTruthState | null;
 }
 
 // ── SESSION 14D: SURFACE ITEM ─────────────────────────────
@@ -169,6 +175,8 @@ export default function ControlSurface({
   closureMessage,
   onClosureDismiss,
   onOpenCapture,
+  prioritization,
+  sunTruth,
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -871,6 +879,142 @@ export default function ControlSurface({
     paddingLeft: 2,
   };
 
+  // ── SESSION 5: "DO THIS NEXT" SECTION ───────────────────
+  // Driven by prioritization engine output.
+  // Shows one dominant primary action + up to two secondaries.
+  // Every action is tappable into UniversalCapture in action mode.
+
+  const mapRankedActionContextType = (a: RankedAction): 'task' | 'item' | 'person' | 'event' | 'meeting' | 'deal' | 'none' => {
+    if (!a.contextType) return 'none';
+    return a.contextType;
+  };
+
+  const handleDoThisNextTap = useCallback((action: RankedAction) => {
+    if (!onOpenCapture) return;
+    handleClose();
+    setTimeout(() => {
+      onOpenCapture({
+        title: action.title,
+        subtitle: action.subtitle,
+        contextType: mapRankedActionContextType(action),
+        contextId: action.contextId,
+        contextConfidence: 'medium',
+      });
+    }, CLOSE_DELAY + 40);
+  }, [onOpenCapture, handleClose]);
+
+  const renderDoThisNext = () => {
+    if (!prioritization?.primaryAction) return null;
+
+    const primary = prioritization.primaryAction;
+    const secondaries = prioritization.secondaryActions;
+
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ ...SECTION_HEADER, color: COLORS.amber }}>
+          DO THIS NEXT
+        </div>
+
+        {/* Primary action — dominant card */}
+        <div
+          className="jove-tap"
+          onClick={() => handleDoThisNextTap(primary)}
+          style={{
+            background: 'rgba(232,160,48,0.06)',
+            border: '0.5px solid rgba(232,160,48,0.12)',
+            borderRadius: 12,
+            padding: '12px 14px',
+            cursor: 'pointer',
+            marginBottom: secondaries.length > 0 ? 6 : 0,
+            transition: TRANSITIONS.row,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 500,
+              color: 'rgba(252,246,234,0.92)',
+              display: 'block',
+            }}
+          >
+            {primary.title}
+          </span>
+          {primary.subtitle && (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 400,
+                color: 'rgba(240,235,224,0.38)',
+                marginTop: 2,
+                display: 'block',
+              }}
+            >
+              {primary.subtitle}
+            </span>
+          )}
+          {primary.reason && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 400,
+                color: COLORS.amberDim,
+                marginTop: 3,
+                display: 'block',
+              }}
+            >
+              {primary.reason}
+            </span>
+          )}
+        </div>
+
+        {/* Secondary actions — lighter */}
+        {secondaries.map(action => (
+          <div
+            key={action.id}
+            className="jove-tap"
+            onClick={() => handleDoThisNextTap(action)}
+            style={{
+              ...ROW_STYLE,
+              cursor: 'pointer',
+              marginBottom: 4,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: 'rgba(252,246,234,0.82)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                  }}
+                >
+                  {action.title}
+                </span>
+                {action.reason && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 400,
+                      color: 'rgba(240,235,224,0.28)',
+                      marginTop: 1,
+                      display: 'block',
+                    }}
+                  >
+                    {action.reason}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderAttention = () => {
     if (attention.length === 0) return null;
     return (
@@ -1144,6 +1288,7 @@ export default function ControlSurface({
         >
           {hasContent ? (
             <>
+              {renderDoThisNext()}
               {renderAttention()}
               {renderNext()}
               {renderActive()}

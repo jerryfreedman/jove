@@ -58,6 +58,7 @@ import {
 // renderMarkdown moved to FullScreenChat component (Session 15B)
 import { useMeetingStore } from '@/lib/meeting-store';
 import { detectMeetingMutation, applyMeetingMutation } from '@/lib/meeting-mutations';
+import { usePrioritization } from '@/lib/prioritization/usePrioritization';
 import { routeUniversalIntent } from '@/lib/universal-routing';
 import {
   createTaskFromIntent,
@@ -184,6 +185,14 @@ function HomePageInner() {
   const urgentItemCount = (data?.urgentDeals?.length ?? 0)
     + loopTasks.filter(t => t.dueAt && new Date(t.dueAt).getTime() < Date.now()).length;
   const dailyLoop = useDailyLoop(pendingTaskCount, urgentItemCount);
+
+  // ── SESSION 5: TRUTH ENGINE + PRIORITIZATION ──────────────
+  const { prioritization, sunTruth } = usePrioritization({
+    tasks: loopTasks,
+    items: [],     // Items not yet loaded on home — populated when available
+    people: [],    // People not yet loaded on home — populated when available
+    meetings: data?.meetings ?? [],
+  });
 
   // ── SESSION 17B: PAGE VISIBILITY — pause expensive loops when hidden ──
   const [pageVisible, setPageVisible] = useState(true);
@@ -1813,12 +1822,16 @@ function HomePageInner() {
       }
     }
 
-    // ── P3: SESSION 14F — PHASE-AWARE FALLBACK ─────
-    // Morning: emphasize clarity. Midday: reflect activity. Evening: closure.
+    // ── P3: SESSION 5 — TRUTH-DRIVEN FALLBACK ──────
+    // Sun state is now driven by the truth engine.
+    // Momentum influences tone only. Truth decides state.
     const hour = new Date().getHours();
     let fallback: string;
 
-    if (dailyLoop.showMorningCue) {
+    // Session 5: If sunTruth provides a headline, use it as primary fallback
+    if (sunTruth?.headline) {
+      fallback = sunTruth.headline;
+    } else if (dailyLoop.showMorningCue) {
       fallback = "Here\u2019s what matters today.";
     } else if (hour >= 5 && hour < 12) {
       fallback = "Whenever you\u2019re ready.";
@@ -1836,7 +1849,7 @@ function HomePageInner() {
     }
 
     return { type: 'fallback', text: fallback };
-  }, [data, assistantTrigger, dailyLoop]);
+  }, [data, assistantTrigger, dailyLoop, sunTruth]);
 
   // Entrance animation values
   const anim = (delay: number) => ({
@@ -2263,6 +2276,8 @@ function HomePageInner() {
           closureMessage={dailyLoop.showClosure ? dailyLoop.closureMessage : null}
           onClosureDismiss={dailyLoop.dismissClosure}
           onOpenCapture={(ctx) => universalCapture.openFromControlPanel(ctx)}
+          prioritization={prioritization}
+          sunTruth={sunTruth}
         />
       )}
 
