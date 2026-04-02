@@ -8,7 +8,9 @@ import type { CelestialPosition } from '@/components/home/SceneBackground';
 import AmbientBird from '@/components/home/AmbientBird';
 import ControlSurface from '@/components/home/ControlSurface';
 import FocusOverlay from '@/components/home/FocusOverlay';
-import CaptureOverlay from '@/components/home/CaptureOverlay';
+import UniversalCapture from '@/components/capture/UniversalCapture';
+import type { CaptureSubmitPayload, CaptureContext } from '@/lib/universal-capture-types';
+import { useUniversalCapture } from '@/lib/universal-capture-state';
 import FullScreenChat from '@/components/home/FullScreenChat';
 import type { ChatThread } from '@/components/home/FullScreenChat';
 import { ChatControllerProvider, useChatController } from '@/components/chat/ChatController';
@@ -198,8 +200,8 @@ function HomePageInner() {
   const birdPositionRef = useRef({ x: 0, y: 0 });
   const birdHitboxRef = useRef<HTMLDivElement>(null);
 
-  // ── SESSION 13B: CAPTURE OVERLAY STATE ─────────────────────
-  const [captureOpen, setCaptureOpen] = useState(false);
+  // ── SESSION 18: UNIVERSAL CAPTURE STATE ─────────────────────
+  const universalCapture = useUniversalCapture();
   const [captureSaving, setCaptureSaving] = useState(false);
 
   // Session 6: birdAnsweredCount removed — birdQuestion now derives from
@@ -1186,7 +1188,7 @@ function HomePageInner() {
 
 
   // ── BIRD HITBOX TRACKING (Session 17B: paused when not visible/overlay open) ──
-  const hitboxPaused = !pageVisible || chatOpen || captureOpen;
+  const hitboxPaused = !pageVisible || chatOpen || universalCapture.state.open;
   useEffect(() => {
     if (hitboxPaused) return; // No RAF when paused
     let rafId: number;
@@ -1206,8 +1208,8 @@ function HomePageInner() {
 
   // ── SESSION 13C: "Anything else?" hint after first bird capture ──
   useEffect(() => {
-    // When captureOpen goes from true → false, check if first capture just happened
-    if (!captureOpen && !anythingElseShownRef.current) {
+    // When universalCapture.state.open goes from true → false, check if first capture just happened
+    if (!universalCapture.state.open && !anythingElseShownRef.current) {
       const hasCapture = typeof window !== 'undefined'
         ? localStorage.getItem('jove_bird_first_capture') === 'true'
         : false;
@@ -1227,7 +1229,7 @@ function HomePageInner() {
         return () => clearTimeout(t);
       }
     }
-  }, [captureOpen]);
+  }, [universalCapture.state.open]);
 
   // ── SESSION 14F: MORNING CUE AUTO-DISMISS ───────────────
   // Dismiss morning cue when user first interacts with any surface.
@@ -1528,10 +1530,15 @@ function HomePageInner() {
   }, [birdQuestion]);
 
 
-// ── SESSION 13B: CAPTURE OVERLAY SUBMIT ────────────────────
+// ── SESSION 18: UNIVERSAL CAPTURE SUBMIT ────────────────────
   // Routes input through universal routing (11F) → persists → triggers acknowledgment.
-  // No intermediate screens. No confirmation dialogs. Instant.
-  const handleCaptureSubmit = useCallback(async (text: string) => {
+  // Now accepts CaptureSubmitPayload with context/confidence metadata.
+  // Attribution rules:
+  //   HIGH   → auto-attach silently
+  //   MEDIUM → pass downstream, don't force
+  //   LOW    → no attachment, pipeline resolves
+  const handleUniversalCaptureSubmit = useCallback(async (payload: CaptureSubmitPayload) => {
+    const text = payload.text;
     if (!data?.user) return;
     setCaptureSaving(true);
 
@@ -1743,15 +1750,15 @@ function HomePageInner() {
       }}
     >
       <SceneBackground onCelestialPosition={setCelestialPos} />
-      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} discoverPulse={birdDiscoverPulse} paused={!pageVisible || chatOpen || captureOpen} />
+      <AmbientBird signalCount={data?.signals.length ?? 0} reactionTrigger={birdReactionTrigger} reactionSourceRef={birdReactionSourceRef} positionRef={birdPositionRef} pulseTrigger={birdPulseTrigger} isInteractive={!!birdQuestion} firstUseHint={birdFirstUseHint} discoverPulse={birdDiscoverPulse} paused={!pageVisible || chatOpen || universalCapture.state.open} />
 
       {/* ── BIRD TAP HITBOX ──────────────────────────── */}
       {/* Always opens capture overlay */}
       <div
         ref={birdHitboxRef}
         onClick={() => {
-          if (!captureOpen) {
-            setCaptureOpen(true);
+          if (!universalCapture.state.open) {
+            universalCapture.openFromBird();
           }
         }}
         onPointerDown={(e) => { (e.currentTarget as HTMLElement).style.transform = `${(e.currentTarget as HTMLElement).style.transform?.replace(/scale\([^)]*\)/, '') || ''} scale(0.9)`; }}
@@ -2147,6 +2154,7 @@ function HomePageInner() {
           completedTodayCount={completedTodayCount}
           closureMessage={dailyLoop.showClosure ? dailyLoop.closureMessage : null}
           onClosureDismiss={dailyLoop.dismissClosure}
+          onOpenCapture={(ctx) => universalCapture.openFromControlPanel(ctx)}
         />
       )}
 
@@ -2157,6 +2165,7 @@ function HomePageInner() {
         userId={data?.user?.id ?? null}
         urgentDeals={data?.urgentDeals ?? []}
         allDeals={data?.allDeals ?? []}
+        onOpenCapture={(ctx) => universalCapture.openFromSun(ctx)}
       />
 
       {/* ── SURFACE RENDERER (deep surfaces: deals, meetings, ideas, etc.) ── */}
@@ -2527,11 +2536,19 @@ function HomePageInner() {
       )}
 
 
-      {/* ── SESSION 13B: CAPTURE OVERLAY ───────────── */}
-      <CaptureOverlay
-        open={captureOpen}
-        onClose={() => setCaptureOpen(false)}
-        onSubmit={handleCaptureSubmit}
+      {/* ── SESSION 18: UNIVERSAL CAPTURE ───────────── */}
+      <UniversalCapture
+        open={universalCapture.state.open}
+        onClose={universalCapture.close}
+        onSubmit={handleUniversalCaptureSubmit}
+        mode={universalCapture.state.mode}
+        title={universalCapture.state.title}
+        subtitle={universalCapture.state.subtitle}
+        contextType={universalCapture.state.contextType}
+        contextId={universalCapture.state.contextId}
+        contextConfidence={universalCapture.state.contextConfidence}
+        source={universalCapture.state.source}
+        suggestedPrompts={universalCapture.state.suggestedPrompts}
         saving={captureSaving}
       />
 

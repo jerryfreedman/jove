@@ -66,6 +66,14 @@ interface ControlSurfaceProps {
   closureMessage?: string | null;
   /** Session 14F: Callback when closure is dismissed. */
   onClosureDismiss?: () => void;
+  /** Session 18: Open UniversalCapture with context from any item. */
+  onOpenCapture?: (context: {
+    title: string;
+    subtitle?: string;
+    contextType: 'task' | 'item' | 'person' | 'event' | 'meeting' | 'deal' | 'none';
+    contextId?: string;
+    contextConfidence: 'high' | 'medium' | 'low';
+  }) => void;
 }
 
 // ── SESSION 14D: SURFACE ITEM ─────────────────────────────
@@ -160,6 +168,7 @@ export default function ControlSurface({
   streakDays,
   closureMessage,
   onClosureDismiss,
+  onOpenCapture,
 }: ControlSurfaceProps) {
   const { navigateTo } = useSurface();
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -656,6 +665,51 @@ export default function ControlSurface({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {/* Session 18: Capture button — opens UniversalCapture with this item's context */}
+            {onOpenCapture && (
+              <button
+                className="jove-tap"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Derive context type from item ID prefix
+                  const ctxType = item.id.startsWith('meeting-') ? 'meeting' as const
+                    : item.id.startsWith('deal-') || item.id.startsWith('attn-') ? 'deal' as const
+                    : item.id.startsWith('person-') ? 'person' as const
+                    : item.id.startsWith('task-') || item.id.startsWith('legacy-') ? 'task' as const
+                    : 'none' as const;
+                  // Extract raw ID (strip prefix)
+                  const rawId = item.id.replace(/^(meeting|deal|attn|person|task|legacy)-/, '');
+                  // Confidence: items with explicit IDs get medium, generic ones get low
+                  const confidence = ctxType !== 'none' ? 'medium' as const : 'low' as const;
+                  handleClose();
+                  // Slight delay so ControlSurface closes before capture opens
+                  setTimeout(() => {
+                    onOpenCapture({
+                      title: `Log notes for ${item.title}`,
+                      subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' · ' : ''}${item.time ?? ''}` : undefined,
+                      contextType: ctxType,
+                      contextId: rawId,
+                      contextConfidence: confidence,
+                    });
+                  }, CLOSE_DELAY + 40);
+                }}
+                style={{
+                  padding: '3px 7px',
+                  borderRadius: 6,
+                  border: '0.5px solid rgba(232,160,48,0.15)',
+                  background: 'rgba(232,160,48,0.06)',
+                  color: 'rgba(232,160,48,0.55)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: FONTS.sans,
+                  lineHeight: '1.3',
+                }}
+              >
+                +
+              </button>
+            )}
+
             {item.time && (
               <span
                 style={{

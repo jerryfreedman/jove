@@ -39,6 +39,14 @@ interface FocusOverlayProps {
   userId: string | null;
   urgentDeals: DealWithAccount[];
   allDeals: DealWithAccount[];
+  /** Session 18: Open UniversalCapture with context from Sun actions. */
+  onOpenCapture?: (context: {
+    title: string;
+    subtitle?: string;
+    contextType: 'task' | 'item' | 'person' | 'event' | 'meeting' | 'deal' | 'none';
+    contextId?: string;
+    contextConfidence: 'high' | 'medium' | 'low';
+  }) => void;
 }
 
 // ── COMPONENT ──────────────────────────────────────────────
@@ -49,6 +57,7 @@ export default function FocusOverlay({
   userId,
   urgentDeals,
   allDeals,
+  onOpenCapture,
 }: FocusOverlayProps) {
   // Animation states
   const [visible, setVisible] = useState(false);
@@ -337,12 +346,27 @@ export default function FocusOverlay({
                 {sunDecision.nextActions.map((action, i) => (
                   <div
                     key={i}
+                    className="jove-tap"
+                    onClick={onOpenCapture ? () => {
+                      onClose();
+                      // Slight delay so overlay closes before capture opens
+                      setTimeout(() => {
+                        onOpenCapture({
+                          title: action,
+                          subtitle: sunDecision.headline,
+                          contextType: 'none',
+                          contextConfidence: 'low',
+                        });
+                      }, 280);
+                    } : undefined}
                     style={{
                       fontFamily: FONTS.sans,
                       fontSize: 13,
                       fontWeight: 500,
                       color: COLORS.textPrimary,
                       lineHeight: 1.4,
+                      cursor: onOpenCapture ? 'pointer' : 'default',
+                      padding: '2px 0',
                     }}
                   >
                     &rarr; {action}
