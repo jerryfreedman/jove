@@ -9,6 +9,8 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { TaskRow, TaskSource, TaskSourceType } from '@/lib/types';
 import type { SystemTask } from '@/lib/task-types';
+// Session 15: Title normalization for clean task titles
+import { normalizeTaskTitle } from '@/lib/tasks/normalizeTaskTitle';
 
 // ── TYPES ──────────────────────────────────────────────────
 
@@ -192,11 +194,14 @@ export async function createUserTask(
     meetingId?: string | null;
   },
 ): Promise<{ id: string } | null> {
+  // Session 15: Normalize title before persisting
+  const { title: normalizedTitle } = normalizeTaskTitle(params.title);
+
   const { data, error } = await supabase
     .from('tasks')
     .insert({
       user_id: userId,
-      title: params.title,
+      title: normalizedTitle,
       source: 'user',
       source_type: null,
       priority: null,

@@ -97,9 +97,24 @@ const VAGUE_PATTERNS = [
   /^figure\s+out/i,
 ];
 
+// Session 15: Junk task patterns that should be suppressed from prioritization
+const JUNK_TASK_PATTERNS = [
+  /(?:call went|meeting went|demo went|nothing happened)/i,
+  /^idk\.?$/i,
+  /^nothing\.?$/i,
+  /^no update\.?$/i,
+  /^waiting\.?$/i,
+  /^same\.?$/i,
+];
+
 function isVague(title: string): boolean {
   if (title.trim().split(/\s+/).length <= 2) return true;
   return VAGUE_PATTERNS.some(p => p.test(title));
+}
+
+/** Session 15: Check if a task is junk and should be excluded from ranking */
+function isJunkTask(title: string): boolean {
+  return JUNK_TASK_PATTERNS.some(p => p.test(title));
 }
 
 function hasStrongVerb(title: string): boolean {
@@ -118,7 +133,7 @@ function hoursSince(dateStr: string): number {
 // ── CANDIDATE GENERATORS ────────────────────────────────────
 
 function candidatesFromUrgentTasks(tasks: DisplayTask[]): RankedAction[] {
-  return tasks.map(t => {
+  return tasks.filter(t => !isJunkTask(t.title)).map(t => {
     let score = SCORE.OVERDUE_BASE;
     let reason = 'Overdue';
 
@@ -155,7 +170,7 @@ function candidatesFromUrgentTasks(tasks: DisplayTask[]): RankedAction[] {
 }
 
 function candidatesFromDueSoonTasks(tasks: DisplayTask[]): RankedAction[] {
-  return tasks.map(t => {
+  return tasks.filter(t => !isJunkTask(t.title)).map(t => {
     let score = SCORE.DUE_SOON_BASE;
     const reason = t.dueAt ? `Due in ${Math.round(hoursUntil(t.dueAt))}h` : 'Due soon';
 

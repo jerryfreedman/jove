@@ -15,6 +15,8 @@ import type { PersonReference } from '@/lib/universal-routing';
 import { emitReflection } from '@/lib/chat/reflection';
 import { checkDuplicateTask } from '@/lib/chat/duplicate-guard';
 import { invalidateUserCache } from '@/lib/context-cache';
+// Session 15: Title normalization for clean task titles
+import { normalizeTaskTitle } from '@/lib/tasks/normalizeTaskTitle';
 
 // ── TASK FROM INTENT ────────────────────────────────────────
 
@@ -30,8 +32,11 @@ export async function createTaskFromIntent(
     personId?: string | null;
   },
 ): Promise<{ id: string; wasDuplicate?: boolean } | null> {
+  // Session 15: Normalize title before persisting
+  const { title: normalizedTitle } = normalizeTaskTitle(params.title);
+
   // Session 15C.1: Check for duplicate before creating
-  const dupCheck = await checkDuplicateTask(supabase, userId, params.title);
+  const dupCheck = await checkDuplicateTask(supabase, userId, normalizedTitle);
   if (dupCheck.isDuplicate && dupCheck.existingId) {
     // Return existing instead of creating duplicate
     return { id: dupCheck.existingId, wasDuplicate: true };
@@ -41,7 +46,7 @@ export async function createTaskFromIntent(
     .from('tasks')
     .insert({
       user_id: userId,
-      title: params.title,
+      title: normalizedTitle,
       source: 'user',
       source_type: null,
       priority: null,

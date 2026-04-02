@@ -108,6 +108,8 @@ interface SurfaceItem {
   taskActions?: {
     taskId: string;
   };
+  /** Session 15: Scheduling state for visual distinction. */
+  _schedulingState?: 'scheduled' | 'unscheduled' | 'waiting';
   /** Internal: zone assignment (not displayed). */
   _zone: 'attention' | 'next' | 'active' | 'people';
   /** Internal: sort key within a zone. Lower = higher. */
@@ -412,6 +414,7 @@ export default function ControlSurface({
             emphasis: isOverdue,
             onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
             taskActions: { taskId: task.id },
+            _schedulingState: task.schedulingState,
             _zone: 'attention',
             _sortKey: isOverdue ? -1 : 0,
           });
@@ -483,11 +486,14 @@ export default function ControlSurface({
           id: `task-${task.id}`,
           title: toAction(task.title),
           time: formatDueAt(task.dueAt) ?? undefined,
+          // Session 15: Waiting tasks get dimmed styling
+          subtitle: task.schedulingState === 'waiting' ? 'Waiting' : undefined,
           emphasis: false,
           onClick: task.action ? () => handleTaskAction(task.action!) : undefined,
           taskActions: { taskId: task.id },
+          _schedulingState: task.schedulingState,
           _zone: 'next',
-          _sortKey: 0,
+          _sortKey: task.schedulingState === 'waiting' ? 1 : 0,
         });
         placed.add(`task-${task.id}`);
         if (task.meetingId) placed.add(`meeting-${task.meetingId}`);
@@ -815,7 +821,10 @@ export default function ControlSurface({
                 style={{
                   fontSize: 13,
                   fontWeight: 400,
-                  color: 'rgba(252,246,234,0.88)',
+                  // Session 15: Waiting tasks get dimmed text
+                  color: item._schedulingState === 'waiting'
+                    ? 'rgba(252,246,234,0.45)'
+                    : 'rgba(252,246,234,0.88)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',

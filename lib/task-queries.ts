@@ -15,6 +15,8 @@ import { createClient } from '@/lib/supabase';
 import type { TaskRow, TaskStatus } from '@/lib/types';
 import type { TaskAction } from '@/lib/task-types';
 import { onReflection } from '@/lib/chat/reflection';
+// Session 15: Task scheduling state for lifecycle clarity
+import { getTaskSchedulingState, type TaskSchedulingState } from '@/lib/tasks/taskSchedulingState';
 
 // ── TYPES ──────────────────────────────────────────────────
 
@@ -32,6 +34,8 @@ export interface DisplayTask {
   action: TaskAction | null;
   createdAt: string;
   updatedAt: string;
+  /** Session 15: Scheduling state for lifecycle clarity */
+  schedulingState: TaskSchedulingState;
 }
 
 export interface UseTasksResult {
@@ -44,6 +48,12 @@ export interface UseTasksResult {
 // ── TRANSFORM ──────────────────────────────────────────────
 
 function toDisplayTask(row: TaskRow): DisplayTask {
+  const schedulingInfo = getTaskSchedulingState({
+    title: row.title,
+    dueAt: row.due_at,
+    status: row.status,
+  });
+
   return {
     id: row.id,
     title: row.title,
@@ -57,7 +67,22 @@ function toDisplayTask(row: TaskRow): DisplayTask {
     action: row.action as TaskAction | null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    schedulingState: schedulingInfo.state,
   };
+}
+
+// Session 15: Junk task patterns that should be suppressed from task lists
+const JUNK_TASK_PATTERNS = [
+  /(?:call went|meeting went|demo went|nothing happened)/i,
+  /^idk\.?$/i,
+  /^nothing\.?$/i,
+  /^no update\.?$/i,
+  /^waiting\.?$/i,
+  /^same\.?$/i,
+];
+
+function isJunkTask(title: string): boolean {
+  return JUNK_TASK_PATTERNS.some(p => p.test(title));
 }
 
 // ── SESSION 15C: ENHANCED PRIORITIZATION ──────────────────
@@ -96,6 +121,12 @@ function hasStrongVerb(title: string): boolean {
 
 function whatMattersSort(a: DisplayTask, b: DisplayTask): number {
   const now = Date.now();
+
+  // Session 15: Waiting/blocked tasks sort after active tasks
+  const aWaiting = a.schedulingState === 'waiting';
+  const bWaiting = b.schedulingState === 'waiting';
+  if (aWaiting && !bWaiting) return 1;
+  if (!aWaiting && bWaiting) return -1;
 
   // 1. Items due within 4 hours always win over items without near-term due dates
   const aImminentDue = a.dueAt && (new Date(a.dueAt).getTime() - now) <= 4 * 60 * 60 * 1000 && new Date(a.dueAt).getTime() > 0;
@@ -182,7 +213,10 @@ export function useTasks(userId: string | null): UseTasksResult {
         setError(fetchErr.message);
         setTasks([]);
       } else {
-        const displayTasks = (data ?? []).map(toDisplayTask);
+        const displayTasks = (data ?? [])
+          .map(toDisplayTask)
+          // Session 15: Filter out junk tasks that shouldn't be in active lists
+          .filter(t => !isJunkTask(t.title));
         displayTasks.sort(whatMattersSort);
         setTasks(displayTasks);
       }

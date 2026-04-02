@@ -69,6 +69,8 @@ import {
   createEventFromIntent,
 } from '@/lib/universal-persistence';
 import { createUserTask } from '@/lib/task-persistence';
+// Session 15: Task system refinement — strict creation guard + title normalization
+import { shouldCreateTask, normalizeTaskTitle } from '@/lib/tasks';
 // Session 2: Intent resolution + execution layer
 import { resolveIntent } from '@/lib/intent/resolveIntent';
 import { executeIntent, executeConsequencePlan } from '@/lib/intent/executeIntent';
@@ -800,9 +802,11 @@ function HomePageInner() {
       const universalResult = routeUniversalIntent(text);
       if (universalResult) {
         if (universalResult.intent === 'create_task' && universalResult.task) {
+          // Session 15: Normalize title before persisting
+          const { title: normalizedTitle } = normalizeTaskTitle(universalResult.task.title);
           // Create task in DB immediately
           const taskResult = await createUserTask(supabase, data.user.id, {
-            title: universalResult.task.title,
+            title: normalizedTitle,
             dueAt: universalResult.task.dueAt ?? undefined,
           });
 
@@ -1702,8 +1706,10 @@ function HomePageInner() {
           }
 
           if (routed.task) {
+            // Session 15: Normalize title before persisting
+            const { title: normalizedTaskTitle } = normalizeTaskTitle(routed.task.title);
             await createTaskFromIntent(supabase, userId, {
-              title: routed.task.title,
+              title: normalizedTaskTitle,
               dueAt: routed.task.dueAt,
               itemId: routed.links.taskToItem ? itemId : null,
               personId: routed.links.taskToPerson ? personId : null,
@@ -1712,10 +1718,15 @@ function HomePageInner() {
 
           // Item-only intent (no task) — already created above
         } else {
-          // ── Fallback: store as a user task (accept anything) ────
-          await createUserTask(supabase, userId, {
-            title: text.charAt(0).toUpperCase() + text.slice(1),
+          // ── Session 15: Guarded fallback — only create task if guard passes ──
+          const taskDecision = shouldCreateTask(text, {
+            hasExistingTaskContext: !!(payload.contextType === 'task' && payload.contextId),
           });
+          if (taskDecision.shouldCreate) {
+            const { title } = normalizeTaskTitle(text);
+            await createUserTask(supabase, userId, { title });
+          }
+          // If guard rejects, the input is saved as interaction only (no junk task)
         }
       }
       // If intentMutated === true, we skip entity creation entirely.
