@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
-import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
+import { getDomainPromptBlock, resolveUserDomainProfile } from '@/lib/semantic-labels';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createServerSupabaseClient();
-    const [{ data: kbRows }, { data: voiceData }] = await Promise.all([
+    const [{ data: kbRows }, { data: voiceData }, { data: domainRow }] = await Promise.all([
       supabase
         .from('knowledge_base')
         .select('product_name, description, key_features')
@@ -26,8 +26,15 @@ export async function POST(request: NextRequest) {
         .select('opening_style, closing_style, formality_level, avg_length, common_phrases')
         .eq('user_id', userId ?? '')
         .single(),
+      // Session 10: Fetch persisted domain_key
+      supabase
+        .from('users')
+        .select('domain_key')
+        .eq('id', userId ?? '')
+        .single(),
     ]);
 
+    const userDomainProfile = resolveUserDomainProfile(domainRow?.domain_key);
     const voiceProfile = voiceData as {
       opening_style: string | null;
       closing_style: string | null;
@@ -78,7 +85,7 @@ ${kbText}
 Reference specific details naturally where relevant.
 Never mention things that aren't relevant to the email context.
 
-${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}${voiceSection}`,
+${getDomainPromptBlock(userDomainProfile)}${voiceSection}`,
       messages: [
         {
           role: 'user',

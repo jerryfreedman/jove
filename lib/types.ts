@@ -20,8 +20,8 @@ export type UserRow = {
   pulse_check_days: number;
   morning_digest_enabled: boolean;
   weather_enabled: boolean;
-  /** Session 3: Semantic layer — user's domain key (optional, not yet persisted to DB) */
-  domain_key?: UserDomainKey;
+  /** Session 10: Persisted domain key — determines semantic labels. Default: 'custom'. */
+  domain_key: UserDomainKey;
   created_at: string;
   updated_at: string;
 };

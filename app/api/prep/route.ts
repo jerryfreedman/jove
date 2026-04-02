@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
-import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
+import { getDomainPromptBlock, resolveUserDomainProfile } from '@/lib/semantic-labels';
 
 export const maxDuration = 30;
 
@@ -16,6 +16,31 @@ export async function POST(request: NextRequest) {
     }
 
     const isMicro = mode === 'micro';
+
+    // Session 10: Fetch persisted domain_key (always, outside cache)
+    const domainCookieStore = await cookies();
+    const domainSupabase = createServerClient(
+      SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return domainCookieStore.getAll(); },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                domainCookieStore.set(name, value, options)
+              );
+            } catch {}
+          },
+        },
+      }
+    );
+    const { data: domainRow } = await domainSupabase
+      .from('users')
+      .select('domain_key')
+      .eq('id', userId)
+      .single();
+    const userDomainProfile = resolveUserDomainProfile(domainRow?.domain_key);
 
     // Check context cache first (skip if x-no-cache header set)
     // Include meetingId in cache key so attendee-filtered context isn't reused across meetings
@@ -264,7 +289,7 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: 150,
-        system: `You are preparing the user for their next meeting. Based on the context, generate a 1-2 sentence summary of the situation and what to focus on. You MUST reference at least one of: the item name, account name, a specific signal, or a specific interaction. Be specific. No markdown. No structure. Just plain text. If the context is insufficient to say something specific, return exactly: null\n\n${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}`,
+        system: `You are preparing the user for their next meeting. Based on the context, generate a 1-2 sentence summary of the situation and what to focus on. You MUST reference at least one of: the item name, account name, a specific signal, or a specific interaction. Be specific. No markdown. No structure. Just plain text. If the context is insufficient to say something specific, return exactly: null\n\n${getDomainPromptBlock(userDomainProfile)}`,
         messages: [{ role: 'user', content: userPrompt }],
       });
       const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
@@ -279,7 +304,7 @@ If no contacts: 'No contacts logged — add them in the deal drawer.'
     const stream = await anthropic.messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 800,
-      system: `You are preparing the user for a meeting or conversation. Generate a concise, specific meeting brief using ONLY the information provided. Do not invent details. Do not use generic advice. Every point must be specific to this situation and these people. Be direct. No filler.\n\n${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}`,
+      system: `You are preparing the user for a meeting or conversation. Generate a concise, specific meeting brief using ONLY the information provided. Do not invent details. Do not use generic advice. Every point must be specific to this situation and these people. Be direct. No filler.\n\n${getDomainPromptBlock(userDomainProfile)}`,
       messages: [{ role: 'user', content: userPrompt }],
     });
 

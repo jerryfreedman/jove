@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
-import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
+import { getDomainPromptBlock, resolveUserDomainProfile } from '@/lib/semantic-labels';
 
 export const maxDuration = 30;
 
@@ -49,9 +49,9 @@ export async function POST(request: NextRequest) {
         }
       );
 
-      // Fetch deal context, voice profile, and signals in parallel
+      // Fetch deal context, voice profile, signals, and domain in parallel
       // Session 5: fetch more interactions for prioritization (8 → pick best 5)
-      const [dealRes, interactionsRes, voiceRes, kbRes, signalsRes] = await Promise.all([
+      const [dealRes, interactionsRes, voiceRes, kbRes, signalsRes, userDomainRes] = await Promise.all([
         supabase
           .from('deals')
           .select('*, accounts(*, contacts(*))')
@@ -83,8 +83,15 @@ export async function POST(request: NextRequest) {
           .gte('confidence_score', 0.6)
           .order('created_at', { ascending: false })
           .limit(15),
+        // Session 10: Fetch persisted domain_key
+        supabase
+          .from('users')
+          .select('domain_key')
+          .eq('id', userId)
+          .single(),
       ]);
 
+      const userDomainProfile = resolveUserDomainProfile(userDomainRes.data?.domain_key);
       const deal = dealRes.data;
       const account = deal?.accounts as { name: string; contacts?: Array<{
         name: string; title: string | null; is_champion: boolean;
@@ -199,7 +206,7 @@ Subject: [subject line]
 
 [email body]
 
-${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}
+${getDomainPromptBlock(userDomainProfile)}
 
 CURRENT CONTEXT:
 Item: ${deal?.name ?? 'Unknown'}

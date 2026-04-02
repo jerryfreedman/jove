@@ -1,10 +1,12 @@
 // lib/semantic-labels.ts
-// SESSION 3 — Semantic Layer
+// SESSION 3 + SESSION 10 — Semantic Layer
 // Provides adaptive labels based on user domain profile.
 // Internal system names (deals, contacts, accounts) never change.
 // Only displayed text adapts.
+// Session 10: Now reads persisted domain_key, no longer hardcoded sales.
 
 import type { UserDomainProfile, UserDomainKey } from '@/lib/types';
+import { resolveDomainKey } from '@/lib/domain';
 
 // ── DOMAIN PRESETS ──────────────────────────────────────────
 const DOMAIN_PRESETS: Record<UserDomainKey, Omit<UserDomainProfile, 'domain'>> = {
@@ -46,7 +48,7 @@ export const DEFAULT_DOMAIN_PROFILE: UserDomainProfile = {
 
 // ── BUILD PROFILE FROM DOMAIN KEY ───────────────────────────
 export function buildDomainProfile(domain: UserDomainKey): UserDomainProfile {
-  const preset = DOMAIN_PRESETS[domain] ?? DOMAIN_PRESETS.sales;
+  const preset = DOMAIN_PRESETS[domain] ?? DOMAIN_PRESETS.custom;
   return { domain, ...preset };
 }
 
@@ -59,13 +61,13 @@ export function getEntityLabel(
 ): string {
   switch (type) {
     case 'primary':
-      return profile.primaryEntityLabel || 'Deals';
+      return profile.primaryEntityLabel || 'Items';
     case 'contact':
-      return profile.contactLabel || 'Contacts';
+      return profile.contactLabel || 'People';
     case 'account':
-      return profile.accountLabel || 'Accounts';
+      return profile.accountLabel || 'Organizations';
     default:
-      return 'Deals';
+      return 'Items';
   }
 }
 
@@ -126,4 +128,11 @@ Use the following language when referring to the user's data:
 - Organizations: ${profile.accountLabel} (singular: ${getEntityLabelSingular('account', profile)})
 Always prefer these terms over internal system names like "deals", "contacts", or "accounts".
 Do not overuse domain labels — keep language natural.`.trim();
+}
+
+// ── SESSION 10: RESOLVE PROFILE FROM RAW VALUE ─────────────
+// Safely builds a domain profile from any raw domain_key value.
+// Falls back to 'custom' (never 'sales') if invalid/missing.
+export function resolveUserDomainProfile(rawDomainKey: unknown): UserDomainProfile {
+  return buildDomainProfile(resolveDomainKey(rawDomainKey));
 }

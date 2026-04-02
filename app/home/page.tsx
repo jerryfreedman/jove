@@ -30,6 +30,8 @@ import {
   formatTime,
   COLORS,
 } from '@/lib/design-system';
+import { buildDomainProfile } from '@/lib/semantic-labels';
+import { resolveDomainKey } from '@/lib/domain';
 import { PULSE_CHECK_DEFAULT_DAYS } from '@/lib/constants';
 import { getFractionalHour, getInterpolatedScene } from '@/lib/scene-interpolation';
 import {
@@ -2281,6 +2283,7 @@ function HomePageInner() {
           allDeals={data?.allDeals ?? []}
           urgentDeals={data?.urgentDeals ?? []}
           meetings={data?.meetings ?? []}
+          domainProfile={data?.user ? buildDomainProfile(resolveDomainKey(data.user.domain_key)) : undefined}
           userId={data?.user?.id ?? null}
           items={activeItems}
           people={people}

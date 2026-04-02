@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { anthropic, CLAUDE_MODEL } from '@/lib/anthropic';
 import { SUPABASE_URL } from '@/lib/constants';
 import { getCached, setCached } from '@/lib/context-cache';
-import { DEFAULT_DOMAIN_PROFILE, getDomainPromptBlock } from '@/lib/semantic-labels';
+import { getDomainPromptBlock, resolveUserDomainProfile } from '@/lib/semantic-labels';
 // Session 15A: Decision engine
 import { decideFromInput, type DecisionOutput } from '@/lib/intelligence/decide';
 // Session 15B: Chat ingestion
@@ -115,6 +115,31 @@ export async function POST(request: NextRequest) {
         // Decision engine is pure computation — failures are non-critical
       }
     }
+
+    // Session 10: Fetch persisted domain_key (always — small query, not cached)
+    const domainCookieStore = await cookies();
+    const domainSupabase = createServerClient(
+      SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return domainCookieStore.getAll(); },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                domainCookieStore.set(name, value, options)
+              );
+            } catch {}
+          },
+        },
+      }
+    );
+    const { data: domainRow } = await domainSupabase
+      .from('users')
+      .select('domain_key')
+      .eq('id', userId)
+      .single();
+    const userDomainProfile = resolveUserDomainProfile(domainRow?.domain_key);
 
     // Session 5: Context cache for data context (keyed by dealId or 'general')
     // Only caches the data block (deals, signals, voice, KB) — NOT the responseContext,
@@ -403,7 +428,7 @@ Subject: [subject line]
 
 Your goal: feel like a system that knows the user, remembers everything, and helps them move forward.
 
-${getDomainPromptBlock(DEFAULT_DOMAIN_PROFILE)}
+${getDomainPromptBlock(userDomainProfile)}
 ${dataContextBlock}`;
 
     // Cap messages — keep last 20
