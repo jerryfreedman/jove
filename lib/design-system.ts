@@ -417,17 +417,18 @@ export const MOMENTUM = {
 } as const;
 
 /** Empty state messages — calm, positive, grounded */
+// Session 6: Compressed messages — shorter, scannable.
 export const EMPTY_MESSAGES = {
   allClear: [
-    "You're in a good place",
-    "Nothing urgent right now",
-    "All caught up",
-    "Clear ahead",
+    'All clear.',
+    'Nothing urgent.',
+    'Caught up.',
+    'Clear ahead.',
   ],
   returnPrompt: [
-    "Welcome back",
-    "Ready when you are",
-    "Picked up where you left off",
+    'Welcome back.',
+    'Ready when you are.',
+    'Picked up where you left off.',
   ],
   /** Get a deterministic-feeling but varied message */
   get: (list: readonly string[]) => {
@@ -438,9 +439,9 @@ export const EMPTY_MESSAGES = {
 
 /** Return incentive — what changed since last visit */
 export const RETURN_LABELS = {
-  upToDate: "You're up to date",
-  thingsToCheck: (n: number) => n === 1 ? '1 thing to check' : `${n} things to check`,
-  progress: (n: number) => n === 1 ? '1 thing moved forward' : `${n} things moved forward`,
+  upToDate: 'Up to date.',
+  thingsToCheck: (n: number) => n === 1 ? '1 to check' : `${n} to check`,
+  progress: (n: number) => n === 1 ? '1 moved forward' : `${n} moved forward`,
 } as const;
 
 // SESSION 2 + 14C + 14E COMPLETE

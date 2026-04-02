@@ -57,38 +57,30 @@ export function getOfflineAwareAcknowledgment(opts: AcknowledgmentOptions): stri
   if (bucket === 'question') return '';
 
   // ── OFFLINE / UNCERTAIN STATE ─────────────────────────────
+  // Session 6: Compressed acknowledgments
   if (syncState === 'offline') {
-    return 'Captured. I\'ll update your workspace when sync resumes.';
+    return 'Captured. Will sync.';
   }
 
   if (syncState === 'pending') {
-    return 'Saved. Updating your workspace…';
+    return 'Saved. Syncing…';
   }
 
   // ── CONFIRMED STATE ───────────────────────────────────────
   // Only claim visibility if we know it's reflected
   switch (bucket) {
+    // Session 6: Shorter confirmations — no "I'll keep this in your focus"
     case 'existing_deal_update':
-      if (dealName) {
-        return isReflectedInUI
-          ? `Logged to ${dealName}. I'll keep this in your focus.`
-          : `Logged to ${dealName}.`;
-      }
+      if (dealName) return `Logged to ${dealName}.`;
       return 'Logged.';
 
     case 'meeting_context':
-      if (meetingTitle) {
-        return isReflectedInUI
-          ? `Logged to ${meetingTitle}. I'll keep this in your focus.`
-          : `Logged to ${meetingTitle}.`;
-      }
+      if (meetingTitle) return `Logged to ${meetingTitle}.`;
       if (dealName) return `Logged for ${dealName}.`;
       return 'Logged.';
 
     case 'general_intel':
-      return isReflectedInUI
-        ? 'Added. I\'ll keep this in your focus.'
-        : 'Captured.';
+      return 'Captured.';
 
     case 'new_deal':
       return 'Tracked.';
@@ -153,5 +145,6 @@ export function getBirdAcknowledgment(syncState: SyncState): string {
  * Never imply success when persistence failed.
  */
 export function getFailureAcknowledgment(): string {
-  return 'Having trouble saving this — retrying…';
+  // Session 6: Compressed
+  return 'Save failed — retrying…';
 }

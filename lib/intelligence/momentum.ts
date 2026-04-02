@@ -333,25 +333,26 @@ export interface MomentumTone {
 export function getMomentumTone(): MomentumTone {
   const { state, score } = getMomentum();
 
+  // Session 6: Compressed momentum headlines
   switch (state) {
     case 'stalled':
       return {
-        headline: score === 0 ? null : 'Let\'s get one thing moving.',
+        headline: score === 0 ? null : 'Get one thing moving.',
         isSettled: false,
       };
     case 'in_progress':
       return {
-        headline: 'You\'ve started — keep pushing.',
+        headline: 'Started — keep going.',
         isSettled: false,
       };
     case 'moving':
       return {
-        headline: 'Things are progressing.',
+        headline: 'Progressing.',
         isSettled: false,
       };
     case 'clear':
       return {
-        headline: 'You\'re in a good spot.',
+        headline: 'In a good spot.',
         isSettled: true,
       };
   }

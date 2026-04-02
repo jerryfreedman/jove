@@ -124,12 +124,12 @@ function candidatesFromUrgentTasks(tasks: DisplayTask[]): RankedAction[] {
       const h = hoursUntil(t.dueAt);
       if (h > 0) {
         score = SCORE.DUE_TODAY_BASE;
-        reason = h <= 4 ? 'Due in a few hours' : 'Due today';
+        // Session 6: Compressed reasons
+        reason = h <= 4 ? `Due in ${Math.round(h)}h` : 'Due today';
       } else {
-        // More overdue = higher score
         const overHours = Math.abs(h);
         score = SCORE.OVERDUE_BASE + Math.min(overHours, 48);
-        reason = overHours > 24 ? 'Overdue by more than a day' : 'Overdue';
+        reason = overHours > 24 ? 'Overdue 1d+' : 'Overdue';
       }
     }
 
@@ -177,9 +177,10 @@ function candidatesFromDueSoonTasks(tasks: DisplayTask[]): RankedAction[] {
 function candidatesFromBlockedItems(items: ItemRow[]): RankedAction[] {
   return items.map(i => {
     const score = SCORE.BLOCKER_BASE;
+    // Session 6: Compressed reason strings
     const reason = i.status === 'waiting'
-      ? 'Waiting — needs follow-up'
-      : 'Paused — needs unblocking';
+      ? 'Needs follow-up'
+      : 'Needs unblocking';
 
     return {
       id: `blocker-${i.id}`,
@@ -199,9 +200,10 @@ function candidatesFromPrepNeeds(meetings: MeetingRow[]): RankedAction[] {
     const h = hoursUntil(m.scheduled_at);
     const isImminent = h <= 4;
     const score = isImminent ? SCORE.PREP_IMMINENT_BASE : SCORE.PREP_NEAR_BASE;
+    // Session 6: Short reason — no redundancy with title
     const reason = isImminent
-      ? `${m.title} in ${Math.round(h)}h — no prep yet`
-      : `No prep yet for ${m.title}`;
+      ? `In ${Math.round(h)}h — no prep`
+      : 'No prep yet';
 
     return {
       id: `prep-${m.id}`,
@@ -228,7 +230,8 @@ function candidatesFromStaleItems(items: ItemRow[]): RankedAction[] {
     // But if they're very old with no context, penalize
     if (!i.notes && days > 21) score += SCORE.STALE_LOW_SIGNAL_PENALTY;
 
-    const reason = `${days}d without progress`;
+    // Session 6: Compressed
+    const reason = `${days}d stale`;
 
     return {
       id: `review-${i.id}`,
@@ -375,7 +378,7 @@ export function rankNextActions(input: PrioritizationInput): PrioritizationResul
     ...candidatesFromStaleItems(truthState.activeItemsNeedingProgress),
   ];
 
-  reasoning.push(`Generated ${candidates.length} candidate actions`);
+  reasoning.push(`${candidates.length} candidates`);
 
   // ── 2. Suppress duplicates ────────────────────────────────
   const beforeDedup = candidates.length;
@@ -385,7 +388,7 @@ export function rankNextActions(input: PrioritizationInput): PrioritizationResul
 
   const suppressed = beforeDedup - candidates.length;
   if (suppressed > 0) {
-    reasoning.push(`Suppressed ${suppressed} duplicate/conflicting actions`);
+    reasoning.push(`${suppressed} suppressed`);
   }
 
   // ── 3. Apply time-of-day tie-breakers ─────────────────────
@@ -399,13 +402,14 @@ export function rankNextActions(input: PrioritizationInput): PrioritizationResul
   const secondaryActions = candidates.slice(1, 3); // up to 2
 
   if (primaryAction) {
-    reasoning.push(`Primary: "${primaryAction.title}" (score ${primaryAction.priorityScore}, reason: ${primaryAction.reason})`);
+    // Session 6: Compressed reasoning
+    reasoning.push(`Primary: "${primaryAction.title}" [${primaryAction.priorityScore}]`);
   } else {
-    reasoning.push('No strong primary action — system is in clear state');
+    reasoning.push('Clear — no primary action');
   }
 
   for (const s of secondaryActions) {
-    reasoning.push(`Secondary: "${s.title}" (score ${s.priorityScore})`);
+    reasoning.push(`+${s.title} [${s.priorityScore}]`);
   }
 
   return {

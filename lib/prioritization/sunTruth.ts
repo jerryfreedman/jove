@@ -28,34 +28,35 @@ export interface SunTruthState {
 // ── HEADLINE POOLS ──────────────────────────────────────────
 // Decisive. Not wordy. The system should feel like it knows.
 
+// Session 6: Compressed headlines — 3–6 words, scannable at a glance.
 const URGENT_HEADLINES = [
-  "You've still got one thing to handle.",
-  'Something needs your attention.',
-  "There's something to take care of.",
+  'One thing to handle.',
+  'Needs your attention.',
+  'Something to take care of.',
 ] as const;
 
 const TENSION_HEADLINES = [
-  "There's a blocker worth addressing.",
-  'Something is waiting on you.',
-  'One thing is stuck.',
+  'Something is stuck.',
+  'Waiting on you.',
+  'A blocker to address.',
 ] as const;
 
 const NEXT_MOVE_HEADLINES = [
-  'There\u2019s a next move ready.',
+  'Next move ready.',
   'One thing to focus on.',
-  'You\u2019ve got a clear next step.',
+  'Clear next step.',
 ] as const;
 
 const IN_MOTION_HEADLINES = [
-  'A few things are still in motion.',
-  'Things are moving along.',
-  'Some things are still open.',
+  'Things in motion.',
+  'Moving along.',
+  'A few things open.',
 ] as const;
 
 const CLEAR_HEADLINES = [
-  'You\u2019re in a good spot.',
-  'Nothing pressing right now.',
   'All clear.',
+  'Nothing pressing.',
+  'You\u2019re set.',
 ] as const;
 
 // ── HEADLINE SELECTION ──────────────────────────────────────
@@ -79,11 +80,12 @@ function applyMomentumTone(
   stateKey: SunTruthState['stateKey'],
 ): string {
   // Only modify if momentum is high and state is not urgent/tension
+  // Session 6: Shorter momentum-tone overrides
   if (momentumState === 'clear' && stateKey === 'in_motion') {
-    return 'Things are progressing well.';
+    return 'Progressing well.';
   }
   if (momentumState === 'moving' && stateKey === 'clear') {
-    return 'You moved things forward today.';
+    return 'Moved things forward.';
   }
   // Otherwise: truth headline stands
   return headline;

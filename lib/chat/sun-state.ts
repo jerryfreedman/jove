@@ -43,13 +43,14 @@ export function evaluateSunState(input: SunEvalInput): SunState {
   const { pendingTaskCount, urgentTaskCount, upcomingPrepCount, hasBlockers, completedTodayCount } = input;
 
   // ── URGENT: Blockers or urgent tasks ──────────────────────
+  // Session 6: All headlines compressed — 3–6 words, scannable.
   if (hasBlockers || urgentTaskCount > 0) {
     const count = urgentTaskCount + (hasBlockers ? 1 : 0);
     return {
       level: 'urgent',
       headline: count === 1
-        ? 'One thing needs your attention.'
-        : `${count} things need your attention.`,
+        ? 'Needs your attention.'
+        : `${count} things need attention.`,
       isSettled: false,
     };
   }
@@ -59,7 +60,7 @@ export function evaluateSunState(input: SunEvalInput): SunState {
     return {
       level: 'active',
       headline: upcomingPrepCount === 1
-        ? 'You have a meeting to prep for.'
+        ? 'Meeting needs prep.'
         : `${upcomingPrepCount} meetings need prep.`,
       isSettled: false,
     };
@@ -68,11 +69,9 @@ export function evaluateSunState(input: SunEvalInput): SunState {
   if (pendingTaskCount > 0) {
     // Session 16A: Let momentum tone influence active state headlines
     // PATCH: Only use momentum headlines that acknowledge ongoing work.
-    // A "settled" tone (e.g. "You're in a good spot") must never appear
-    // when tasks are still pending — that contradicts reality.
+    // A "settled" tone must never appear when tasks are still pending.
     const tone = getMomentumTone();
     if (tone.headline && !tone.isSettled && pendingTaskCount <= 3) {
-      // Momentum is progressing — reflect that even with pending items
       return {
         level: 'active',
         headline: tone.headline,
@@ -80,7 +79,6 @@ export function evaluateSunState(input: SunEvalInput): SunState {
       };
     }
 
-    // Vary language based on count
     if (pendingTaskCount === 1) {
       return {
         level: 'active',
@@ -91,32 +89,31 @@ export function evaluateSunState(input: SunEvalInput): SunState {
     if (pendingTaskCount <= 3) {
       return {
         level: 'active',
-        headline: 'A few things to handle.',
+        headline: 'A few things open.',
         isSettled: false,
       };
     }
     return {
       level: 'active',
-      headline: `You've got ${pendingTaskCount} things on your plate.`,
+      headline: `${pendingTaskCount} things on your plate.`,
       isSettled: false,
     };
   }
 
   // ── CLEAR: Nothing pending ────────────────────────────────
-  // Session 16A: Use momentum tone when available
   const tone = getMomentumTone();
 
   if (completedTodayCount > 0) {
     return {
       level: 'clear',
-      headline: tone.headline ?? 'You\'re clear for now.',
+      headline: tone.headline ?? 'Clear for now.',
       isSettled: true,
     };
   }
 
   return {
     level: 'clear',
-    headline: tone.headline ?? 'You\'re set for the day.',
+    headline: tone.headline ?? 'All clear.',
     isSettled: true,
   };
 }

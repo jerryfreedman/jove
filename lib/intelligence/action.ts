@@ -67,10 +67,10 @@ export function toAction(text: string): string {
     action = action.charAt(0).toUpperCase() + action.slice(1);
   }
 
-  // Enforce max ~8 words for readability (soft limit)
+  // Session 6: Enforce max 6 words for scannability (hard limit, down from 8)
   const words = action.split(/\s+/);
-  if (words.length > 8) {
-    action = words.slice(0, 8).join(' ');
+  if (words.length > 6) {
+    action = words.slice(0, 6).join(' ');
   }
 
   // Session 15C: Hard quality rules
@@ -150,12 +150,12 @@ export function normalizeActions(texts: string[]): string[] {
   result.sort((a, b) => {
     const aWords = a.split(/\s+/).length;
     const bWords = b.split(/\s+/).length;
-    // Prefer 3-8 word actions (ideal range)
-    const aIdeal = aWords >= 3 && aWords <= 8 ? 1 : 0;
-    const bIdeal = bWords >= 3 && bWords <= 8 ? 1 : 0;
+    // Session 6: Prefer 3–6 word actions (compressed ideal range)
+    const aIdeal = aWords >= 3 && aWords <= 6 ? 1 : 0;
+    const bIdeal = bWords >= 3 && bWords <= 6 ? 1 : 0;
     if (aIdeal !== bIdeal) return bIdeal - aIdeal;
-    // Prefer actions with more specificity (more words, up to 8)
-    return Math.min(bWords, 8) - Math.min(aWords, 8);
+    // Prefer actions with more specificity (more words, up to 6)
+    return Math.min(bWords, 6) - Math.min(aWords, 6);
   });
 
   return result.slice(0, 3);

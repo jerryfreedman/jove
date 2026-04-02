@@ -45,6 +45,7 @@ import {
 } from '@/lib/intelligence/momentum';
 import type { RankedAction, PrioritizationResult } from '@/lib/prioritization/rankNextActions';
 import type { SunTruthState } from '@/lib/prioritization/sunTruth';
+import { compressReason, compressText } from '@/lib/output/compressState';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -962,7 +963,7 @@ export default function ControlSurface({
                 display: 'block',
               }}
             >
-              {primary.reason}
+              {compressReason(primary.reason)}
             </span>
           )}
         </div>
@@ -1004,7 +1005,7 @@ export default function ControlSurface({
                       display: 'block',
                     }}
                   >
-                    {action.reason}
+                    {compressReason(action.reason)}
                   </span>
                 )}
               </div>
@@ -1100,7 +1101,7 @@ export default function ControlSurface({
               lineHeight: 1.5,
             }}
           >
-            {momentumStatusLine}
+            {compressText(momentumStatusLine, 60)}
           </span>
         </div>
       </div>
@@ -1169,13 +1170,14 @@ export default function ControlSurface({
   );
 
   // ── SESSION 15A: ACTION-FIRST EMPTY STATE ──────────────────
+  // Session 6: Compressed empty state — short and scannable.
   const renderEmptyState = () => {
     const mainMessage = isLowDataState
       ? 'Start here.'
       : 'All clear.';
     const subMessage = isLowDataState
-      ? 'Add what you\u2019re working on'
-      : 'Nothing to act on right now.';
+      ? 'Add what you\u2019re working on.'
+      : 'Nothing to act on.';
 
     return (
       <div
