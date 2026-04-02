@@ -107,6 +107,47 @@ interface SurfaceItem {
   _sortKey: number;
 }
 
+// ── SESSION 8: STATUS ICONS ─────────────────────────────────
+// Lightweight SVG icons for state-driven rows.
+
+const StatusIcon = ({ type }: { type: 'blocked' | 'upcoming' | 'waiting' | 'active' }) => {
+  const size = 14;
+  const common = { width: size, height: size, viewBox: '0 0 14 14', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' } as const;
+
+  switch (type) {
+    case 'blocked':
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="5.5" stroke={COLORS.red} strokeWidth="1" strokeOpacity="0.5" />
+          <line x1="4.5" y1="7" x2="9.5" y2="7" stroke={COLORS.red} strokeWidth="1" strokeOpacity="0.6" />
+        </svg>
+      );
+    case 'upcoming':
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="5.5" stroke={COLORS.teal} strokeWidth="1" strokeOpacity="0.5" />
+          <polyline points="7,4 7,7.5 9.5,7.5" stroke={COLORS.teal} strokeWidth="1" strokeOpacity="0.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case 'waiting':
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="5.5" stroke={COLORS.amber} strokeWidth="1" strokeOpacity="0.4" />
+          <circle cx="4.5" cy="7" r="0.8" fill={COLORS.amber} fillOpacity="0.5" />
+          <circle cx="7" cy="7" r="0.8" fill={COLORS.amber} fillOpacity="0.5" />
+          <circle cx="9.5" cy="7" r="0.8" fill={COLORS.amber} fillOpacity="0.5" />
+        </svg>
+      );
+    case 'active':
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="2" fill={COLORS.green} fillOpacity="0.4" />
+        </svg>
+      );
+  }
+};
+
 // ── HELPERS ────────────────────────────────────────────────
 
 function formatMeetingTime(dateStr: string): string {
@@ -159,6 +200,14 @@ function getDaysSince(dateStr: string): number {
 function isWithinHours(dateStr: string, hours: number): boolean {
   const diff = new Date(dateStr).getTime() - Date.now();
   return diff > 0 && diff <= hours * 60 * 60 * 1000;
+}
+
+// ── SESSION 8: Derive active item status ────────────────────
+function deriveActiveStatus(deal: DealWithAccount, now: Date): 'blocked' | 'upcoming' | 'waiting' | 'active' {
+  if (deal.snoozed_until && new Date(deal.snoozed_until) > now) return 'waiting';
+  const days = getDaysSince(deal.last_activity_at);
+  if (days > 14) return 'blocked';
+  return 'active';
 }
 
 // ── COMPONENT ──────────────────────────────────────────────
@@ -497,14 +546,12 @@ export default function ControlSurface({
 
     for (const deal of remainingDeals) {
       const days = getDaysSince(deal.last_activity_at);
-      // Neutral status: active, waiting, done — no CRM stage labels
-      const status = deal.snoozed_until && new Date(deal.snoozed_until) > now
-        ? 'waiting'
-        : 'active';
+      // Session 8: State-driven status instead of flat label
+      const status = deriveActiveStatus(deal, now);
       activeItems.push({
         id: `deal-${deal.id}`,
         title: deal.name,
-        subtitle: status === 'waiting' ? 'waiting' : undefined,
+        subtitle: status === 'waiting' ? 'waiting' : status === 'blocked' ? `${days}d stale` : undefined,
         time: days === 0 ? 'today' : `${days}d`,
         emphasis: false,
         onClick: () => openSurface('deal-detail', { dealId: deal.id }),
@@ -570,6 +617,9 @@ export default function ControlSurface({
 
   const { isLowDataState } = priority;
   const hasContent = attention.length > 0 || next.length > 0 || active.length > 0 || people.length > 0;
+  // Session 8: Include prioritization primary action in content check
+  const hasPrimaryAction = !!prioritization?.primaryAction;
+  const hasAnything = hasContent || hasPrimaryAction;
 
   // ── Task actions (done/skip) ──
   const handleTaskDone = async (taskId: string, e: React.MouseEvent) => {
@@ -605,18 +655,6 @@ export default function ControlSurface({
     if (ok) refetchTasks();
   };
 
-  // ── SESSION 14D: UNIFIED ROW RENDERER ─────────────────────
-  // Every row is identical: title + subtitle + time + actions.
-  // Consistent across all sections. Tighter density.
-
-  const ROW_STYLE = {
-    background: 'rgba(240,235,224,0.025)',
-    border: '0.5px solid rgba(240,235,224,0.04)',
-    borderRadius: 12,
-    padding: '10px 13px',
-    transition: TRANSITIONS.row,
-  } as const;
-
   // ── Session 18 Patch: Derive capture context from item ID ──
   const deriveItemContext = (item: SurfaceItem) => {
     const ctxType = item.id.startsWith('meeting-') ? 'event' as const
@@ -629,39 +667,60 @@ export default function ControlSurface({
     return { ctxType, rawId, confidence };
   };
 
-  const renderRow = (item: SurfaceItem) => {
+  // ── SESSION 8: ROW STYLES ────────────────────────────────
+  // Unified row with status icons and tighter density.
+
+  const ROW_STYLE = {
+    background: 'rgba(240,235,224,0.025)',
+    border: '0.5px solid rgba(240,235,224,0.04)',
+    borderRadius: 12,
+    padding: '10px 13px',
+    transition: `${TRANSITIONS.row}, transform ${TIMING.FAST}ms ${EASING.standard}, box-shadow ${TIMING.STANDARD}ms ${EASING.gentle}`,
+  } as const;
+
+  // ── Session 18: Row tap opens capture ──
+  const handleRowTap = (item: SurfaceItem) => {
+    if (!onOpenCapture) {
+      item.onClick?.();
+      return;
+    }
+    const { ctxType, rawId, confidence } = deriveItemContext(item);
+    handleClose();
+    setTimeout(() => {
+      onOpenCapture({
+        title: item.title,
+        subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' \u00b7 ' : ''}${item.time ?? ''}` : undefined,
+        contextType: ctxType,
+        contextId: rawId,
+        contextConfidence: confidence,
+      });
+    }, CLOSE_DELAY + 40);
+  };
+
+  // ── SESSION 8: UNIFIED ROW RENDERER ──────────────────────
+  // Every row: title + subtitle + time + actions + status icon.
+  // Staggered entrance animation via index.
+
+  const renderRow = (item: SurfaceItem, index: number = 0, showStatusIcon: boolean = false) => {
     const isPending = item.taskActions ? taskActionPending === item.taskActions.taskId : false;
     const isCompleted = item.taskActions ? completedIds.has(item.taskActions.taskId) : false;
     const isMeeting = item.id.startsWith('meeting-');
     const meetingId = isMeeting ? item.id.replace('meeting-', '') : null;
     const isExpanded = meetingId ? expandedMeetingId === meetingId : false;
 
-    // Session 18 Patch: Primary tap = open capture (action mode).
-    // Navigation moves to secondary chevron affordance.
-    const handleRowTap = () => {
-      if (!onOpenCapture) {
-        // Fallback: if no capture handler, use original navigation
-        item.onClick?.();
-        return;
-      }
-      const { ctxType, rawId, confidence } = deriveItemContext(item);
-      handleClose();
-      setTimeout(() => {
-        onOpenCapture({
-          title: item.title,
-          subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' \u00b7 ' : ''}${item.time ?? ''}` : undefined,
-          contextType: ctxType,
-          contextId: rawId,
-          contextConfidence: confidence,
-        });
-      }, CLOSE_DELAY + 40);
-    };
+    // Session 8: Derive status for icon
+    const statusType: 'blocked' | 'upcoming' | 'waiting' | 'active' = (() => {
+      if (item.subtitle === 'waiting') return 'waiting';
+      if (item.subtitle?.includes('stale')) return 'blocked';
+      if (isMeeting) return 'upcoming';
+      return 'active';
+    })();
 
     return (
       <div
         key={item.id}
         className="jove-tap"
-        onClick={handleRowTap}
+        onClick={() => handleRowTap(item)}
         style={{
           ...ROW_STYLE,
           borderColor: isCompleted
@@ -673,37 +732,45 @@ export default function ControlSurface({
             ? (isFirstCompletionToday && sessionCompletions === 1
               ? 'firstCompletionGlow 700ms ease forwards'
               : 'completionGlow 700ms ease forwards')
-            : undefined,
+            : `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} ${index * 40}ms both`,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 400,
-                color: 'rgba(252,246,234,0.88)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                display: 'block',
-              }}
-            >
-              {item.title}
-            </span>
-            {item.subtitle && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+            {/* Session 8: Status icon for active items */}
+            {showStatusIcon && (
+              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                <StatusIcon type={statusType} />
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
               <span
                 style={{
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: 400,
-                  color: 'rgba(240,235,224,0.28)',
-                  marginTop: 1,
+                  color: 'rgba(252,246,234,0.88)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                   display: 'block',
                 }}
               >
-                {item.subtitle}
+                {item.title}
               </span>
-            )}
+              {item.subtitle && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 400,
+                    color: 'rgba(240,235,224,0.28)',
+                    marginTop: 1,
+                    display: 'block',
+                  }}
+                >
+                  {item.subtitle}
+                </span>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -809,6 +876,7 @@ export default function ControlSurface({
               paddingTop: 8,
               borderTop: '0.5px solid rgba(240,235,224,0.04)',
               flexWrap: 'wrap',
+              animation: `s8FadeIn ${TIMING.FAST}ms ${EASING.standard} both`,
             }}
           >
             <button
@@ -868,8 +936,8 @@ export default function ControlSurface({
     );
   };
 
-  // ── SECTION RENDERERS ──────────────────────────────────
-  // Consistent header style. Tighter spacing. Sections collapse if empty.
+  // ── SESSION 8: SECTION HEADER ─────────────────────────────
+  // Consistent, minimal. Tighter spacing.
 
   const SECTION_HEADER = {
     fontSize: 10,
@@ -880,10 +948,11 @@ export default function ControlSurface({
     paddingLeft: 2,
   };
 
-  // ── SESSION 5: "DO THIS NEXT" SECTION ───────────────────
-  // Driven by prioritization engine output.
-  // Shows one dominant primary action + up to two secondaries.
-  // Every action is tappable into UniversalCapture in action mode.
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: "DO THIS NEXT" — DOMINANT PRIMARY CARD
+  // ══════════════════════════════════════════════════════════
+  // The system's single recommendation. Larger than everything else.
+  // Visually distinct. Feels like a recommendation, not a list item.
 
   const mapRankedActionContextType = (a: RankedAction): 'task' | 'item' | 'person' | 'event' | 'meeting' | 'deal' | 'none' => {
     if (!a.contextType) return 'none';
@@ -911,73 +980,75 @@ export default function ControlSurface({
     const secondaries = prioritization.secondaryActions;
 
     return (
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ ...SECTION_HEADER, color: COLORS.amber }}>
+      <div style={{
+        marginBottom: 20,
+        animation: `s8FadeIn ${TIMING.SLOW}ms ${EASING.standard} both`,
+      }}>
+        {/* Section label */}
+        <div style={{ ...SECTION_HEADER, color: COLORS.amber, marginBottom: 10 }}>
           DO THIS NEXT
         </div>
 
-        {/* Primary action — dominant card */}
+        {/* ── Primary action — DOMINANT CARD ── */}
         <div
           className="jove-tap"
           onClick={() => handleDoThisNextTap(primary)}
           style={{
-            background: 'rgba(232,160,48,0.06)',
-            border: '0.5px solid rgba(232,160,48,0.12)',
-            borderRadius: 12,
-            padding: '12px 14px',
+            background: 'linear-gradient(135deg, rgba(232,160,48,0.08) 0%, rgba(232,160,48,0.03) 100%)',
+            border: '0.5px solid rgba(232,160,48,0.16)',
+            borderRadius: 14,
+            padding: '16px 16px 14px',
             cursor: 'pointer',
-            marginBottom: secondaries.length > 0 ? 6 : 0,
-            transition: TRANSITIONS.row,
+            marginBottom: secondaries.length > 0 ? 8 : 0,
+            transition: `${TRANSITIONS.row}, box-shadow ${TIMING.STANDARD}ms ${EASING.gentle}`,
+            boxShadow: '0 2px 12px rgba(232,160,48,0.04), 0 0 0 0 transparent',
           }}
         >
+          {/* Primary title — larger, bolder */}
           <span
             style={{
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: 500,
-              color: 'rgba(252,246,234,0.92)',
+              color: 'rgba(252,246,234,0.95)',
               display: 'block',
+              lineHeight: 1.3,
+              fontFamily: FONTS.sans,
             }}
           >
             {primary.title}
           </span>
-          {primary.subtitle && (
+          {/* Subtitle — context/reason combined */}
+          {(primary.subtitle || primary.reason) && (
             <span
               style={{
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 400,
-                color: 'rgba(240,235,224,0.38)',
-                marginTop: 2,
+                color: 'rgba(240,235,224,0.40)',
+                marginTop: 4,
                 display: 'block',
+                lineHeight: 1.4,
               }}
             >
-              {primary.subtitle}
-            </span>
-          )}
-          {primary.reason && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 400,
-                color: COLORS.amberDim,
-                marginTop: 3,
-                display: 'block',
-              }}
-            >
-              {compressReason(primary.reason)}
+              {primary.subtitle ?? compressReason(primary.reason)}
             </span>
           )}
         </div>
 
-        {/* Secondary actions — lighter */}
-        {secondaries.map(action => (
+        {/* ── Secondary actions — visually subordinate ── */}
+        {secondaries.map((action, i) => (
           <div
             key={action.id}
             className="jove-tap"
             onClick={() => handleDoThisNextTap(action)}
             style={{
-              ...ROW_STYLE,
+              background: 'rgba(240,235,224,0.02)',
+              border: '0.5px solid rgba(240,235,224,0.04)',
+              borderRadius: 11,
+              padding: '9px 13px',
               cursor: 'pointer',
-              marginBottom: 4,
+              marginBottom: i < secondaries.length - 1 ? 4 : 0,
+              transition: `${TRANSITIONS.row}, transform ${TIMING.FAST}ms ${EASING.standard}`,
+              animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} ${(i + 1) * 50}ms both`,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -986,7 +1057,7 @@ export default function ControlSurface({
                   style={{
                     fontSize: 13,
                     fontWeight: 400,
-                    color: 'rgba(252,246,234,0.82)',
+                    color: 'rgba(252,246,234,0.78)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -1000,7 +1071,7 @@ export default function ControlSurface({
                     style={{
                       fontSize: 10,
                       fontWeight: 400,
-                      color: 'rgba(240,235,224,0.28)',
+                      color: 'rgba(240,235,224,0.25)',
                       marginTop: 1,
                       display: 'block',
                     }}
@@ -1009,6 +1080,8 @@ export default function ControlSurface({
                   </span>
                 )}
               </div>
+              {/* Subtle arrow indicating actionability */}
+              <span style={{ fontSize: 13, color: 'rgba(240,235,224,0.18)', flexShrink: 0 }}>›</span>
             </div>
           </div>
         ))}
@@ -1016,15 +1089,25 @@ export default function ControlSurface({
     );
   };
 
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: ATTENTION SECTION
+  // ══════════════════════════════════════════════════════════
+
   const renderAttention = () => {
     if (attention.length === 0) return null;
+    // Session 8: Skip this section if we already show "Do This Next"
+    // to avoid visual redundancy at the top
+    if (hasPrimaryAction) return null;
     return (
-      <div style={{ marginBottom: 14 }}>
+      <div style={{
+        marginBottom: 16,
+        animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} both`,
+      }}>
         <div style={{ ...SECTION_HEADER, color: COLORS.amber }}>
           {labels.needsAttention}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {attention.map(item => renderRow(item))}
+          {attention.map((item, i) => renderRow(item, i))}
         </div>
       </div>
     );
@@ -1033,54 +1116,81 @@ export default function ControlSurface({
   // Session 15A: Phase-aware section labels
   const phase = getDayPhase();
 
-  const renderNext = () => {
-    if (next.length === 0) return null;
-    const nextLabel = labels.whatsNext;
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: ACTIVE SECTION — STATE-DRIVEN GROUPING
+  // ══════════════════════════════════════════════════════════
+  // Grouped by state: blocked → upcoming → in progress/waiting.
+  // Each row gets a status icon. Entire section feels structured.
+
+  const renderActive = () => {
+    // Session 8: Merge remaining next items into active if no DO THIS NEXT
+    const activeAndNext = hasPrimaryAction
+      ? [...next, ...active]
+      : active;
+
+    if (activeAndNext.length === 0) return null;
+
     return (
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.48)' }}>
-          {nextLabel}
+      <div style={{
+        marginBottom: 16,
+        animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} 80ms both`,
+      }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.36)' }}>
+          ACTIVE
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {next.map(item => renderRow(item))}
+          {activeAndNext.map((item, i) => renderRow(item, i, true))}
         </div>
       </div>
     );
   };
 
-  const renderActive = () => {
-    if (active.length === 0) return null;
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: NEXT SECTION (only when no DO THIS NEXT)
+  // ══════════════════════════════════════════════════════════
+
+  const renderNext = () => {
+    // Session 8: When we have DO THIS NEXT, next items merge into Active
+    if (hasPrimaryAction) return null;
+    if (next.length === 0) return null;
     return (
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.32)' }}>
-          {labels.activeItems}
+      <div style={{
+        marginBottom: 16,
+        animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} 40ms both`,
+      }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.48)' }}>
+          {labels.whatsNext}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {active.map(item => renderRow(item))}
+          {next.map((item, i) => renderRow(item, i))}
         </div>
       </div>
     );
   };
+
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: PEOPLE — COLLAPSED / MINIMAL
+  // ══════════════════════════════════════════════════════════
 
   const renderPeople = () => {
     if (people.length === 0) return null;
     return (
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.28)' }}>
+      <div style={{
+        marginBottom: 14,
+        animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} 120ms both`,
+      }}>
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.24)' }}>
           {labels.people}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {people.map(item => renderRow(item))}
+          {people.map((item, i) => renderRow(item, i))}
         </div>
       </div>
     );
   };
 
   // ── 5. MOMENTUM (SESSION 16A: Real progress reflection) ────
-  // Subtle status line reflecting real forward movement.
-  // No points. No streaks. No badges. Just: how things feel.
   const renderMomentum = () => {
-    // Session 16A: Only show when there's something real to reflect
     if (!momentumStatusLine) return null;
 
     return (
@@ -1109,7 +1219,6 @@ export default function ControlSurface({
   };
 
   // ── Session 16A: Micro reinforcement feedback ──
-  // Quick, subtle text acknowledgment on meaningful completion.
   const renderReinforcement = () => {
     if (!reinforcementText) return null;
 
@@ -1127,6 +1236,7 @@ export default function ControlSurface({
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           border: '0.5px solid rgba(72,200,120,0.12)',
+          animation: `s8FadeIn ${TIMING.FAST}ms ${EASING.standard} both`,
         }}
       >
         <span
@@ -1144,7 +1254,6 @@ export default function ControlSurface({
   };
 
   // ── MINIMAL SETTINGS ACCESS ─────────────────────────────
-  // Not a nav menu. Just a single settings entry point.
   const renderSettingsAccess = () => (
     <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', paddingTop: 4 }}>
       <button
@@ -1169,42 +1278,48 @@ export default function ControlSurface({
     </div>
   );
 
-  // ── SESSION 15A: ACTION-FIRST EMPTY STATE ──────────────────
-  // Session 6: Compressed empty state — short and scannable.
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: EMPTY STATE — CALM, INTENTIONAL
+  // ══════════════════════════════════════════════════════════
+  // "You're clear." — strong, satisfying.
+  // Optional light prompt: "Anything new?"
+
   const renderEmptyState = () => {
     const mainMessage = isLowDataState
       ? 'Start here.'
-      : 'All clear.';
+      : "You're clear.";
     const subMessage = isLowDataState
       ? 'Add what you\u2019re working on.'
-      : 'Nothing to act on.';
+      : 'Anything new?';
 
     return (
       <div
         style={{
           textAlign: 'center',
-          padding: '28px 24px 20px',
+          padding: '36px 24px 24px',
+          animation: `s8FadeIn ${TIMING.SLOW}ms ${EASING.standard} both`,
         }}
       >
         <div
           style={{
             fontFamily: FONTS.serif,
-            fontSize: 17,
+            fontSize: 20,
             fontWeight: 300,
-            color: 'rgba(252,246,234,0.50)',
-            lineHeight: 1.5,
+            color: 'rgba(252,246,234,0.55)',
+            lineHeight: 1.4,
+            letterSpacing: '0.3px',
           }}
         >
           {mainMessage}
         </div>
         <div
           style={{
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 300,
-            color: 'rgba(240,235,224,0.22)',
+            color: 'rgba(240,235,224,0.20)',
             lineHeight: 1.5,
-            maxWidth: 260,
-            margin: '8px auto 0',
+            maxWidth: 240,
+            margin: '10px auto 0',
           }}
         >
           {subMessage}
@@ -1213,9 +1328,11 @@ export default function ControlSurface({
     );
   };
 
-  // ── RENDER ──────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  // SESSION 8: MAIN RENDER — STRUCTURED LAYOUT
+  // ══════════════════════════════════════════════════════════
+  // Order: DO THIS NEXT (dominant) → ACTIVE (state-driven) → minimal
   // Dynamic ordering: filled sections first, empty sections collapse.
-  // attention → next → active → people → momentum
   return (
     <>
       {/* Backdrop */}
@@ -1277,7 +1394,7 @@ export default function ControlSurface({
           />
         </div>
 
-        {/* Scrollable content — one continuous surface */}
+        {/* Scrollable content — structured surface */}
         <div
           style={{
             flex: 1,
@@ -1288,15 +1405,21 @@ export default function ControlSurface({
             WebkitOverflowScrolling: 'touch',
           }}
         >
-          {hasContent ? (
+          {hasAnything ? (
             <>
+              {/* 1. DO THIS NEXT — dominant, always first */}
               {renderDoThisNext()}
+              {/* 2. ATTENTION — only when no DO THIS NEXT */}
               {renderAttention()}
+              {/* 3. NEXT — only when no DO THIS NEXT */}
               {renderNext()}
+              {/* 4. ACTIVE — state-driven rows */}
               {renderActive()}
+              {/* 5. PEOPLE — minimal */}
               {renderPeople()}
+              {/* 6. MOMENTUM — reflective */}
               {renderMomentum()}
-              {/* Session 14F: End-of-day closure — passive, calm signal */}
+              {/* Session 14F: End-of-day closure */}
               {closureMessage && (
                 <div
                   style={{

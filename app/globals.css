@@ -198,6 +198,14 @@ body {
   to   { stroke-dashoffset: var(--progress-offset, 0); }
 }
 
+/* ── Session 8: Control Panel micro-delight ────────────────── */
+
+/* Staggered entrance for rows and cards */
+@keyframes s8FadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
