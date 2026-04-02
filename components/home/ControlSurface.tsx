@@ -49,6 +49,13 @@ import {
 import type { RankedAction, PrioritizationResult } from '@/lib/prioritization/rankNextActions';
 import type { SunTruthState } from '@/lib/prioritization/sunTruth';
 import { compressReason, compressText } from '@/lib/output/compressState';
+import {
+  getPrimaryAction,
+  type DecisionEngineOutput,
+  type PrimaryAction as PrimaryActionType,
+  type SecondaryAction as SecondaryActionType,
+  type PrimaryActionSource,
+} from '@/lib/intelligence/getPrimaryAction';
 
 // ── TYPES ──────────────────────────────────────────────────
 type DealWithAccount = DealRow & { accounts: { name: string } | null };
@@ -355,6 +362,21 @@ export default function ControlSurface({
   const effectiveTaskCount = usingFallback
     ? legacySystemTasks.length
     : (unifiedTasks?.length ?? 0);
+
+  // ── SESSION 17: DECISION ENGINE ─────────────────────────
+  // Compute primary + secondary actions across tasks, items, people.
+  // This replaces the old zone-first approach with a decision-first model.
+  const decisionEngine = useMemo<DecisionEngineOutput | null>(() => {
+    // Only run when we have DB tasks loaded (not in fallback mode)
+    if (usingFallback) return null;
+    const taskList = unifiedTasks ?? [];
+    return getPrimaryAction({
+      tasks: taskList,
+      items: itemsProp ?? [],
+      people: peopleProp ?? [],
+      now: new Date(),
+    });
+  }, [unifiedTasks, usingFallback, itemsProp, peopleProp]);
 
   // ── Task action handler ──
   const handleTaskAction = useCallback((action: TaskAction) => {
@@ -692,7 +714,9 @@ export default function ControlSurface({
   const hasContent = attention.length > 0 || next.length > 0 || active.length > 0 || people.length > 0;
   // Session 8: Include prioritization primary action in content check
   const hasPrimaryAction = !!prioritization?.primaryAction;
-  const hasAnything = hasContent || hasPrimaryAction;
+  // Session 17: Decision engine provides primary action
+  const hasDecisionEngine = !!decisionEngine && decisionEngine.primary.source !== 'clear';
+  const hasAnything = hasContent || hasPrimaryAction || hasDecisionEngine;
 
   // ── Task actions (done/skip) ──
   const handleTaskDone = async (taskId: string, e: React.MouseEvent) => {
@@ -1049,7 +1073,188 @@ export default function ControlSurface({
     }, CLOSE_DELAY + 40);
   }, [onOpenCapture, handleClose]);
 
+  // ── SESSION 17: Decision engine tap handler ──────────────
+  // Routes based on source type:
+  //   task → open capture with task context
+  //   item → open item dashboard
+  //   person → open person profile
+  //   clear → no-op
+  const handleDecisionTap = useCallback((
+    source: PrimaryActionSource,
+    sourceId: string,
+    label: string,
+    context: string,
+  ) => {
+    if (source === 'clear') return;
+
+    if (source === 'task') {
+      // Open capture with task context
+      if (onOpenCapture) {
+        handleClose();
+        setTimeout(() => {
+          onOpenCapture({
+            title: label,
+            subtitle: context,
+            contextType: 'task',
+            contextId: sourceId,
+            contextConfidence: 'high',
+          });
+        }, CLOSE_DELAY + 40);
+      }
+      return;
+    }
+
+    if (source === 'item') {
+      handleClose();
+      setTimeout(() => router.push(`/item/${sourceId}`), CLOSE_DELAY);
+      return;
+    }
+
+    if (source === 'person') {
+      handleClose();
+      setTimeout(() => router.push(`/people/${sourceId}`), CLOSE_DELAY);
+      return;
+    }
+  }, [onOpenCapture, handleClose, router]);
+
+  // ══════════════════════════════════════════════════════════
+  // SESSION 17: DECISION ENGINE — PRIMARY ACTION CARD
+  // ══════════════════════════════════════════════════════════
+  // The system's single recommendation. 1.5-2x size of secondary items.
+  // User should NOT scan — they should instantly see what to do.
+
   const renderDoThisNext = () => {
+    // Session 17: Prefer decision engine over legacy prioritization
+    if (decisionEngine) {
+      return renderDecisionEngine();
+    }
+    // Fallback to legacy ranked action system
+    if (!prioritization?.primaryAction) return null;
+    return renderLegacyDoThisNext();
+  };
+
+  const renderDecisionEngine = () => {
+    if (!decisionEngine) return null;
+    const { primary, secondaries } = decisionEngine;
+    const isClear = primary.source === 'clear';
+
+    return (
+      <div style={{
+        marginBottom: 20,
+        animation: `s8FadeIn ${TIMING.SLOW}ms ${EASING.standard} both`,
+      }}>
+        {/* ── PRIMARY ACTION — DOMINANT, CENTERED ── */}
+        <div
+          className={isClear ? undefined : 'jove-tap'}
+          onClick={isClear ? undefined : () => handleDecisionTap(primary.source, primary.sourceId, primary.label, primary.context)}
+          style={{
+            background: isClear
+              ? 'transparent'
+              : 'linear-gradient(135deg, rgba(232,160,48,0.10) 0%, rgba(232,160,48,0.03) 100%)',
+            border: isClear
+              ? 'none'
+              : '0.5px solid rgba(232,160,48,0.18)',
+            borderRadius: 16,
+            padding: isClear ? '28px 20px 20px' : '20px 18px 16px',
+            cursor: isClear ? 'default' : 'pointer',
+            marginBottom: secondaries.length > 0 ? 10 : 0,
+            textAlign: isClear ? 'center' : 'left',
+            transition: `${TRANSITIONS.row}, box-shadow ${TIMING.STANDARD}ms ${EASING.gentle}`,
+            boxShadow: isClear
+              ? 'none'
+              : '0 2px 16px rgba(232,160,48,0.05), 0 0 0 0 transparent',
+          }}
+        >
+          {/* Primary label — 1.5-2x size, highest contrast */}
+          <span
+            style={{
+              fontSize: isClear ? 22 : 19,
+              fontWeight: isClear ? 300 : 500,
+              color: isClear ? 'rgba(252,246,234,0.50)' : 'rgba(252,246,234,0.96)',
+              display: 'block',
+              lineHeight: 1.3,
+              fontFamily: isClear ? FONTS.serif : FONTS.sans,
+              letterSpacing: isClear ? '0.3px' : '-0.2px',
+            }}
+          >
+            {primary.label}
+          </span>
+          {/* Context subline */}
+          {primary.context && (
+            <span
+              style={{
+                fontSize: isClear ? 13 : 12,
+                fontWeight: isClear ? 300 : 400,
+                color: isClear ? 'rgba(240,235,224,0.22)' : 'rgba(240,235,224,0.42)',
+                marginTop: isClear ? 8 : 5,
+                display: 'block',
+                lineHeight: 1.4,
+              }}
+            >
+              {primary.context}
+            </span>
+          )}
+        </div>
+
+        {/* ── SECONDARY ACTIONS — MAX 3, LIGHTER, SMALLER ── */}
+        {secondaries.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {secondaries.map((action, i) => (
+              <div
+                key={`decision-${action.source}-${action.sourceId}-${i}`}
+                className="jove-tap"
+                onClick={() => handleDecisionTap(action.source, action.sourceId, action.label, action.context)}
+                style={{
+                  background: 'rgba(240,235,224,0.02)',
+                  border: '0.5px solid rgba(240,235,224,0.04)',
+                  borderRadius: 11,
+                  padding: '9px 13px',
+                  cursor: 'pointer',
+                  transition: `${TRANSITIONS.row}, transform ${TIMING.FAST}ms ${EASING.standard}`,
+                  animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} ${(i + 1) * 60}ms both`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 400,
+                        color: 'rgba(252,246,234,0.72)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        display: 'block',
+                      }}
+                    >
+                      {action.label}
+                    </span>
+                    {action.context && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 400,
+                          color: 'rgba(240,235,224,0.22)',
+                          marginTop: 1,
+                          display: 'block',
+                        }}
+                      >
+                        {action.context}
+                      </span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 13, color: 'rgba(240,235,224,0.16)', flexShrink: 0 }}>›</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Legacy fallback for when decision engine is not available (fallback mode)
+  const renderLegacyDoThisNext = () => {
     if (!prioritization?.primaryAction) return null;
 
     const primary = prioritization.primaryAction;
@@ -1060,12 +1265,9 @@ export default function ControlSurface({
         marginBottom: 20,
         animation: `s8FadeIn ${TIMING.SLOW}ms ${EASING.standard} both`,
       }}>
-        {/* Section label */}
         <div style={{ ...SECTION_HEADER, color: COLORS.amber, marginBottom: 10 }}>
           DO THIS NEXT
         </div>
-
-        {/* ── Primary action — DOMINANT CARD ── */}
         <div
           className="jove-tap"
           onClick={() => handleDoThisNextTap(primary)}
@@ -1080,7 +1282,6 @@ export default function ControlSurface({
             boxShadow: '0 2px 12px rgba(232,160,48,0.04), 0 0 0 0 transparent',
           }}
         >
-          {/* Primary title — larger, bolder */}
           <span
             style={{
               fontSize: 16,
@@ -1093,7 +1294,6 @@ export default function ControlSurface({
           >
             {primary.title}
           </span>
-          {/* Subtitle — context/reason combined */}
           {(primary.subtitle || primary.reason) && (
             <span
               style={{
@@ -1109,8 +1309,6 @@ export default function ControlSurface({
             </span>
           )}
         </div>
-
-        {/* ── Secondary actions — visually subordinate ── */}
         {secondaries.map((action, i) => (
           <div
             key={action.id}
@@ -1156,7 +1354,6 @@ export default function ControlSurface({
                   </span>
                 )}
               </div>
-              {/* Subtle arrow indicating actionability */}
               <span style={{ fontSize: 13, color: 'rgba(240,235,224,0.18)', flexShrink: 0 }}>›</span>
             </div>
           </div>
@@ -1171,9 +1368,9 @@ export default function ControlSurface({
 
   const renderAttention = () => {
     if (attention.length === 0) return null;
-    // Session 8: Skip this section if we already show "Do This Next"
+    // Session 8/17: Skip this section if we show decision engine or "Do This Next"
     // to avoid visual redundancy at the top
-    if (hasPrimaryAction) return null;
+    if (hasPrimaryAction || hasDecisionEngine) return null;
     return (
       <div style={{
         marginBottom: 16,
@@ -1199,8 +1396,9 @@ export default function ControlSurface({
   // Each row gets a status icon. Entire section feels structured.
 
   const renderActive = () => {
-    // Session 8: Merge remaining next items into active if no DO THIS NEXT
-    const activeAndNext = hasPrimaryAction
+    // Session 8/17: Merge remaining next items into active when decision engine is active
+    const hasTopAction = hasPrimaryAction || hasDecisionEngine;
+    const activeAndNext = hasTopAction
       ? [...next, ...active]
       : active;
 
@@ -1226,8 +1424,8 @@ export default function ControlSurface({
   // ══════════════════════════════════════════════════════════
 
   const renderNext = () => {
-    // Session 8: When we have DO THIS NEXT, next items merge into Active
-    if (hasPrimaryAction) return null;
+    // Session 8/17: When we have decision engine or DO THIS NEXT, next items merge into Active
+    if (hasPrimaryAction || hasDecisionEngine) return null;
     if (next.length === 0) return null;
     return (
       <div style={{
@@ -1361,12 +1559,18 @@ export default function ControlSurface({
   // Optional light prompt: "Anything new?"
 
   const renderEmptyState = () => {
+    // Session 17: If decision engine says clear, use its language
+    const decisionClear = decisionEngine?.primary.source === 'clear';
     const mainMessage = isLowDataState
       ? 'Start here.'
-      : "You're clear.";
+      : decisionClear
+        ? decisionEngine!.primary.label
+        : "You're clear.";
     const subMessage = isLowDataState
       ? 'Add what you\u2019re working on.'
-      : 'Anything new?';
+      : decisionClear && decisionEngine!.primary.context
+        ? decisionEngine!.primary.context
+        : 'Anything new?';
 
     return (
       <div
