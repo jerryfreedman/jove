@@ -45,6 +45,9 @@ export default function RootLayout({
         document.body.style.backgroundColor = c;
       });
     }
+    // Session 19: Sync theme-color meta to match dynamic bg for seamless status bar
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) { meta.setAttribute('content', c); }
   } catch(e) {}
 })();
 ` }} />

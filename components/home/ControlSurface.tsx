@@ -764,34 +764,60 @@ export default function ControlSurface({
     return { ctxType, rawId, confidence };
   };
 
-  // ── SESSION 8: ROW STYLES ────────────────────────────────
-  // Unified row with status icons and tighter density.
+  // ── SESSION 19: ROW STYLES — COMPACT, STRUCTURED ──────────
+  // Tighter rows, cleaner density. Feels like an execution layer, not a note list.
 
   const ROW_STYLE = {
-    background: 'rgba(240,235,224,0.025)',
-    border: '0.5px solid rgba(240,235,224,0.04)',
-    borderRadius: 12,
-    padding: '10px 13px',
+    background: 'rgba(240,235,224,0.018)',
+    border: '0.5px solid rgba(240,235,224,0.035)',
+    borderRadius: 10,
+    padding: '9px 12px',
     transition: `${TRANSITIONS.row}, transform ${TIMING.FAST}ms ${EASING.standard}, box-shadow ${TIMING.STANDARD}ms ${EASING.gentle}`,
   } as const;
 
-  // ── Session 18: Row tap opens capture ──
+  // ── Session 19: Smart row tap — route to the RIGHT destination ──
+  // Items → item dashboard, People → person profile, Tasks → capture with context
+  // NOT everything goes to generic capture anymore.
   const handleRowTap = (item: SurfaceItem) => {
-    if (!onOpenCapture) {
+    const { ctxType, rawId } = deriveItemContext(item);
+
+    // Items → open item dashboard directly
+    if (ctxType === 'item' && rawId) {
+      handleClose();
+      setTimeout(() => router.push(`/item/${rawId}`), CLOSE_DELAY);
+      return;
+    }
+
+    // People → open person profile directly
+    if (ctxType === 'person' && rawId) {
+      handleClose();
+      setTimeout(() => router.push(`/people/${rawId}`), CLOSE_DELAY);
+      return;
+    }
+
+    // Meetings → use existing onClick (toggle inline expand)
+    if (ctxType === 'event') {
       item.onClick?.();
       return;
     }
-    const { ctxType, rawId, confidence } = deriveItemContext(item);
-    handleClose();
-    setTimeout(() => {
-      onOpenCapture({
-        title: item.title,
-        subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' \u00b7 ' : ''}${item.time ?? ''}` : undefined,
-        contextType: ctxType,
-        contextId: rawId,
-        contextConfidence: confidence,
-      });
-    }, CLOSE_DELAY + 40);
+
+    // Tasks and other → open capture with context (the correct surface for logging/action)
+    if (onOpenCapture) {
+      handleClose();
+      setTimeout(() => {
+        onOpenCapture({
+          title: item.title,
+          subtitle: item.subtitle ?? item.time ? `${item.subtitle ?? ''}${item.subtitle && item.time ? ' \u00b7 ' : ''}${item.time ?? ''}` : undefined,
+          contextType: ctxType,
+          contextId: rawId,
+          contextConfidence: ctxType !== 'none' ? 'medium' : 'low',
+        });
+      }, CLOSE_DELAY + 40);
+      return;
+    }
+
+    // Fallback: use original onClick
+    item.onClick?.();
   };
 
   // ── SESSION 8: UNIFIED ROW RENDERER ──────────────────────
@@ -1059,19 +1085,38 @@ export default function ControlSurface({
     return a.contextType;
   };
 
+  // Session 19: Legacy ranked action tap — smart routing like decision engine
   const handleDoThisNextTap = useCallback((action: RankedAction) => {
-    if (!onOpenCapture) return;
-    handleClose();
-    setTimeout(() => {
-      onOpenCapture({
-        title: action.title,
-        subtitle: action.subtitle,
-        contextType: mapRankedActionContextType(action),
-        contextId: action.contextId,
-        contextConfidence: 'medium',
-      });
-    }, CLOSE_DELAY + 40);
-  }, [onOpenCapture, handleClose]);
+    const ctxType = mapRankedActionContextType(action);
+
+    // Item → item dashboard
+    if (ctxType === 'item' && action.contextId) {
+      handleClose();
+      setTimeout(() => router.push(`/item/${action.contextId}`), CLOSE_DELAY);
+      return;
+    }
+
+    // Person → person profile
+    if (ctxType === 'person' && action.contextId) {
+      handleClose();
+      setTimeout(() => router.push(`/people/${action.contextId}`), CLOSE_DELAY);
+      return;
+    }
+
+    // Task/other → capture with context
+    if (onOpenCapture) {
+      handleClose();
+      setTimeout(() => {
+        onOpenCapture({
+          title: action.title,
+          subtitle: action.subtitle,
+          contextType: ctxType,
+          contextId: action.contextId,
+          contextConfidence: 'medium',
+        });
+      }, CLOSE_DELAY + 40);
+    }
+  }, [onOpenCapture, handleClose, router]);
 
   // ── SESSION 17: Decision engine tap handler ──────────────
   // Routes based on source type:
@@ -1390,13 +1435,12 @@ export default function ControlSurface({
   const phase = getDayPhase();
 
   // ══════════════════════════════════════════════════════════
-  // SESSION 8: ACTIVE SECTION — STATE-DRIVEN GROUPING
+  // SESSION 19: ACTIVE SECTION — COMPACT, STRUCTURED, IMPORTANT
   // ══════════════════════════════════════════════════════════
-  // Grouped by state: blocked → upcoming → in progress/waiting.
-  // Each row gets a status icon. Entire section feels structured.
+  // Items and tasks feel like real work objects, not a flat list.
+  // State-driven grouping with visible status indicators.
 
   const renderActive = () => {
-    // Session 8/17: Merge remaining next items into active when decision engine is active
     const hasTopAction = hasPrimaryAction || hasDecisionEngine;
     const activeAndNext = hasTopAction
       ? [...next, ...active]
@@ -1404,16 +1448,19 @@ export default function ControlSurface({
 
     if (activeAndNext.length === 0) return null;
 
+    // Session 19: Limit to top 5 to avoid list sprawl
+    const capped = activeAndNext.slice(0, 5);
+
     return (
       <div style={{
-        marginBottom: 16,
+        marginBottom: 14,
         animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} 80ms both`,
       }}>
-        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.36)' }}>
-          {domainTerms.activeEntities.toUpperCase()}
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.30)', fontSize: 9, letterSpacing: '1.4px' }}>
+          IN MOTION
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {activeAndNext.map((item, i) => renderRow(item, i, true))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {capped.map((item, i) => renderRow(item, i, true))}
         </div>
       </div>
     );
@@ -1443,8 +1490,10 @@ export default function ControlSurface({
   };
 
   // ══════════════════════════════════════════════════════════
-  // SESSION 8: PEOPLE — COLLAPSED / MINIMAL
+  // SESSION 19: PEOPLE — RELATIONSHIP INTELLIGENCE
   // ══════════════════════════════════════════════════════════
+  // Feels like "the system remembers who matters."
+  // Compact inline layout, tappable into profiles.
 
   const renderPeople = () => {
     if (people.length === 0) return null;
@@ -1453,11 +1502,67 @@ export default function ControlSurface({
         marginBottom: 14,
         animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} 120ms both`,
       }}>
-        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.24)' }}>
-          {labels.people}
+        <div style={{ ...SECTION_HEADER, color: 'rgba(240,235,224,0.22)', fontSize: 9, letterSpacing: '1.4px' }}>
+          PEOPLE
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {people.map((item, i) => renderRow(item, i))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {people.map((item, i) => {
+            const isStale = item.emphasis;
+            return (
+              <div
+                key={item.id}
+                className="jove-tap"
+                onClick={() => handleRowTap(item)}
+                style={{
+                  ...ROW_STYLE,
+                  cursor: 'pointer',
+                  animation: `s8FadeIn ${TIMING.STANDARD}ms ${EASING.standard} ${(i + 1) * 40 + 120}ms both`,
+                  borderColor: isStale ? 'rgba(232,160,48,0.06)' : undefined,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: isStale ? 400 : 300,
+                        color: isStale ? 'rgba(252,246,234,0.82)' : 'rgba(252,246,234,0.65)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        display: 'block',
+                      }}
+                    >
+                      {item.title}
+                    </span>
+                    {item.subtitle && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 300,
+                          color: isStale ? 'rgba(232,160,48,0.38)' : 'rgba(240,235,224,0.22)',
+                          marginTop: 1,
+                          display: 'block',
+                        }}
+                      >
+                        {item.subtitle}
+                      </span>
+                    )}
+                  </div>
+                  {item.time && (
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 300,
+                      color: isStale ? 'rgba(232,160,48,0.35)' : 'rgba(240,235,224,0.28)',
+                      flexShrink: 0,
+                    }}>
+                      {item.time}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -1609,10 +1714,10 @@ export default function ControlSurface({
   };
 
   // ══════════════════════════════════════════════════════════
-  // SESSION 8: MAIN RENDER — STRUCTURED LAYOUT
+  // SESSION 19: MAIN RENDER — DECISION-FIRST LAYOUT
   // ══════════════════════════════════════════════════════════
-  // Order: DO THIS NEXT (dominant) → ACTIVE (state-driven) → minimal
-  // Dynamic ordering: filled sections first, empty sections collapse.
+  // Order: PRIMARY ACTION (dominant) → IN MOTION (compact) → PEOPLE → momentum
+  // The system tells the user what to do. Not a list. A decision.
   return (
     <>
       {/* Backdrop */}
@@ -1629,7 +1734,7 @@ export default function ControlSurface({
         }}
       />
 
-      {/* Sheet */}
+      {/* Session 19: Decision panel — premium glass sheet */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -1641,12 +1746,12 @@ export default function ControlSurface({
           maxHeight: '82dvh',
           display: 'flex',
           flexDirection: 'column',
-          background: 'linear-gradient(180deg, rgba(15,19,28,0.92) 0%, rgba(11,14,22,0.95) 100%)',
-          backdropFilter: 'blur(40px) saturate(1.3)',
-          WebkitBackdropFilter: 'blur(40px) saturate(1.3)',
-          borderRadius: '22px 22px 0 0',
-          borderTop: '0.5px solid rgba(240,235,224,0.06)',
-          boxShadow: '0 -4px 32px rgba(0,0,0,0.22), 0 -0.5px 0 rgba(240,235,224,0.03) inset',
+          background: 'linear-gradient(180deg, rgba(14,18,26,0.94) 0%, rgba(10,13,20,0.97) 100%)',
+          backdropFilter: 'blur(48px) saturate(1.4)',
+          WebkitBackdropFilter: 'blur(48px) saturate(1.4)',
+          borderRadius: '24px 24px 0 0',
+          borderTop: '0.5px solid rgba(240,235,224,0.07)',
+          boxShadow: '0 -6px 40px rgba(0,0,0,0.28), 0 -0.5px 0 rgba(240,235,224,0.04) inset',
           transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
           transition: `transform ${TIMING.STANDARD}ms ${EASING.standard}`,
           fontFamily: FONTS.sans,
@@ -1674,28 +1779,29 @@ export default function ControlSurface({
           />
         </div>
 
-        {/* Scrollable content — structured surface */}
+        {/* Session 19: Scrollable content — decision-first surface */}
         <div
           style={{
             flex: 1,
             overflowY: 'auto',
             overflowX: 'hidden',
-            padding: '0 16px 6px',
+            padding: '2px 18px 8px',
             minHeight: 0,
             WebkitOverflowScrolling: 'touch',
           }}
         >
           {hasAnything ? (
             <>
-              {/* 1. DO THIS NEXT — dominant, always first */}
+              {/* Session 19: Decision-first layout */}
+              {/* 1. PRIMARY ACTION — dominant, the system's decision */}
               {renderDoThisNext()}
-              {/* 2. ATTENTION — only when no DO THIS NEXT */}
+              {/* 2. ATTENTION — only when no decision engine */}
               {renderAttention()}
-              {/* 3. NEXT — only when no DO THIS NEXT */}
+              {/* 3. NEXT — only when no decision engine */}
               {renderNext()}
-              {/* 4. ACTIVE — state-driven rows */}
+              {/* 4. IN MOTION — compact structured items */}
               {renderActive()}
-              {/* 5. PEOPLE — minimal */}
+              {/* 5. PEOPLE — relationship intelligence */}
               {renderPeople()}
               {/* 6. MOMENTUM — reflective */}
               {renderMomentum()}

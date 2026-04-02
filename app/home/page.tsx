@@ -1920,13 +1920,8 @@ function HomePageInner() {
           cursor:       'pointer',
           willChange:   'transform',
           WebkitTapHighlightColor: 'transparent',
-          // Session 13C: Always show a subtle hitbox glow so bird feels tappable
-          ...(birdQuestion ? {
-            boxShadow: '0 0 14px 6px rgba(232,160,48,0.15)',
-            animation: 'celestialGlow 4s ease-in-out infinite',
-          } : {
-            boxShadow: '0 0 8px 4px rgba(247,243,236,0.04)',
-          }),
+          // Session 19: Bird hitbox is invisible — bird itself is the visual cue.
+          // Removed ring/orb artifact. Tap target retained, glow removed.
         }}
         aria-label={birdQuestion ? 'Tap bird to answer' : 'Tap bird to capture'}
       />

@@ -275,13 +275,13 @@ export default function UniversalCapture({
           zIndex: 65,
           width: 'calc(100% - 48px)',
           maxWidth: 360,
-          // Glass container — matches existing system aesthetic
-          background: 'rgba(20,24,32,0.72)',
-          backdropFilter: 'blur(32px)',
-          WebkitBackdropFilter: 'blur(32px)',
+          // Session 19: Premium glass container — stronger presence
+          background: 'rgba(18,22,30,0.82)',
+          backdropFilter: 'blur(40px) saturate(1.2)',
+          WebkitBackdropFilter: 'blur(40px) saturate(1.2)',
           borderRadius: 22,
-          border: '0.5px solid rgba(232,160,48,0.10)',
-          padding: '16px 16px 14px',
+          border: '0.5px solid rgba(232,160,48,0.12)',
+          padding: '18px 18px 14px',
           fontFamily: FONTS.sans,
           opacity: animateIn ? 1 : 0,
           transition: TRANSITIONS.sheet,
@@ -443,7 +443,10 @@ export default function UniversalCapture({
                   marginBottom: 4,
                 }}
               >
-                \u21B5
+                {/* Session 19: Clean send arrow — replaces ↵ artifact */}
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
             </div>
           </>
