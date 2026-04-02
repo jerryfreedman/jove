@@ -1,43 +1,36 @@
-// ── SESSION 13+14: ITEM DASHBOARD ───────────────────────────
-// Full detail view for a single item with context.
-// Shows: header, AI summary, next action (intelligence engine),
-// tasks, people, and activity feed.
-// Follows existing glass UI patterns.
+// ── SESSION 16: PERSON PROFILE ──────────────────────────────
+// Full detail view for a single person with context.
+// Shows: header + state, AI summary, next action,
+// linked items (clickable), and activity feed.
+// Follows the ItemDashboard glass UI pattern exactly.
 
 'use client';
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { COLORS, FONTS } from '@/lib/design-system';
-import { normalizeItemStatus } from '@/lib/types';
-import type { ItemWithContext } from '@/lib/hooks/useItemWithContext';
-import { useItemIntelligence } from '@/lib/hooks/useItemIntelligence';
+import type { PersonWithContext } from '@/lib/hooks/usePeopleWithContext';
+import { usePersonIntelligence } from '@/lib/hooks/usePersonIntelligence';
 
-// ── STATUS COLOR MAP ───────────────────────────────────────
+// ── STATE COLOR MAP ───────────────────────────────────────
 
-function statusColor(status: string): string {
-  const normalized = normalizeItemStatus(status as any);
-  switch (normalized) {
-    case 'active':      return COLORS.green;
-    case 'in_progress': return COLORS.teal;
-    case 'waiting':     return COLORS.amber;
-    case 'blocked':     return COLORS.red;
-    case 'completed':   return COLORS.textLight;
-    case 'archived':    return COLORS.textLight;
-    default:            return COLORS.textMid;
+function stateColor(state: string): string {
+  switch (state) {
+    case 'active':  return COLORS.green;
+    case 'normal':  return COLORS.teal;
+    case 'stale':   return COLORS.amber;
+    case 'unknown': return COLORS.textLight;
+    default:        return COLORS.textMid;
   }
 }
 
-function statusLabel(status: string): string {
-  const normalized = normalizeItemStatus(status as any);
-  switch (normalized) {
-    case 'active':      return 'Active';
-    case 'in_progress': return 'In Progress';
-    case 'waiting':     return 'Waiting';
-    case 'blocked':     return 'Blocked';
-    case 'completed':   return 'Completed';
-    case 'archived':    return 'Archived';
-    default:            return status;
+function stateLabel(state: string): string {
+  switch (state) {
+    case 'active':  return 'Active';
+    case 'normal':  return 'Normal';
+    case 'stale':   return 'Stale';
+    case 'unknown': return 'Unknown';
+    default:        return state;
   }
 }
 
@@ -55,18 +48,6 @@ function timeAgo(dateStr: string): string {
   if (days < 7) return `${days}d ago`;
   const weeks = Math.floor(days / 7);
   return `${weeks}w ago`;
-}
-
-function formatDueDate(dueAt: string | null): string | null {
-  if (!dueAt) return null;
-  const d = new Date(dueAt);
-  const now = new Date();
-  const diffMs = d.getTime() - now.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return 'overdue';
-  if (diffDays === 0) return 'today';
-  if (diffDays === 1) return 'tomorrow';
-  return `in ${diffDays}d`;
 }
 
 // ── SECTION HEADER ─────────────────────────────────────────
@@ -90,28 +71,20 @@ function SectionHeader({ title }: { title: string }) {
 
 // ── COMPONENT ──────────────────────────────────────────────
 
-interface ItemDashboardProps {
-  item: ItemWithContext;
+interface PersonProfileProps {
+  person: PersonWithContext;
 }
 
-export default function ItemDashboard({ item }: ItemDashboardProps) {
+export default function PersonProfile({ person }: PersonProfileProps) {
   const router = useRouter();
-  // Session 14: Real deterministic intelligence
-  const { summary, nextAction, state } = useItemIntelligence(item);
+  const { summary, lastInteraction, nextAction, state } = usePersonIntelligence(person);
 
   // State-aware accent for next action
-  const actionAccent = state === 'urgent' ? COLORS.red : COLORS.amber;
-
-  const visibleTasks = useMemo(
-    () => item.tasks
-      .filter(t => t.status !== 'done' && t.status !== 'skipped')
-      .slice(0, 5),
-    [item.tasks],
-  );
+  const actionAccent = state === 'stale' ? COLORS.amber : COLORS.teal;
 
   const visibleInteractions = useMemo(
-    () => item.interactions.slice(0, 5),
-    [item.interactions],
+    () => person.interactions.slice(0, 5),
+    [person.interactions],
   );
 
   return (
@@ -134,7 +107,7 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
           margin: 0,
           lineHeight: 1.3,
         }}>
-          {item.title}
+          {person.name}
         </h1>
 
         <div style={{
@@ -143,29 +116,39 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
           gap: 10,
           marginTop: 8,
         }}>
-          {/* Status badge */}
+          {/* State badge */}
           <span style={{
             fontSize: 11,
             fontWeight: 500,
-            color: statusColor(item.status),
-            background: `${statusColor(item.status)}18`,
+            color: stateColor(state),
+            background: `${stateColor(state)}18`,
             padding: '2px 8px',
             borderRadius: 4,
           }}>
-            {statusLabel(item.status)}
+            {stateLabel(state)}
           </span>
 
-          {/* Last updated */}
+          {/* Relationship if available */}
+          {person.relationship && (
+            <span style={{
+              fontSize: 12,
+              color: COLORS.textLight,
+            }}>
+              {person.relationship}
+            </span>
+          )}
+
+          {/* Last interaction */}
           <span style={{
             fontSize: 12,
             color: COLORS.textLight,
           }}>
-            Updated {timeAgo(item.updated_at)}
+            Last: {lastInteraction}
           </span>
         </div>
       </div>
 
-      {/* ── AI SUMMARY (SESSION 14: INTELLIGENCE ENGINE) ───── */}
+      {/* ── AI SUMMARY ──────────────────────────────────────── */}
       <div style={{
         background: 'rgba(255,255,255,0.04)',
         border: `1px solid ${COLORS.cardBorder}`,
@@ -192,7 +175,7 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
         </div>
       </div>
 
-      {/* ── NEXT ACTION (SESSION 14: INTELLIGENCE ENGINE) ──── */}
+      {/* ── NEXT ACTION ─────────────────────────────────────── */}
       <div style={{
         background: `${actionAccent}10`,
         border: `1px solid ${actionAccent}22`,
@@ -219,18 +202,19 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
         </div>
       </div>
 
-      {/* ── TASKS ───────────────────────────────────────────── */}
-      {visibleTasks.length > 0 && (
+      {/* ── LINKED ITEMS ────────────────────────────────────── */}
+      {person.items.length > 0 && (
         <>
-          <SectionHeader title="Tasks" />
+          <SectionHeader title="Linked Items" />
           <div style={{
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
           }}>
-            {visibleTasks.map(task => (
+            {person.items.map(item => (
               <div
-                key={task.id}
+                key={item.id}
+                onClick={() => router.push(`/item/${item.id}`)}
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -239,6 +223,7 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
                   background: 'rgba(255,255,255,0.03)',
                   borderRadius: 8,
                   border: `1px solid ${COLORS.cardBorder}`,
+                  cursor: 'pointer',
                 }}
               >
                 <span style={{
@@ -247,70 +232,15 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
                   flex: 1,
                   lineHeight: 1.4,
                 }}>
-                  {task.title}
+                  {item.name}
                 </span>
-                {task.due_at && (
-                  <span style={{
-                    fontSize: 11,
-                    color: new Date(task.due_at).getTime() < Date.now()
-                      ? COLORS.red
-                      : COLORS.textLight,
-                    marginLeft: 12,
-                    flexShrink: 0,
-                  }}>
-                    {formatDueDate(task.due_at)}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* ── PEOPLE ──────────────────────────────────────────── */}
-      {item.people.length > 0 && (
-        <>
-          <SectionHeader title="People" />
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
-          }}>
-            {item.people.slice(0, 6).map(person => (
-              <div
-                key={person.id}
-                onClick={() => router.push(`/people/${person.id}`)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 12px',
-                  background: 'rgba(255,255,255,0.03)',
-                  borderRadius: 8,
-                  border: `1px solid ${COLORS.cardBorder}`,
-                  cursor: 'pointer',
-                }}
-              >
-                {/* Avatar circle */}
-                <div style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  background: `${COLORS.teal}30`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: COLORS.teal,
-                }}>
-                  {person.name.charAt(0).toUpperCase()}
-                </div>
                 <span style={{
-                  fontSize: 13,
-                  color: COLORS.textPrimary,
+                  fontSize: 11,
+                  color: COLORS.textLight,
+                  marginLeft: 12,
+                  flexShrink: 0,
                 }}>
-                  {person.name}
+                  {item.status}
                 </span>
               </div>
             ))}
@@ -342,7 +272,6 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
                   color: COLORS.textPrimary,
                   lineHeight: 1.4,
                   marginBottom: 4,
-                  // Truncate long interaction text
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   display: '-webkit-box',
@@ -364,14 +293,14 @@ export default function ItemDashboard({ item }: ItemDashboardProps) {
       )}
 
       {/* ── EMPTY STATE ─────────────────────────────────────── */}
-      {visibleTasks.length === 0 && item.people.length === 0 && visibleInteractions.length === 0 && (
+      {person.items.length === 0 && visibleInteractions.length === 0 && (
         <div style={{
           textAlign: 'center',
           padding: '48px 20px',
           color: COLORS.textLight,
           fontSize: 14,
         }}>
-          No tasks, people, or activity yet.
+          No linked items or activity yet.
         </div>
       )}
     </div>

@@ -631,7 +631,7 @@ export default function ControlSurface({
           subtitle,
           time: days !== null ? (days === 0 ? 'today' : `${days}d ago`) : undefined,
           emphasis: isStale,
-          onClick: () => openSurface('people' as import('@/components/surfaces/SurfaceManager').SurfaceId),
+          onClick: () => router.push(`/people/${person.id}`),
           _zone: 'people',
           _sortKey: days ?? 999,
         });
