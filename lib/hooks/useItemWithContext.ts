@@ -61,7 +61,7 @@ export function useItemWithContext(
           .select('*')
           .eq('id', itemId)
           .eq('user_id', userId)
-          .single(),
+          .maybeSingle(),
 
         // 2. Tasks linked to this item
         supabase
@@ -91,6 +91,12 @@ export function useItemWithContext(
 
       if (itemResult.error) {
         setError(itemResult.error.message);
+        setItem(null);
+        return;
+      }
+
+      if (!itemResult.data) {
+        setError('Item not found or not yet available');
         setItem(null);
         return;
       }

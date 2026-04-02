@@ -755,11 +755,12 @@ export default function ControlSurface({
   // ── Session 18 Patch: Derive capture context from item ID ──
   const deriveItemContext = (item: SurfaceItem) => {
     const ctxType = item.id.startsWith('meeting-') ? 'event' as const
-      : item.id.startsWith('deal-') || item.id.startsWith('attn-') ? 'item' as const
+      : item.id.startsWith('item-') ? 'item' as const
+      : item.id.startsWith('deal-') || item.id.startsWith('attn-') ? 'deal' as const
       : item.id.startsWith('person-') ? 'person' as const
       : item.id.startsWith('task-') || item.id.startsWith('legacy-') ? 'task' as const
       : 'none' as const;
-    const rawId = item.id.replace(/^(meeting|deal|attn|person|task|legacy)-/, '');
+    const rawId = item.id.replace(/^(meeting|item|deal|attn|person|task|legacy)-/, '');
     const confidence = ctxType !== 'none' ? 'medium' as const : 'low' as const;
     return { ctxType, rawId, confidence };
   };
@@ -785,6 +786,12 @@ export default function ControlSurface({
     if (ctxType === 'item' && rawId) {
       handleClose();
       setTimeout(() => router.push(`/item/${rawId}`), CLOSE_DELAY);
+      return;
+    }
+
+    // Deals → use existing onClick (opens deal-detail surface)
+    if (ctxType === 'deal') {
+      item.onClick?.();
       return;
     }
 
@@ -1096,6 +1103,12 @@ export default function ControlSurface({
       return;
     }
 
+    // Deal → open deal-detail surface
+    if (ctxType === 'deal' && action.contextId) {
+      openSurface('deal-detail', { dealId: action.contextId });
+      return;
+    }
+
     // Person → person profile
     if (ctxType === 'person' && action.contextId) {
       handleClose();
@@ -1116,7 +1129,7 @@ export default function ControlSurface({
         });
       }, CLOSE_DELAY + 40);
     }
-  }, [onOpenCapture, handleClose, router]);
+  }, [onOpenCapture, handleClose, router, openSurface]);
 
   // ── SESSION 17: Decision engine tap handler ──────────────
   // Routes based on source type:
